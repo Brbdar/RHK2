@@ -1,0 +1,9 @@
+Patch v25.2
+===========
+- Erweiterte "nicht anwählbar" Regeln für P-Module (P08, P09, P10, P12, P14, P15, P17, P18, P19, P20, P06, P25 zusätzlich zu P13, P21 und Therapie-Blockern).
+- Random-Beispiele erweitert um Zusatzfelder (Antikoagulation, Immunologie, Virologie, Mutation, Abdomensonographie).
+- Mehr Fälle mit explizit unauffälliger Lungenfunktion, um P12-Gating sichtbar zu machen.
+
+Installation:
+- Diese beiden Dateien (rhk_base.py, rhk_reports.py) in dein Projekt kopieren und die bestehenden ersetzen.
+- Server/App neu starten (Browser ggf. hart neu laden).
