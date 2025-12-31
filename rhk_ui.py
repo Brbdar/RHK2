@@ -6,10 +6,12 @@ Enthält:
 - Desktop-Only Overlay + Head/CSS/JS Assets
 - build_demo() (Gradio Blocks + Callbacks)
 
-Hinweis: Inhalt ist weitgehend 1:1 aus der Master-Datei extrahiert.
+Hinweis: UI modernisiert (Sticky-Bar, P-Module Karten, Vergleichsmodus).
 """
 
 from __future__ import annotations
+
+import html as _html
 
 from rhk_base import *  # noqa: F401,F403
 
@@ -349,6 +351,148 @@ button[title*="Dark"] {
   color:#2563eb;
 }
 
+/* ------------------------------------------------------------------
+   Sticky Summary Bar (always visible, concise live preview)
+   ------------------------------------------------------------------ */
+#rhk_summarybar_wrapper{
+  position: sticky;
+  top: 118px;
+  z-index: 10001;
+  max-width: 1600px;
+  margin: 0 auto 10px;
+  padding: 0 24px;
+}
+#rhk_summarybar_wrapper .rhk-summarybar{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  padding:10px 12px;
+  background: rgba(255,255,255,0.78);
+  backdrop-filter: blur(14px) saturate(160%%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%%);
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 18px;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.08);
+}
+.rhk-summarybar .rhk-schip{
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  background: rgba(255,255,255,0.55);
+  border: 1px solid rgba(0,0,0,0.06);
+  color: rgba(15,23,42,0.8);
+  white-space: nowrap;
+}
+.rhk-summarybar .rhk-schip--good{ background: rgba(20,184,166,0.12); border-color: rgba(20,184,166,0.22); color:#0f766e; }
+.rhk-summarybar .rhk-schip--warn{ background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.22); color:#c2410c; }
+.rhk-summarybar .rhk-schip--bad{ background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.22); color:#b91c1c; }
+.rhk-summarybar .rhk-schip--info{ background: rgba(37,99,235,0.12); border-color: rgba(37,99,235,0.22); color:#1d4ed8; }
+
+
+/* ------------------------------------------------------------------
+   Scrollable report panes (Arztbericht/Patientenbericht/Intern/Debug)
+   Hinweis: Sticky Summary bleibt außerhalb und sticky.
+   ------------------------------------------------------------------ */
+.rhk-scrollbox {
+  max-height: 72vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 12px;
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.98);
+}
+.rhk-scrollbox pre,
+.rhk-scrollbox code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+#rhk_output_tabs {
+  overflow: visible !important;
+}
+
+/* ------------------------------------------------------------------
+   P-Module Cards (Auto/Manuell/Gesperrt) – visual layer
+   ------------------------------------------------------------------ */
+#pmods_cards .pmod-grid{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 8px 0 16px;
+}
+@media (min-width: 1200px){
+  #pmods_cards .pmod-grid{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+#pmods_cards .pmod-card{
+  background: rgba(255,255,255,0.7);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 16px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.06);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+#pmods_cards .pmod-card:hover{ transform: translateY(-1px); box-shadow: 0 12px 28px rgba(0,0,0,0.08); }
+#pmods_cards .pmod-title{ font-weight: 800; font-size: 13px; color: #0f172a; margin-bottom: 4px; }
+#pmods_cards .pmod-sub{ font-size: 12px; color: rgba(15,23,42,0.65); margin-bottom: 8px; }
+#pmods_cards .pmod-meta{ display:flex; gap:6px; flex-wrap:wrap; }
+#pmods_cards .pmod-chip{ padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; border: 1px solid rgba(0,0,0,0.08); background: rgba(255,255,255,0.55); color: rgba(15,23,42,0.75); }
+#pmods_cards .pmod-chip--auto{ background: rgba(37,99,235,0.12); border-color: rgba(37,99,235,0.22); color:#1d4ed8; }
+#pmods_cards .pmod-chip--manual{ background: rgba(168,85,247,0.12); border-color: rgba(168,85,247,0.22); color:#6d28d9; }
+#pmods_cards .pmod-chip--locked{ background: rgba(107,114,128,0.14); border-color: rgba(107,114,128,0.25); color:#374151; }
+#pmods_cards .pmod-chip--lvl1{ background: rgba(20,184,166,0.12); border-color: rgba(20,184,166,0.22); color:#0f766e; }
+#pmods_cards .pmod-chip--lvl2{ background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.22); color:#c2410c; }
+#pmods_cards .pmod-chip--lvl3{ background: rgba(148,163,184,0.16); border-color: rgba(148,163,184,0.28); color:#334155; }
+
+
+/* ------------------------------------------------------------------
+   Auffälliger Accordion-Header für Modulauswahl
+   ------------------------------------------------------------------ */
+#pmods_accordion summary, 
+#pmods_accordion .label-wrap, 
+#pmods_accordion button {
+  background: linear-gradient(90deg, rgba(37,99,235,0.10), rgba(168,85,247,0.06)) !important;
+  border: 1px solid rgba(37,99,235,0.22) !important;
+  border-radius: 16px !important;
+  padding: 10px 12px !important;
+  font-weight: 900 !important;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.06) !important;
+}
+#pmods_accordion summary:hover,
+#pmods_accordion button:hover{
+  background: linear-gradient(90deg, rgba(37,99,235,0.14), rgba(168,85,247,0.08)) !important;
+}
+#pmods_accordion summary::after{
+  content: "  (klicken)";
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+/* ------------------------------------------------------------------
+   Vergleichsübersicht Vorher/Nachher
+   ------------------------------------------------------------------ */
+#rhk_compare_overview .cmp-wrap{
+  margin-top: 10px;
+  margin-bottom: 16px;
+  background: rgba(255,255,255,0.72);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 18px;
+  padding: 12px 12px;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.06);
+}
+#rhk_compare_overview .cmp-head{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom: 8px; }
+#rhk_compare_overview .cmp-title{ font-weight: 900; font-size: 13px; color:#0f172a; }
+#rhk_compare_overview .cmp-note{ font-size: 12px; color: rgba(15,23,42,0.6); }
+#rhk_compare_overview .cmp-date{ font-size: 11px; font-weight: 700; opacity: 0.75; }
+#rhk_compare_overview table{ width:100%%; border-collapse: separate; border-spacing: 0; overflow:hidden; border-radius: 14px; }
+#rhk_compare_overview th, #rhk_compare_overview td{ padding: 8px 10px; font-size: 12px; border-bottom: 1px solid rgba(0,0,0,0.06); }
+#rhk_compare_overview th{ text-align:left; background: rgba(255,255,255,0.65); font-weight: 800; color: rgba(15,23,42,0.75); }
+#rhk_compare_overview tr:last-child td{ border-bottom: none; }
+#rhk_compare_overview .cmp-delta-up{ color:#b91c1c; font-weight: 800; }
+#rhk_compare_overview .cmp-delta-down{ color:#0f766e; font-weight: 800; }
+#rhk_compare_overview .cmp-delta-flat{ color:#334155; font-weight: 800; }
+
 """.strip() % DESKTOP_VIEWPORT_WIDTH_PX)
 
 JS_ON_LOAD = r"""
@@ -538,16 +682,290 @@ def _gradio_major_version() -> int:
         return 0
 
 
+def _fmt_or_dash(v: Any, nd: int = 0) -> str:
+    try:
+        if v is None or v == "":
+            return "–"
+        fv = float(v)
+        if nd <= 0:
+            return f"{fv:.0f}"
+        return f"{fv:.{nd}f}"
+    except Exception:
+        return "–"
+
+
+def html_escape(s: Any) -> str:
+    """HTML-escape helper (quote-safe)."""
+    try:
+        return _html.escape(str(s), quote=True)
+    except Exception:
+        return ""
+
+
+def build_sticky_summary_html(case: Optional[Dict[str, Any]]) -> str:
+    """Concise, always-visible live preview of key values."""
+    if not case:
+        return (
+            "<div class='rhk-summarybar'>"
+            "<span class='rhk-schip rhk-schip--info'>Hämodynamik: –</span>"
+            "<span class='rhk-schip'>RAP: –</span>"
+            "<span class='rhk-schip'>mPAP: –</span>"
+            "<span class='rhk-schip'>PAWP: –</span>"
+            "<span class='rhk-schip'>PVR: –</span>"
+            "<span class='rhk-schip'>CI: –</span>"
+            "<span class='rhk-schip rhk-schip--warn'>Risiko: –</span>"
+            "</div>"
+        )
+
+    ui = case.get("ui") or {}
+    der = case.get("derived") or {}
+    scores = case.get("scores") or {}
+
+    hemo_cat = str(der.get("hemo_category") or "unknown")
+    hemo_map = {
+        "precap": "präkapillär",
+        "ipcph": "iPcPH",
+        "cpcph": "cPcPH",
+        "no_ph": "keine PH",
+        "unknown": "unklar",
+    }
+    hemo_txt = hemo_map.get(hemo_cat, hemo_cat)
+
+    mpap = der.get("mpap_rest")
+    pawp = der.get("pawp_rest")
+    rap = der.get("rap_rest")
+    pvr = der.get("pvr_rest")
+    ci = der.get("ci_rest")
+
+    # Risk badge: prioritize ESC/ERS 4-strata if present, else REVEAL Lite 2
+    esc4 = scores.get("esc_ers_4s")
+    rl2 = scores.get("reveal_lite2")
+    risk_txt = "–"
+    risk_tone = "warn"
+    if isinstance(esc4, str) and esc4:
+        risk_txt = f"ESC/ERS 4-Strata: {esc4}"
+        risk_tone = "good" if esc4 == "low" else ("bad" if esc4 == "high" else "warn")
+    elif isinstance(rl2, str) and rl2:
+        risk_txt = f"REVEAL Lite 2: {rl2}"
+        _l = rl2.strip().lower()
+        risk_tone = "good" if _l.startswith("nied") else ("bad" if _l.startswith("hoch") else "warn")
+
+    # Optional compare hint
+    prev_mpap = ui.get("prev_mpap")
+    prev_pvr = ui.get("prev_pvr")
+    cmp_hint = ""
+    try:
+        if prev_mpap not in (None, "") and mpap not in (None, ""):
+            d = float(mpap) - float(prev_mpap)
+            arrow = "↑" if d > 1 else ("↓" if d < -1 else "±")
+            cmp_hint = f"<span class='rhk-schip rhk-schip--info'>ΔmPAP: {arrow} {d:+.0f}</span>"
+        elif prev_pvr not in (None, "") and pvr not in (None, ""):
+            d = float(pvr) - float(prev_pvr)
+            arrow = "↑" if d > 0.5 else ("↓" if d < -0.5 else "±")
+            cmp_hint = f"<span class='rhk-schip rhk-schip--info'>ΔPVR: {arrow} {d:+.1f}</span>"
+    except Exception:
+        cmp_hint = ""
+
+    return (
+        "<div class='rhk-summarybar'>"
+        f"<span class='rhk-schip rhk-schip--info'>Hämodynamik: {html_escape(hemo_txt)}</span>"
+        f"<span class='rhk-schip'>RAP: {_fmt_or_dash(rap,0)}</span>"
+        f"<span class='rhk-schip'>mPAP: {_fmt_or_dash(mpap,0)}</span>"
+        f"<span class='rhk-schip'>PAWP: {_fmt_or_dash(pawp,0)}</span>"
+        f"<span class='rhk-schip'>PVR: {_fmt_or_dash(pvr,1)}</span>"
+        f"<span class='rhk-schip'>CI: {_fmt_or_dash(ci,2)}</span>"
+        f"<span class='rhk-schip rhk-schip--{risk_tone}'>Risiko: {html_escape(risk_txt)}</span>"
+        f"{cmp_hint}"
+        "</div>"
+    )
+
+
+def build_compare_overview_html(case: Optional[Dict[str, Any]]) -> str:
+    if not case:
+        return ""
+    ui = case.get("ui") or {}
+    der = case.get("derived") or {}
+
+    rows = [
+        ("RAP (mmHg)", ui.get("prev_rap"), der.get("rap_rest"), 0, 1.0),
+        ("mPAP (mmHg)", ui.get("prev_mpap"), der.get("mpap_rest"), 0, 1.0),
+        ("PAWP (mmHg)", ui.get("prev_pawp"), der.get("pawp_rest"), 0, 1.0),
+        ("CI (l/min/m²)", ui.get("prev_ci"), der.get("ci_rest"), 2, 0.15),
+        ("PVR (WU)", ui.get("prev_pvr"), der.get("pvr_rest"), 1, 0.5),
+    ]
+
+    def _delta_cell(prev, cur, nd, thr):
+        try:
+            if prev in (None, "") or cur in (None, ""):
+                return "<span class='cmp-delta-flat'>–</span>"
+            d = float(cur) - float(prev)
+            if d > thr:
+                cls = "cmp-delta-up"
+                arrow = "↑"
+            elif d < -thr:
+                cls = "cmp-delta-down"
+                arrow = "↓"
+            else:
+                cls = "cmp-delta-flat"
+                arrow = "±"
+            fmt = f"{{:{'+.'}{nd}f}}" if nd > 0 else "{:+.0f}"
+            val = fmt.format(d)
+            return f"<span class='{cls}'>{arrow} {val}</span>"
+        except Exception:
+            return "<span class='cmp-delta-flat'>–</span>"
+
+    any_prev = any((p not in (None, "") for (_n, p, _c, _nd, _thr) in rows))
+    if not any_prev:
+        return ""
+
+    prev_date = str(ui.get("prev_rhk_date") or "").strip()
+    cur_date = str(ui.get("rhk_date") or "").strip()
+    note = "Vorher/Nachher basierend auf Vor-RHK Feldern und aktuellen Ruhewerten."
+    if prev_date and cur_date:
+        note = f"Zeitraum: {html_escape(prev_date)} → {html_escape(cur_date)}. {note}"
+    elif prev_date:
+        note = f"Referenz: Vor-RHK {html_escape(prev_date)}. {note}"
+    elif cur_date:
+        note = f"Aktueller RHK: {html_escape(cur_date)}. {note}"
+
+    tr = []
+    for name, prev, cur, nd, thr in rows:
+        tr.append(
+            "<tr>"
+            f"<td>{html_escape(name)}</td>"
+            f"<td>{_fmt_or_dash(prev,nd)}</td>"
+            f"<td>{_fmt_or_dash(cur,nd)}</td>"
+            f"<td>{_delta_cell(prev,cur,nd,thr)}</td>"
+            "</tr>"
+        )
+
+    return (
+        "<div class='cmp-wrap'>"
+        "<div class='cmp-head'>"
+        "<div class='cmp-title'>Vergleich Vorher vs Jetzt</div>"
+        f"<div class='cmp-note'>{note}</div>"
+        "</div>"
+        "<table>"
+        "<thead><tr>""<th>Parameter</th>" + (f"<th>Vorher<br><span class='cmp-date'>{html_escape(prev_date)}</span></th>" if prev_date else "<th>Vorher</th>") + (f"<th>Jetzt<br><span class='cmp-date'>{html_escape(cur_date)}</span></th>" if cur_date else "<th>Jetzt</th>") + "<th>Δ</th></tr></thead>"
+        f"<tbody>{''.join(tr)}</tbody>"
+        "</table>"
+        "</div>"
+    )
+
+
+def build_p_module_cards_html(blocks: Dict[str, Any], case: Optional[Dict[str, Any]]) -> str:
+    if not case:
+        return ""
+    der = case.get("derived") or {}
+    decision = case.get("decision") or {}
+    ui = case.get("ui") or {}
+
+    policy = der.get("p_module_policy") or {}
+    levels = policy.get("levels") or {}
+    disabled = policy.get("disabled") or {}
+
+    auto_mods = _normalize_module_ids(decision.get("modules") or [])
+    sel_mods = _normalize_module_ids(ui.get("modules") or [])
+    # Keep selection order stable (auto first)
+    sel_mods = list(dict.fromkeys(auto_mods + sel_mods))
+
+    def lvl_chip(lvl: int) -> str:
+        if lvl == 1:
+            return "<span class='pmod-chip pmod-chip--lvl1'>Level I</span>"
+        if lvl == 2:
+            return "<span class='pmod-chip pmod-chip--lvl2'>Level II</span>"
+        return "<span class='pmod-chip pmod-chip--lvl3'>Level III</span>"
+
+    # Reduce visual overload: show primarily Level I/II + currently selected modules.
+    # Locked modules are displayed separately via `build_disabled_p_modules_html()`.
+    allowed = set(policy.get("allowed") or [])
+    pids_to_show: List[str] = []
+    for pid in _ALL_P_MODULE_IDS:
+        if pid in disabled:
+            continue
+        if allowed and pid not in allowed:
+            continue
+        try:
+            lvl = int(levels.get(pid, 3) or 3)
+        except Exception:
+            lvl = 3
+        if lvl <= 2 or pid in sel_mods or pid in auto_mods:
+            pids_to_show.append(pid)
+
+    cards = []
+    for pid in pids_to_show:
+        b = blocks.get(pid)
+        title = b.title if b else pid
+        subtitle = ""
+        try:
+            subtitle = b.subtitle if b and getattr(b, "subtitle", None) else ""
+        except Exception:
+            subtitle = ""
+
+        lvl = int(levels.get(pid, 3) or 3)
+        locked_reason = None
+        is_locked = False
+
+        is_auto = pid in auto_mods
+        is_selected = pid in sel_mods
+        is_manual = (is_selected and not is_auto)
+
+        meta = [lvl_chip(lvl)]
+        if is_auto:
+            meta.append("<span class='pmod-chip pmod-chip--auto'>Auto</span>")
+        elif is_manual:
+            meta.append("<span class='pmod-chip pmod-chip--manual'>Manuell</span>")
+
+        tip = ""
+        if is_locked and locked_reason:
+            tip = html_escape(str(locked_reason))
+
+        cards.append(
+            f"<div class='pmod-card' title='{tip}'>"
+            f"<div class='pmod-title'>{pid} – {html_escape(str(title))}</div>"
+            f"<div class='pmod-sub'>{html_escape(str(subtitle))}</div>"
+            f"<div class='pmod-meta'>{''.join(meta)}</div>"
+            "</div>"
+        )
+
+    auto_n = len(auto_mods)
+    manual_n = len([m for m in sel_mods if (m not in auto_mods)])
+    locked_n = len(disabled)
+
+    shown_n = len(pids_to_show)
+    header = (
+        "<div class='rhk-summarybar' style='margin: 4px 0 8px;'>"
+        f"<span class='rhk-schip rhk-schip--info'>Module: Auto {auto_n}</span>"
+        f"<span class='rhk-schip'>Manuell {manual_n}</span>"
+        f"<span class='rhk-schip rhk-schip--warn'>Gesperrt {locked_n}</span>"
+        f"<span class='rhk-schip'>Anzeige: {shown_n}/{len(_ALL_P_MODULE_IDS)} (Level I–II + ausgewählt)</span>"
+        "<span class='rhk-schip'>Hinweis: Gesperrte Module werden separat inkl. Begründung angezeigt.</span>"
+        "</div>"
+    )
+
+    if not cards:
+        return header
+    return header + "<div class='pmod-grid'>" + "".join(cards) + "</div>"
+
+
 def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
     blocks = load_textdb_blocks()
     rules = load_rulebook(DEFAULT_RULEBOOK_PATH)
 
-    theme = gr.themes.Soft()
+    # Gradio versions differ; themes are available in newer builds.
+    theme = None
+    try:
+        if hasattr(gr, "themes"):
+            theme = gr.themes.Soft()
+    except Exception:
+        theme = None
 
     blocks_kwargs: Dict[str, Any] = {"title": APP_TITLE}
     major = _gradio_major_version()
     # Apply styling/js/head across Gradio 5.x and 6.x
-    blocks_kwargs.update({"theme": theme, "css": CSS, "js": JS_ON_LOAD, "head": HEAD_HTML})
+    blocks_kwargs.update({"css": CSS, "js": JS_ON_LOAD, "head": HEAD_HTML})
+    if theme is not None:
+        blocks_kwargs.update({"theme": theme})
 
     # Build Blocks with best-effort compatibility across Gradio 5.x / 6.x
     demo_ctx = None
@@ -568,6 +986,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         # Header
         gr.HTML(RHK_HEADER_HTML)
         gr.Markdown(f"<div class='whatsnew'>{WHATS_NEW}</div>")
+
+        # Sticky live preview (always visible)
+        sticky_summary_html = gr.HTML(
+            value=build_sticky_summary_html(None),
+            elem_id="rhk_summarybar_wrapper",
+        )
 # Buttons top
         with gr.Row():
             btn_example_top = gr.Button("Beispiel laden (random)", variant="secondary")
@@ -734,8 +1158,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     with gr.Row():
                         anticoag_indication = add("anticoag_indication", gr.Dropdown(
                             label="Indikation (falls ja)",
-                            choices=["Vorhofflimmern", "Venenthrombose/Lungenembolie", "CTEPH/CTEPD", "Mechanische Klappe", "Andere/unklar"],
-                            value=None,
+                            # NOTE: "keine Angabe" als explizite (leere) Option – verhindert Legacy-Load-Errors
+                            choices=["keine Angabe", "Vorhofflimmern", "Venenthrombose/Lungenembolie", "CTEPH/CTEPD", "Mechanische Klappe", "Andere/unklar"],
+                            value="keine Angabe",
                             visible=False,
                         ))
                         anticoag_since = add("anticoag_since", gr.Textbox(
@@ -938,9 +1363,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     gr.Markdown("### Verlauf / Vergleich (Vor-RHK, optional)")
 
                     with gr.Row():
-
+                        add("rhk_date", gr.Textbox(label="Aktueller RHK (z.B. 12/25)", placeholder="MM/JJ oder TT.MM.JJJJ"))
                         add("prev_rhk_date", gr.Textbox(label="Vor-RHK (z.B. 03/21)"))
-
                         add("prev_is_initial", gr.Checkbox(label="Vor-RHK war Initialkatheter"))
 
                     with gr.Row():
@@ -958,6 +1382,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                         add("prev_pvr", gr.Number(label="PVR vor (WU)"))
 
                         add("prev_label", gr.Textbox(label="Kommentar (optional)"))
+
+                    # Split-Layout / Differenzdarstellung (Vorher vs Jetzt)
+                    compare_overview_html = gr.HTML(value="", elem_id="rhk_compare_overview")
 
                     gr.Markdown("**Therapie seit Vor-RHK (optional):** Nur relevant, wenn es sich um eine Verlaufskontrolle nach Therapieanpassung handelt.")
 
@@ -1049,47 +1476,57 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                         if pid in blocks:
                             base_module_choices.append((f"{pid} – {blocks[pid].title}", pid))
 
-                    gr.Markdown("### P-Module (optional)")
-                    gr.Markdown("**Level I – prioritäre Empfehlungen** · Level II – sinnvoll ergänzend · Level III – optional")
-                    gr.Markdown(
-                        "Die P-Module werden automatisch nach Sinnhaftigkeit in **Level I–III** sortiert. "
-                        "Nicht passende Module werden **hellgrau** angezeigt und sind nicht anwählbar. "
-                        "Falls Sie dennoch Aspekte dokumentieren möchten, nutzen Sie den **Freitext** im Procedere."
-                    )
+                    # Visual Card Layer (Auto/Manuell/Gesperrt + Level)
+                    # Wichtig: Diese Übersicht soll NICHT überladen wirken. Daher:
+                    # - Karten zeigen standardmäßig nur Level I/II + ausgewählte Module.
+                    # - Die eigentliche Auswahl erfolgt im Accordion "Module auswählen".
+                    modules_cards_html = gr.HTML(value="", elem_id="pmods_cards")
 
-                    with gr.Group(elem_id="pmods_lvl1"):
-                        modules_lvl1_comp = add(
-                            "modules_lvl1",
-                            gr.CheckboxGroup(
-                                label="Level I – prioritäre Empfehlungen",
-                                choices=[],
-                                value=[],
-                                elem_id="pmods_choice_lvl1",
-                            ),
-                        )
-
-                    with gr.Group(elem_id="pmods_lvl2"):
-                        modules_lvl2_comp = add(
-                            "modules_lvl2",
-                            gr.CheckboxGroup(
-                                label="Level II – sinnvoll ergänzend",
-                                choices=[],
-                                value=[],
-                                elem_id="pmods_choice_lvl2",
-                            ),
-                        )
-
-                    with gr.Group(elem_id="pmods_lvl3"):
-                        modules_lvl3_comp = add(
-                            "modules_lvl3",
-                            gr.CheckboxGroup(
-                                label="Level III – optional",
-                                choices=base_module_choices,
-                                value=[],
-                                elem_id="pmods_choice_lvl3",
-                            ),
-                        )
+                    # Nicht anwählbare Module inkl. medizinischer Begründung (Tooltip) – bleibt sichtbar
                     modules_disabled_html = gr.HTML(value="", elem_id="modules_disabled")
+
+                    with gr.Accordion("P-Module auswählen / bearbeiten", open=False, elem_id="pmods_accordion"):
+                        gr.Markdown("### P-Module (optional)")
+                        gr.Markdown("**Level I – prioritäre Empfehlungen** · Level II – sinnvoll ergänzend · Level III – optional")
+                        gr.Markdown(
+                            "Die P-Module werden automatisch nach Sinnhaftigkeit in **Level I–III** sortiert. "
+                            "Nicht passende Module werden **hellgrau** angezeigt und sind nicht anwählbar. "
+                            "Falls Sie dennoch Aspekte dokumentieren möchten, nutzen Sie den **Freitext** im Procedere."
+                        )
+
+                        with gr.Group(elem_id="pmods_lvl1"):
+                            modules_lvl1_comp = add(
+                                "modules_lvl1",
+                                gr.CheckboxGroup(
+                                    label="Level I – prioritäre Empfehlungen",
+                                    choices=[],
+                                    value=[],
+                                    elem_id="pmods_choice_lvl1",
+                                ),
+                            )
+
+                        with gr.Group(elem_id="pmods_lvl2"):
+                            modules_lvl2_comp = add(
+                                "modules_lvl2",
+                                gr.CheckboxGroup(
+                                    label="Level II – sinnvoll ergänzend",
+                                    choices=[],
+                                    value=[],
+                                    elem_id="pmods_choice_lvl2",
+                                ),
+                            )
+
+                        with gr.Group(elem_id="pmods_lvl3"):
+                            modules_lvl3_comp = add(
+                                "modules_lvl3",
+                                gr.CheckboxGroup(
+                                    label="Level III – optional",
+                                    choices=base_module_choices,
+                                    value=[],
+                                    elem_id="pmods_choice_lvl3",
+                                ),
+                            )
+
                     add("procedere_free", gr.Textbox(label="Procedere – Freitext", lines=3))
                     gr.Markdown("Hinweis: Bereits durchgeführte Untersuchungen werden in den Modulen möglichst ausgefiltert (z.B. V/Q, CT, Echo, Lufu).")
 
@@ -1097,13 +1534,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 dashboard = gr.HTML(value=build_dashboard_html(None))
                 with gr.Tabs(elem_id="rhk_output_tabs"):
                     with gr.TabItem("Arztbericht"):
-                        out_doc = gr.Markdown()
+                        out_doc = gr.Markdown(elem_id="out_doc", elem_classes=["rhk-scrollbox"])
                     with gr.TabItem("Patientenbericht"):
-                        out_pat = gr.Markdown()
+                        out_pat = gr.Markdown(elem_id="out_pat", elem_classes=["rhk-scrollbox"])
                     with gr.TabItem("Intern"):
-                        out_int = gr.Markdown()
+                        out_int = gr.Markdown(elem_id="out_int", elem_classes=["rhk-scrollbox"])
                     with gr.TabItem("Debug"):
-                        out_json = gr.Code(language="json")
+                        out_json = gr.Code(language="json", elem_id="out_json", elem_classes=["rhk-scrollbox"])
 
         # Buttons bottom (mirrored)
         with gr.Row():
@@ -1150,6 +1587,18 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         # Bekannte PH: Details ein-/ausblenden
         field_components["ph_known"].change(lambda x: _toggle_desc(x), inputs=[field_components["ph_known"]], outputs=[ph_known_details])
 
+        # PH-Status: gegenseitig exklusiv (UI-Guard)
+        def _ph_known_exclusive(known: bool):
+            return False if bool(known) else gr.update()
+
+        def _ph_suspected_exclusive(suspected: bool):
+            return False if bool(suspected) else gr.update()
+
+        # Wenn Diagnose bekannt: Verdacht automatisch aus
+        field_components["ph_known"].change(_ph_known_exclusive, inputs=[field_components["ph_known"]], outputs=[field_components["ph_suspected"]])
+        # Wenn Verdacht gesetzt: Diagnose bekannt automatisch aus (und Detailbox verschwindet via ph_known-change)
+        field_components["ph_suspected"].change(_ph_suspected_exclusive, inputs=[field_components["ph_suspected"]], outputs=[field_components["ph_known"]])
+
         # Antikoagulation: Detailfelder nur bei "ja"
         def _toggle_anticoag(status: str):
             on = str(status or "").strip().lower() == "ja"
@@ -1182,9 +1631,35 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             return {k: v for k, v in zip(input_keys, vals)}
 
         def apply_ui_to_components(ui_dict: Dict[str, Any]) -> List[Any]:
+            # --- Legacy: manche Case-Files speichern Module in modules_lvl1/2/3.
+            # Wir führen alles auf ui['modules'] zusammen und geben die Level-Checkboxen
+            # beim Laden zunächst leer zurück, damit es keine Choice/Value-Fehler gibt.
+            if not ui_dict.get('modules'):
+                legacy = []
+                for kk in ('modules_lvl1','modules_lvl2','modules_lvl3','modules'):
+                    vv = ui_dict.get(kk)
+                    if vv:
+                        if isinstance(vv, (list,tuple,set)):
+                            legacy.extend(list(vv))
+                        else:
+                            legacy.append(vv)
+                ui_dict['modules'] = _normalize_module_ids(legacy)
+
+            # PH-Status: 'Diagnose bekannt' und 'Verdacht' sind gegenseitig exklusiv (prefer known).
+            try:
+                if bool(ui_dict.get('ph_known')):
+                    ui_dict['ph_suspected'] = False
+                elif bool(ui_dict.get('ph_suspected')):
+                    ui_dict['ph_known'] = False
+            except Exception:
+                pass
+
             out: List[Any] = []
             for k in input_keys:
                 v = ui_dict.get(k)
+                if k in ("modules_lvl1","modules_lvl2","modules_lvl3"):
+                    # Diese Komponenten werden dynamisch über _generate() (choices+value) befüllt.
+                    v = []
                 if k == "modules":
                     # UI-Value sind reine IDs (P01–P25); robust gegen alte Case-Files mit Labels.
                     v = _normalize_module_ids(v)
@@ -1192,6 +1667,33 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 if k == "syncope":
                     if isinstance(v, bool):
                         v = "gelegentlich" if v else "keine"
+                # Legacy: booleans -> ja/nein
+                if k in ("anticoag_status", "antifibrotic_status", "ltx_eval") and isinstance(v, bool):
+                    v = "ja" if v else "nein"
+                # Legacy: Antikoagulation – Dropdown-Werte wurden erweitert/normalisiert
+                if k == "anticoag_substance" and isinstance(v, str):
+                    vv = v.strip()
+                    vvl = vv.lower()
+                    if vvl.startswith("doac"):
+                        v = "DOAC (Apixaban, Rivaroxaban, Edoxaban, Dabigatran)"
+                    elif vvl.startswith("vka") or "phenprocoumon" in vvl or "warfarin" in vvl:
+                        v = "VKA (Phenprocoumon/Warfarin)"
+                    elif "heparin" in vvl or "lmwh" in vvl:
+                        v = "Heparin/LMWH"
+                    elif "fondaparinux" in vvl:
+                        v = "Fondaparinux"
+                    elif vvl in ("sonstiges", "other", "misc", "unknown"):
+                        v = "sonstiges"
+                if k == "anticoag_indication":
+                    if v is None:
+                        v = "keine Angabe"
+                    elif isinstance(v, str):
+                        vv = v.strip()
+                        if vv == "":
+                            v = "keine Angabe"
+                        # tolerate short/legacy variants
+                        elif vv.lower() in ("af", "a.f.", "atrial fibrillation"):
+                            v = "Vorhofflimmern"
                 if k == "anemia_type" and isinstance(v, str):
                     v_map = {
                         "microcytic": "mikrozytär",
@@ -1230,6 +1732,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             policy = der.get("p_module_policy") or {}
             mod_choices = build_p_module_choices(blocks, policy)
             disabled_html = build_disabled_p_modules_html(blocks, policy)
+
+            # --- Live preview layers ---
+            summary_html = build_sticky_summary_html(case)
+            compare_html = build_compare_overview_html(case)
+            cards_html = build_p_module_cards_html(blocks, case)
 
             allowed_vals = {v for (_, v) in mod_choices}
 
@@ -1278,6 +1785,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 modules_lvl2_update,
                 modules_lvl3_update,
                 disabled_html,
+                summary_html,
+                compare_html,
+                cards_html,
             )
         generate_outputs = [
             auto_mpap, auto_ci, auto_pvr, auto_pvri, auto_tpg, auto_dpg,
@@ -1287,10 +1797,46 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             state_case,
             modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp,
             modules_disabled_html,
+            sticky_summary_html,
+            compare_overview_html,
+            modules_cards_html,
         ]
 
         btn_generate_top.click(_generate, inputs=input_components, outputs=generate_outputs)
         btn_generate_bottom.click(_generate, inputs=input_components, outputs=generate_outputs)
+
+        # --- Live preview: update sticky summary + compare overview + module cards on key input changes ---
+        def _refresh_previews(*vals):
+            raw = ui_get_raw(*vals)
+            raw["modules"] = _normalize_module_ids(
+                (raw.get("modules_lvl1") or [])
+                + (raw.get("modules_lvl2") or [])
+                + (raw.get("modules_lvl3") or [])
+                + (raw.get("modules") or [])
+            )
+            case = build_case(raw, rules)
+            return (
+                build_sticky_summary_html(case),
+                build_compare_overview_html(case),
+                build_p_module_cards_html(blocks, case),
+            )
+
+        _preview_outputs = [sticky_summary_html, compare_overview_html, modules_cards_html]
+        _preview_triggers = [
+            # Core Hämodynamik
+            "spap_rest", "dpap_rest", "mpap_rest", "pawp_rest", "rap_rest", "co_rest", "ci_rest", "pvr_rest",
+            # Verlauf / Vor-RHK
+            "prev_rhk_date", "prev_mpap", "prev_pawp", "prev_rap", "prev_ci", "prev_pvr",
+            # Risk / Score relevant
+            "who_fc", "six_mwd", "bnp", "ntprobnp", "syncope",
+            "tapse_mm", "pasp_echo", "s_prime_cm_s", "ra_esa_cm2",
+        ]
+        for _k in _preview_triggers:
+            try:
+                if _k in field_components:
+                    field_components[_k].change(_refresh_previews, inputs=input_components, outputs=_preview_outputs)
+            except Exception:
+                pass
 
         # --- Live-Update: Procedere/Module sollen deterministisch im Bericht landen ---
         # Häufiger UX-Fehler: User ändert Module/Freitext nach dem Generieren und erwartet, dass der Bericht folgt.
@@ -1298,7 +1844,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         def _update_procedere_only(case_state, m1, m2, m3, free_text):
             if not case_state:
                 # Noch kein Fall generiert – nichts zu aktualisieren.
-                return (gr.update(), gr.update(), gr.update(), gr.update(), None)
+                return (gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update())
             try:
                 ui = dict(case_state.get("ui") or {})
                 ui["modules_lvl1"] = m1 or []
@@ -1312,13 +1858,14 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 pat = build_patient_report(case_state)
                 internal = build_internal_report(case_state)
                 dbg = json.dumps(case_state, ensure_ascii=False, indent=2)
-                return (doc, pat, internal, dbg, case_state)
+                cards_html = build_p_module_cards_html(blocks, case_state)
+                return (doc, pat, internal, dbg, case_state, cards_html)
             except Exception:
                 # Fail-safe: do not break UI on minor issues
-                return (gr.update(), gr.update(), gr.update(), gr.update(), case_state)
+                return (gr.update(), gr.update(), gr.update(), gr.update(), case_state, gr.update())
 
         _procedere_inputs = [state_case, modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp, field_components["procedere_free"]]
-        _procedere_outputs = [out_doc, out_pat, out_int, out_json, state_case]
+        _procedere_outputs = [out_doc, out_pat, out_int, out_json, state_case, modules_cards_html]
 
         modules_lvl1_comp.change(_update_procedere_only, inputs=_procedere_inputs, outputs=_procedere_outputs)
         modules_lvl2_comp.change(_update_procedere_only, inputs=_procedere_inputs, outputs=_procedere_outputs)
@@ -1364,6 +1911,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 gr.update(choices=_INIT_CHOICES_LVL2, value=[]),
                 gr.update(choices=_INIT_CHOICES_LVL3, value=[]),
                 "",                                   # modules_disabled_html
+                build_sticky_summary_html(None),        # sticky summary
+                "",                                   # compare overview
+                "",                                   # module cards
             )
             return (*vals, *cleared_outputs)
 
@@ -1396,6 +1946,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 None,                                   # state_case
                 modules_lvl1_update, modules_lvl2_update, modules_lvl3_update,
                 "",                                     # disabled html
+                build_sticky_summary_html(None),           # sticky summary
+                "",                                     # compare overview
+                "",                                     # module cards
             )
 
         def _save_case(case_state):

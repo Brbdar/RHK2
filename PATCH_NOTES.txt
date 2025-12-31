@@ -1,9 +1,20 @@
-Patch v25.2
-===========
-- Erweiterte "nicht anwählbar" Regeln für P-Module (P08, P09, P10, P12, P14, P15, P17, P18, P19, P20, P06, P25 zusätzlich zu P13, P21 und Therapie-Blockern).
-- Random-Beispiele erweitert um Zusatzfelder (Antikoagulation, Immunologie, Virologie, Mutation, Abdomensonographie).
-- Mehr Fälle mit explizit unauffälliger Lungenfunktion, um P12-Gating sichtbar zu machen.
+RHK Befundassistent – Patch v25.8.5
 
-Installation:
-- Diese beiden Dateien (rhk_base.py, rhk_reports.py) in dein Projekt kopieren und die bestehenden ersetzen.
-- Server/App neu starten (Browser ggf. hart neu laden).
+Fixes & Improvements
+
+1) PH-Status: Konsistenz (Diagnose vs Verdacht)
+- "PH-Diagnose bekannt" und "PH-Verdachtsdiagnose" schließen sich jetzt gegenseitig aus.
+- UI: Wenn Diagnose bekannt aktiviert wird, wird Verdacht automatisch deaktiviert (und umgekehrt).
+- Loader: Beim Laden wird bei Konflikt "Diagnose bekannt" bevorzugt (Verdacht wird automatisch entfernt).
+
+2) Beispiel-Fälle: PH-Details vollständig
+- Wenn in einem Beispiel "PH-Diagnose bekannt" gesetzt ist, werden die Detailfelder automatisch sinnvoll gefüllt:
+  PH-Gruppe/Typ, Subtyp/Kontext, Erstdiagnose, Grund des aktuellen RHK, Therapie (Beispielwerte).
+
+3) Header-Version
+- APP_VERSION/WHATS_NEW aktualisiert.
+
+Enthaltene Dateien
+- rhk_ui.py
+- rhk_reports.py
+- rhk_base.py

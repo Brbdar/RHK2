@@ -37,9 +37,9 @@ except Exception:  # pragma: no cover
 # =============================================================================
 
 APP_NAME = "RHK Befundassistent"
-APP_VERSION = "v25.1"
+APP_VERSION = "v25.8.5"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
-WHATS_NEW = "Neu: Befunde leeren repariert · Tabs ohne ... Menü · Procedere/Module aktualisieren den Bericht sofort · Build 30.12.2025 19:45"
+WHATS_NEW = "Neu: PH-Status exklusiv (Diagnose vs Verdacht) · Beispiel-Fälle: PH-Details automatisch gefüllt · Build 31.12.2025"
 
 
 # =============================================================================

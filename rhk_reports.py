@@ -1469,7 +1469,71 @@ def random_example() -> Dict[str, Any]:
     ])
 
     ui["ph_known"] = scen in ("pah_pre", "cteph", "cpcph")
-    ui["ph_suspected"] = True
+    ui["ph_suspected"] = not ui["ph_known"]
+
+    # --- PH-Status Konsistenz + Details ---
+    # In der Praxis schließen sich "PH-Diagnose bekannt" und "PH-Verdachtsdiagnose" gegenseitig aus.
+    # Bei bekannter PH füllen wir deshalb zusätzliche Kontextfelder, damit die UI nicht "leer" wirkt.
+    if ui.get("ph_known"):
+        if scen == "pah_pre":
+            ui["ph_known_dx"] = "PAH (Gruppe 1)"
+            ui["ph_known_subtype"] = random.choice([
+                "SOP: Systemsklerose-assoziierte PAH",
+                "idiopathische PAH",
+                "portopulmonale Hypertonie",
+            ])
+            ui["ph_current_meds"] = random.choice([
+                ["PDE‑5‑Hemmer", "Endothelin‑Rezeptorantagonist (ERA)"],
+                ["PDE‑5‑Hemmer"],
+                ["sGC‑Stimulator (Riociguat)", "Endothelin‑Rezeptorantagonist (ERA)"],
+            ])
+        elif scen == "cteph":
+            ui["ph_known_dx"] = "CTEPH (Gruppe 4)"
+            ui["ph_known_subtype"] = random.choice([
+                "inoperable CTEPH (BPA-Evaluation)",
+                "Status nach LE mit Residuen",
+                "CTED/CTEPH im Verlauf",
+            ])
+            ui["ph_current_meds"] = random.choice([
+                ["sGC‑Stimulator (Riociguat)"],
+                ["sGC‑Stimulator (Riociguat)", "Diuretikum"],
+            ])
+            ui["ph_interventions"] = random.choice([
+                ["BPA (Ballonangioplastie, Katheter)"],
+                ["PEA (Pulmonalisendarteriektomie, OP)"],
+                [],
+            ])
+        elif scen == "cpcph":
+            ui["ph_known_dx"] = "PH bei Linksherzerkrankung / HFpEF (Gruppe 2)"
+            ui["ph_known_subtype"] = random.choice([
+                "HFpEF mit postkapillärer PH",
+                "cPcPH bei HFpEF (Mischkomponente wahrscheinlich)",
+                "Linksherzerkrankung im Verlauf",
+            ])
+            ui["ph_current_meds"] = random.choice([
+                ["Diuretikum"],
+                ["Diuretikum", "Sauerstofftherapie"],
+            ])
+        else:
+            ui["ph_known_dx"] = "Sonstige/unklar (Gruppe 5)"
+            ui["ph_known_subtype"] = "unklar"
+            ui["ph_current_meds"] = []
+
+        # Pflichtähnliche Felder (in Beispielen immer gefüllt)
+        ui["ph_first_dx"] = random.choice(["03/2020", "09/2021", "01/2022", "06/2023"])
+        ui["ph_reason_rhk"] = random.choice(["Verlaufskontrolle", "Therapieentscheidung", "Neusymptomatik"])
+        ui["ph_prev_meds"] = ui.get("ph_prev_meds") or []
+        # Bei bekannter Diagnose ist Verdacht nicht gesetzt
+        ui["ph_suspected"] = False
+    else:
+        # Kein bekannter PH-Status: Verdacht ist möglich, Details bleiben leer
+        ui["ph_known_dx"] = None
+        ui["ph_known_subtype"] = ""
+        ui["ph_first_dx"] = ""
+        ui["ph_reason_rhk"] = None
+        ui["ph_current_meds"] = ui.get("ph_current_meds") or []
+        ui["ph_prev_meds"] = ui.get("ph_prev_meds") or []
+        ui["ph_interventions"] = ui.get("ph_interventions") or []
 
     # --- Klinik/Funktion ---
     ui["who_fc"] = random.choice(["II", "III"]) if scen != "no_ph" else random.choice(["I", "II"])

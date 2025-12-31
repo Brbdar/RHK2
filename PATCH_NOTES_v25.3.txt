@@ -1,0 +1,36 @@
+Patch v25.3 (2025-12-31)
+
+1) Vergleichsmodus / Referenzfall laden (JSON)
+- Neues UI-Segment:
+  - Aktueller RHK: Datum (optional) -> ui.rhk_date
+  - Vergleichsmodus aktiv -> ui.compare_mode
+  - Referenzfall laden (.json) (UploadButton)
+- Beim Laden der Referenz:
+  - Feste Parameter werden NUR vorbefüllt, wenn aktuell leer (z.B. Diagnosen/PH-Kontext, CT/Lufu/Immunologie).
+  - Vor-RHK-Kerndaten werden IMMER gesetzt:
+    prev_rhk_date, prev_mpap, prev_pawp, prev_rap, prev_ci, prev_pvr
+  - Persistente Meta-Keys für Nachvollziehbarkeit:
+    comparison_ref_loaded, comparison_ref_hash, comparison_ref_label
+- Reports:
+  - Vorher/Nachher-Tabelle nutzt jetzt Datumsspalten (Vorher (Datum) / Jetzt (Datum)).
+
+2) P-Module: mehr Logik im Follow-up
+- compute_p_module_policy:
+  - comparison_mode/has_prev_rhk eingeführt
+  - Im Vergleichsmodus + Referenz geladen werden Basismodule der Erstdiagnostik bewusst gesperrt:
+    P01, P12, P15, P17, P18, P19, P20 (mit medizinischer Begründung)
+  - P11 (Verlaufskontrolle) wird bei Follow-up/Compare auf Level I priorisiert.
+
+3) Kritischer Bug: Patient*innenbericht vs Arztbericht (P-Module)
+- Arztbericht:
+  - Aktive Module werden jetzt IMMER ausgegeben (mindestens als Überschrift),
+    selbst wenn der Modultext leer gefiltert wird oder Daten fehlen.
+  - Falls Text leer: klarer Hinweistext statt „verschluckt“.
+  - Unbekannte Module (nicht in TextDB) werden ebenfalls sichtbar gelistet.
+
+4) Rules
+- rhk_rules.yaml: neue Regel R_FOLLOWUP_ADD_P11 (has_prev_rhk == True) -> auto add_modules: [P11]
+
+Einbau:
+- Dateien aus diesem ZIP in dein Projektverzeichnis kopieren/überschreiben.
+- Hinweis: wenn du mehrere Server-Instanzen hast, stelle sicher, dass überall die neue rhk_rules.yaml liegt.
