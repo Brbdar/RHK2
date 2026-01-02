@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""RHK Befundassistent – v25.8.17 (split)
+"""RHK Befundassistent – v25.8.9 (split)
 
 Diese Datei ist nur noch der stabile Entry-Point.
 Die eigentliche Implementierung liegt jetzt in:

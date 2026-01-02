@@ -1,27 +1,3 @@
-v25.8.19 (2026-01-02)
-- Fix: Word-Copy Ausgabe hatte 'BOPEN/BCLOSE' Artefakte (Bold-Platzhalter wurden durch underscore-strip zerstört).
-  -> Markdown->Word HTML Inline-Parser überarbeitet: robuste Placeholder + sichere Regex/Lambda-Replacements.
-- Fix: markdown_to_word_html splitlines Regression (Split auf Literal \n) behoben.
-
-v25.8.17 (2026-01-02)
-- Fix: Light-Theme ist jetzt Default, ohne dass man manuell "/?__theme=light" anhängen muss.
-  -> Beim ersten Laden wird (falls nötig) einmalig auf __theme=light umgeleitet, bevor Gradio rendert.
-
-v25.8.16 (2026-01-02)
-- Fix: Bericht "formatiert kopieren" funktioniert jetzt wirklich, weil die Copy-Payloads im DOM bleiben (nicht mehr Gradio visible=False).
-- Fix: UI-Farben konsistenter: Copy-Buttons und Top-Actions konservativ in Light-Style, zusätzliche Guards gegen dunkle Panel-Fills.
-
-v25.8.15 (2026-01-02)
-- Fix: "Befunde leeren" setzt jetzt für ALLE Inputs sichere Default-Werte (Dropdowns immer gültige Choice), damit Gradio nicht mehr überall "Fehler" anzeigt.
-- Fix: Copy-to-Word stabil in Edge/Opera: JS-Syntaxfehler behoben, robustes Copy-Script via HEAD (ohne Gradio-_js Abhängigkeit), HTML-Fragment-Extraktion (Start/EndFragment) + Plain-Fallback.
-- Fix: Light-Mode robust erzwungen auch bei Browser/System-Dark-Mode (Edge): zusätzliche Selector-Guards für data-theme/data-color-mode.
-
-v25.8.14 (2026-01-02)
-- Fix: "Befunde leeren" returned wrong number of outputs (Gradio error state on all fields) and now resets deterministically.
-- Fix: Legacy value mapping for Antikoagulation-Indikation (e.g., "CTEPH/Embolie", capitalization variants) to prevent dropdown choice crashes.
-- Fix: Example generator now uses canonical values (CTEPH/CTEPD, keine Angabe).
-- Improve: Word-copy now works in non-secure contexts via HTML execCommand fallback (keeps headings/lists).
-
 RHK Befundassistent – Patch v25.8.13
 
 Neu in v25.8.13

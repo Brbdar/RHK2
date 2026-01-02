@@ -1985,13 +1985,13 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
     if scen == "cteph" or ui.get("atrial_fib"):
         ui["anticoag_status"] = "ja"
         ui["anticoag_substance"] = rng.choice(["DOAC (Apixaban, Rivaroxaban)", "VKA (Phenprocoumon/Warfarin)"])
-        ui["anticoag_indication"] = "CTEPH/CTEPD" if scen == "cteph" else "Vorhofflimmern"
+        ui["anticoag_indication"] = "CTEPH/Embolie" if scen == "cteph" else "Vorhofflimmern"
         ui["anticoag_since"] = rng.choice(["09/2023", "03/2024", "11/2024"])
         ui["anticoag_note"] = ""
     else:
         ui["anticoag_status"] = "nein"
         ui["anticoag_substance"] = None
-        ui["anticoag_indication"] = "keine Angabe"
+        ui["anticoag_indication"] = ""
         ui["anticoag_since"] = ""
         ui["anticoag_note"] = ""
 
@@ -2291,28 +2291,19 @@ def markdown_to_word_html(md: Any) -> str:
     # Inline helpers
     def _inline(x: str) -> str:
         x = "" if x is None else str(x)
-
         # Links: [text](url) -> text
         x = re.sub(r"\[([^\]]+)\]\(([^\)]+)\)", r"\1", x)
-
-        # Bold: **text** or __text__
-        BOPEN = "@@BOPEN@@"
-        BCLOSE = "@@BCLOSE@@"
-        x = re.sub(r"\*\*(.+?)\*\*", lambda m: f"{BOPEN}{m.group(1)}{BCLOSE}", x)
-        x = re.sub(r"__(.+?)__", lambda m: f"{BOPEN}{m.group(1)}{BCLOSE}", x)
-
-        # Italics: *text* or _text_ (single markers only)
-        x = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", lambda m: m.group(1), x)
-        x = re.sub(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", lambda m: m.group(1), x)
-
+        # Protect bold (**) and (__)
+        x = re.sub(r"\*\*(.+?)\*\*", r"__BOPEN__\1__BCLOSE__", x)
+        x = re.sub(r"__(.+?)__", r"__BOPEN__\1__BCLOSE__", x)
+        # Strip remaining italic markers
+        x = x.replace("*", "").replace("_", "")
         # Inline code: `x` -> x
         x = x.replace("`", "")
-
         # Escape HTML
         x = _html.escape(x, quote=False)
-
-        # Restore bold placeholders
-        x = x.replace(BOPEN, "<strong>").replace(BCLOSE, "</strong>")
+        # Restore bold markers
+        x = x.replace("__BOPEN__", "<strong>").replace("__BCLOSE__", "</strong>")
         return x
 
     lines = s.split("\n")

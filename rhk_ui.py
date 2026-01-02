@@ -54,239 +54,14 @@ FORCE_DESKTOP_VIEWPORT: bool = os.environ.get("RHK_FORCE_DESKTOP_VIEWPORT", "0")
     "no",
     "off",
 )
-_VIEWPORT_META = (
+HEAD_HTML = (
     f'<meta name="viewport" content="width={DESKTOP_VIEWPORT_WIDTH_PX}, initial-scale=1">'
     if FORCE_DESKTOP_VIEWPORT
     else ""
 )
 
-# NOTE: We enforce a readable light UI even if the browser/system prefers dark.
-# Additionally, we attach a robust, cross-browser copy-to-Word handler to the three copy buttons.
-HEAD_HTML = "".join(
-    [
-        _VIEWPORT_META,
-        '<meta name="color-scheme" content="light">',
-        '<meta name="supported-color-schemes" content="light">',
-        """
-<script>
-(function(){
-  // ------------------------------------------------------------------
-  // Hard-default to Gradio light theme.
-  // Gradio's own theme system is driven by the query param `__theme`.
-  // If it is missing, some browsers/system-preferences will render dark,
-  // which breaks our carefully tuned light UI.
-  // We therefore enforce: /?__theme=light (single reload, no flicker).
-  // ------------------------------------------------------------------
-  try {
-    var u = new URL(window.location.href);
-    var th = u.searchParams.get('__theme');
-    if(th !== 'light'){
-      u.searchParams.set('__theme', 'light');
-      window.location.replace(u.toString());
-      return;
-    }
-  } catch(e) {}
-
-  function byId(id){ return document.getElementById(id); }
-  function getTextboxValue(rootId){
-    var root = byId(rootId);
-    if(!root) return "";
-    var el = root.querySelector('textarea,input');
-    if(el && typeof el.value === 'string') return el.value;
-    return (root.textContent || "").trim();
-  }
-  function setFeedback(msg){
-    var root = byId('rhk_copy_feedback');
-    if(!root) return;
-    // Gradio Markdown often wraps content; try common containers.
-    var tgt = root.querySelector('.prose, .markdown, .md, .wrap, div') || root;
-    tgt.textContent = msg;
-  }
-  function extractFragment(html){
-    if(!html) return "";
-    var s = '<!--StartFragment-->';
-    var e = '<!--EndFragment-->';
-    var i = html.indexOf(s);
-    var j = html.indexOf(e);
-    if(i >= 0 && j > i) return html.substring(i + s.length, j).trim();
-    // Fallback: extract <body>...</body>
-    var m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    if(m && m[1]) return m[1].trim();
-    return String(html);
-  }
-  function copyToClipboard(html, plain){
-    // `html` is a full Word-friendly HTML document (incl. StartFragment markers)
-    // produced server-side. For copying we prefer the fragment so Word pastes cleanly.
-    var rawHtml = (html === undefined || html === null) ? "" : String(html);
-    var h = extractFragment(rawHtml);
-    var t = (plain === undefined || plain === null) ? "" : String(plain);
-
-    function copyPlainExec(){
-      var ta = document.createElement('textarea');
-      ta.value = t;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      ta.style.top = '0';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      var ok = false;
-      try { ok = document.execCommand('copy'); } catch(e) {}
-      document.body.removeChild(ta);
-      return ok;
-    }
-
-    function copyHtmlExec(){
-      // Robust cross-browser fallback:
-      // Use a temporary contenteditable container + explicit clipboardData injection.
-      var div = document.createElement('div');
-      var safeText = t
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>');
-      div.innerHTML = (h && h.trim().length) ? h : safeText;
-      div.style.position = 'fixed';
-      div.style.left = '0';
-      div.style.top = '0';
-      div.style.opacity = '0';
-      div.style.pointerEvents = 'none';
-      div.style.width = '1px';
-      div.style.height = '1px';
-      div.style.overflow = 'hidden';
-      div.setAttribute('contenteditable', 'true');
-      document.body.appendChild(div);
-
-      var ok = false;
-      var sel = window.getSelection();
-      try {
-        div.focus();
-        var range = document.createRange();
-        range.selectNodeContents(div);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } catch(e) {}
-
-      function onCopy(e){
-        try {
-          if(e && e.clipboardData){
-            // Prefer fragment for Word.
-            e.clipboardData.setData('text/html', (h && h.trim().length) ? h : safeText);
-            e.clipboardData.setData('text/plain', t);
-            e.preventDefault();
-            ok = true;
-          }
-        } catch(err) {}
-      }
-      div.addEventListener('copy', onCopy);
-      try {
-        document.execCommand('copy');
-      } catch(e) {}
-      div.removeEventListener('copy', onCopy);
-
-      try { sel.removeAllRanges(); } catch(e) {}
-      document.body.removeChild(div);
-      return ok;
-    }
-
-    // 1) Clipboard API with HTML + plain (best quality, secure contexts)
-    try {
-      if(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem){
-        var blobHtml = new Blob([h], {type: 'text/html'});
-        var blobText = new Blob([t], {type: 'text/plain'});
-        var item = new ClipboardItem({'text/html': blobHtml, 'text/plain': blobText});
-        return navigator.clipboard.write([item]).then(function(){
-          setFeedback('✅ Formatiert für Word kopiert.');
-        }).catch(function(){
-          // fall through
-          if(copyHtmlExec()) setFeedback('✅ Formatiert für Word kopiert.');
-          else if(navigator.clipboard && navigator.clipboard.writeText){
-            navigator.clipboard.writeText(t).then(function(){
-              setFeedback('✅ Als Text kopiert (Browser erlaubt kein formatiertes Kopieren).');
-            }).catch(function(){
-              setFeedback(copyPlainExec() ? '✅ Als Text kopiert (Fallback).' : '⚠️ Konnte nicht automatisch kopieren.');
-            });
-          } else {
-            setFeedback(copyPlainExec() ? '✅ Als Text kopiert (Fallback).' : '⚠️ Konnte nicht automatisch kopieren.');
-          }
-        });
-      }
-    } catch(e) {}
-
-    // 2) execCommand (works also on http / older browsers)
-    try {
-      if(copyHtmlExec()) { setFeedback('✅ Formatiert für Word kopiert.'); return; }
-    } catch(e) {}
-
-    // 3) Plain text fallback
-    try {
-      if(navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(t).then(function(){
-          setFeedback('✅ Als Text kopiert (Browser erlaubt kein formatiertes Kopieren).');
-        }).catch(function(){
-          setFeedback(copyPlainExec() ? '✅ Als Text kopiert (Fallback).' : '⚠️ Konnte nicht automatisch kopieren.');
-        });
-        return;
-      }
-    } catch(e) {}
-
-    setFeedback(copyPlainExec() ? '✅ Als Text kopiert (Fallback).' : '⚠️ Konnte nicht automatisch kopieren.');
-  }
-
-  // Gradio re-renders buttons; binding to the concrete <button> is brittle.
-  // Use ONE delegated click handler (capture) that survives any re-render.
-  function installCopyDelegation(){
-    if(window.__rhkCopyDelegationInstalled) return;
-    window.__rhkCopyDelegationInstalled = true;
-    document.addEventListener('click', function(ev){
-      try {
-        var t0 = ev && ev.target;
-        if(!t0 || !t0.closest) return;
-        var isDoc = !!t0.closest('#btn_copy_doc');
-        var isPat = !!t0.closest('#btn_copy_pat');
-        var isRhk = !!t0.closest('#btn_copy_rhk');
-        if(!(isDoc || isPat || isRhk)) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        var htmlId = isDoc ? 'copy_doc_html' : (isPat ? 'copy_pat_html' : 'copy_rhk_html');
-        var plainId = isDoc ? 'copy_doc_plain' : (isPat ? 'copy_pat_plain' : 'copy_rhk_plain');
-        var h = getTextboxValue(htmlId);
-        var p = getTextboxValue(plainId);
-        copyToClipboard(h, p);
-      } catch(e) {
-        setFeedback('⚠️ Konnte nicht automatisch kopieren.');
-      }
-    }, true);
-  }
-
-  function enforceLight(){
-    try {
-      document.documentElement.style.colorScheme = 'light';
-      if(document.body) document.body.style.colorScheme = 'light';
-    } catch(e) {}
-  }
-
-  function boot(){
-    enforceLight();
-    installCopyDelegation();
-  }
-
-  // Gradio may re-render; bind on load and after short delays.
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', function(){ boot(); setTimeout(boot, 500); setTimeout(boot, 1500); });
-  } else {
-    boot(); setTimeout(boot, 500); setTimeout(boot, 1500);
-  }
-})();
-</script>
-""",
-    ]
-)
-
 CSS = ("""
 /* ------------------------------------------------------------------
-   Light UI (robust): enforce readability even if browser/system prefers dark
-   ------------------------------------------------------------------ */
 
 /* Neutralize "Befund erstellen/aktualisieren" buttons (avoid persistent blue look) */
 #btn_generate_top button, #btn_generate_bottom button {
@@ -298,43 +73,9 @@ CSS = ("""
 #btn_generate_top button:hover, #btn_generate_bottom button:hover {
   filter: brightness(0.98);
 }
-
-/* Top action buttons: keep the same conservative light style */
-#btn_example_top button, #btn_example_bottom button,
-#btn_clear_top button, #btn_clear_bottom button,
-#btn_save_top button, #btn_save_bottom button,
-#btn_load_top button, #btn_load_bottom button {
-  background: #ffffff !important;
-  color: #0f172a !important;
-  border: 1px solid rgba(148, 163, 184, 0.9) !important;
-  box-shadow: none !important;
-}
-#btn_example_top button:hover, #btn_example_bottom button:hover,
-#btn_clear_top button:hover, #btn_clear_bottom button:hover,
-#btn_save_top button:hover, #btn_save_bottom button:hover,
-#btn_load_top button:hover, #btn_load_bottom button:hover {
-  filter: brightness(0.98);
-}
-
-/* Copy buttons: match the same style (avoid heavy dark blocks) */
-#btn_copy_doc button, #btn_copy_pat button, #btn_copy_rhk button {
-  background: #ffffff !important;
-  color: #0f172a !important;
-  border: 1px solid rgba(148, 163, 184, 0.9) !important;
-  box-shadow: none !important;
-}
-#btn_copy_doc button:hover, #btn_copy_pat button:hover, #btn_copy_rhk button:hover {
-  filter: brightness(0.98);
-}
-
-/* Hidden clipboard payloads must remain in DOM for robust JS copy binding */
-.rhk-hidden-payload{ display: none !important; }
-
-:root,
-.dark,
-:root[data-theme="dark"], html[data-theme="dark"], body[data-theme="dark"],
-:root[data-color-mode="dark"], html[data-color-mode="dark"], body[data-color-mode="dark"],
-.gradio-container[data-theme="dark"], .gradio-container[data-color-mode="dark"] {
+   Light Theme – enforced (incl. system/browser dark-mode)
+   ------------------------------------------------------------------ */
+:root, .dark {
   color-scheme: light !important;
   --card-bg: rgba(255,255,255,0.96);
   --border: rgba(0,0,0,0.08);
@@ -354,16 +95,6 @@ CSS = ("""
 html, body { color-scheme: light !important; background: #f6f7fb !important; }
 
 .gradio-container { max-width: 1700px !important; margin: 0 auto !important; padding-left: 8px; padding-right: 8px; }
-
-/* Force light cards/panels even if Gradio or browser applies dark-ish block fills */
-.gradio-container .gr-box,
-.gradio-container .gr-block,
-.gradio-container .panel,
-.gradio-container .form,
-.gradio-container .wrap {
-  background: rgba(255,255,255,0.96) !important;
-  color: #111111 !important;
-}
 
 /* Prevent any dark mode artefacts */
 .dark, .dark * { color-scheme: light !important; }
@@ -1077,297 +808,6 @@ JS_ON_LOAD = JS_ON_LOAD.replace("__DESKTOP_ONLY__", "true" if DESKTOP_ONLY else 
 JS_ON_LOAD = JS_ON_LOAD.replace("__MIN_WIDTH__", str(DESKTOP_MIN_WIDTH_PX)).strip()
 
 
-# -----------------------------------------------------------------------------
-# Light-mode enforcement + Word-friendly clipboard copy (robust, cross-browser)
-#
-# Why this exists:
-# - Some deployments (esp. Gradio 6+ / SSR / CDN caches) may ignore Blocks-level
-#   `head` injection, and some browsers default to dark mode.
-# - The app must remain readable and the copy buttons must work in Edge/Opera.
-#
-# We therefore run the enforcement & copy handler BOTH via `head` (best, earliest)
-# and via `js` (fallback, survives head being ignored).
-# -----------------------------------------------------------------------------
-
-JS_LIGHT_COPY_FALLBACK = r"""
-(function(){
-  // --- 1) Always prefer Gradio light theme ---------------------------------
-  // If the param is missing, some browsers/system themes will render dark.
-  // We enforce a single redirect to add `__theme=light`.
-  try {
-    var u = new URL(window.location.href);
-    var th = u.searchParams.get('__theme');
-    if (th !== 'light') {
-      u.searchParams.set('__theme', 'light');
-      window.location.replace(u.toString());
-      return;
-    }
-  } catch(e) {}
-
-  function byId(id){ return document.getElementById(id); }
-
-  function setFeedback(msg){
-    try {
-      var root = byId('rhk_copy_feedback');
-      if(!root) return;
-      var tgt = root.querySelector('.prose, .markdown, .md, .wrap, div') || root;
-      tgt.textContent = msg;
-    } catch(e) {}
-  }
-
-  function getTextboxValue(rootId){
-    var root = byId(rootId);
-    if(!root) return "";
-    var el = root.querySelector('textarea,input');
-    if(el && typeof el.value === 'string') return el.value;
-    return (root.textContent || '').trim();
-  }
-
-  function extractFragment(html){
-    if(!html) return "";
-    var s = '<!--StartFragment-->';
-    var e = '<!--EndFragment-->';
-    var i = html.indexOf(s);
-    var j = html.indexOf(e);
-    if(i >= 0 && j > i) return html.substring(i + s.length, j).trim();
-    var m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    if(m && m[1]) return m[1].trim();
-    return String(html);
-  }
-
-  function showManualCopy(text){
-    try {
-      var overlay = document.createElement('div');
-      overlay.style.position = 'fixed';
-      overlay.style.inset = '0';
-      overlay.style.background = 'rgba(15, 23, 42, 0.35)';
-      overlay.style.zIndex = '999999';
-      overlay.style.display = 'flex';
-      overlay.style.alignItems = 'center';
-      overlay.style.justifyContent = 'center';
-
-      var box = document.createElement('div');
-      box.style.width = 'min(860px, 92vw)';
-      box.style.maxHeight = '80vh';
-      box.style.background = '#ffffff';
-      box.style.border = '1px solid rgba(0,0,0,0.18)';
-      box.style.borderRadius = '12px';
-      box.style.boxShadow = '0 10px 30px rgba(0,0,0,0.20)';
-      box.style.padding = '14px';
-      box.style.display = 'flex';
-      box.style.flexDirection = 'column';
-      box.style.gap = '10px';
-
-      var header = document.createElement('div');
-      header.style.display = 'flex';
-      header.style.alignItems = 'center';
-      header.style.justifyContent = 'space-between';
-
-      var title = document.createElement('div');
-      title.textContent = 'Manuell kopieren';
-      title.style.fontWeight = '600';
-      title.style.color = '#0f172a';
-
-      var close = document.createElement('button');
-      close.textContent = '✕';
-      close.style.border = 'none';
-      close.style.background = 'transparent';
-      close.style.cursor = 'pointer';
-      close.style.fontSize = '18px';
-      close.style.lineHeight = '18px';
-      close.style.color = '#0f172a';
-
-      header.appendChild(title);
-      header.appendChild(close);
-
-      var hint = document.createElement('div');
-      hint.textContent = 'Browser blockiert automatisches Kopieren. Text ist markiert: bitte Strg+C und dann in Word einfügen.';
-      hint.style.fontSize = '13px';
-      hint.style.color = 'rgba(15, 23, 42, 0.75)';
-
-      var ta = document.createElement('textarea');
-      ta.value = String(text || '');
-      ta.style.width = '100%';
-      ta.style.height = '55vh';
-      ta.style.resize = 'none';
-      ta.style.border = '1px solid rgba(0,0,0,0.18)';
-      ta.style.borderRadius = '10px';
-      ta.style.padding = '10px';
-      ta.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
-      ta.style.fontSize = '12px';
-      ta.style.color = '#0f172a';
-      ta.style.background = '#ffffff';
-
-      box.appendChild(header);
-      box.appendChild(hint);
-      box.appendChild(ta);
-      overlay.appendChild(box);
-      document.body.appendChild(overlay);
-
-      function cleanup(){
-        try { document.body.removeChild(overlay); } catch(e) {}
-      }
-      overlay.addEventListener('click', function(ev){
-        if(ev && ev.target === overlay) cleanup();
-      });
-      close.addEventListener('click', function(){ cleanup(); });
-
-      setTimeout(function(){
-        try { ta.focus(); ta.select(); } catch(e) {}
-      }, 0);
-    } catch(e) {}
-  }
-
-  function copyToClipboard(html, plain){
-    var rawHtml = (html === undefined || html === null) ? '' : String(html);
-    var frag = extractFragment(rawHtml);
-    var t = (plain === undefined || plain === null) ? '' : String(plain);
-
-    function copyPlainExec(){
-      var ta = document.createElement('textarea');
-      ta.value = t;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      ta.style.top = '0';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      var ok = false;
-      try { ok = document.execCommand('copy'); } catch(e) {}
-      document.body.removeChild(ta);
-      return ok;
-    }
-
-    function copyHtmlExec(){
-      var div = document.createElement('div');
-      var safeText = t
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>');
-      div.innerHTML = (frag && frag.trim().length) ? frag : safeText;
-      div.style.position = 'fixed';
-      div.style.left = '0';
-      div.style.top = '0';
-      div.style.opacity = '0';
-      div.style.width = '1px';
-      div.style.height = '1px';
-      div.style.overflow = 'hidden';
-      div.setAttribute('contenteditable', 'true');
-      document.body.appendChild(div);
-
-      var ok = false;
-      var sel = window.getSelection();
-      try {
-        div.focus();
-        var range = document.createRange();
-        range.selectNodeContents(div);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } catch(e) {}
-
-      function onCopy(e){
-        try {
-          if(e && e.clipboardData){
-            e.clipboardData.setData('text/html', (frag && frag.trim().length) ? frag : safeText);
-            e.clipboardData.setData('text/plain', t);
-            e.preventDefault();
-            ok = true;
-          }
-        } catch(err) {}
-      }
-      div.addEventListener('copy', onCopy);
-      try { document.execCommand('copy'); } catch(e) {}
-      div.removeEventListener('copy', onCopy);
-
-      try { sel.removeAllRanges(); } catch(e) {}
-      try { document.body.removeChild(div); } catch(e) {}
-      return ok;
-    }
-
-    // 1) Clipboard API (best)
-    try {
-      if(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem){
-        var blobHtml = new Blob([frag], {type: 'text/html'});
-        var blobText = new Blob([t], {type: 'text/plain'});
-        var item = new ClipboardItem({'text/html': blobHtml, 'text/plain': blobText});
-        navigator.clipboard.write([item]).then(function(){
-          setFeedback('✅ Formatiert für Word kopiert.');
-        }).catch(function(){
-          if(copyHtmlExec()) setFeedback('✅ Formatiert für Word kopiert.');
-          else if(copyPlainExec()) setFeedback('✅ Als Text kopiert (Fallback).');
-          else { setFeedback('⚠️ Kopieren blockiert.'); showManualCopy(t); }
-        });
-        return;
-      }
-    } catch(e) {}
-
-    // 2) execCommand
-    try {
-      if(copyHtmlExec()) { setFeedback('✅ Formatiert für Word kopiert.'); return; }
-    } catch(e) {}
-
-    // 3) Plain fallback
-    if(copyPlainExec()) { setFeedback('✅ Als Text kopiert (Fallback).'); return; }
-
-    setFeedback('⚠️ Kopieren blockiert.');
-    showManualCopy(t);
-  }
-
-  function installCopyDelegation(){
-    if(window.__rhkCopyDelegationInstalled) return;
-    window.__rhkCopyDelegationInstalled = true;
-    document.addEventListener('click', function(ev){
-      try {
-        var t0 = ev && ev.target;
-        if(!t0 || !t0.closest) return;
-        var isDoc = !!t0.closest('#btn_copy_doc');
-        var isPat = !!t0.closest('#btn_copy_pat');
-        var isRhk = !!t0.closest('#btn_copy_rhk');
-        if(!(isDoc || isPat || isRhk)) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        var htmlId = isDoc ? 'copy_doc_html' : (isPat ? 'copy_pat_html' : 'copy_rhk_html');
-        var plainId = isDoc ? 'copy_doc_plain' : (isPat ? 'copy_pat_plain' : 'copy_rhk_plain');
-        var h = getTextboxValue(htmlId);
-        var p = getTextboxValue(plainId);
-        copyToClipboard(h, p);
-      } catch(e) {
-        setFeedback('⚠️ Konnte nicht automatisch kopieren.');
-      }
-    }, true);
-  }
-
-  function enforceLight(){
-    try {
-      document.documentElement.style.colorScheme = 'light';
-      document.documentElement.setAttribute('data-theme', 'light');
-      document.documentElement.setAttribute('data-color-mode', 'light');
-      if(document.body){
-        document.body.style.colorScheme = 'light';
-        document.body.classList.remove('dark');
-      }
-    } catch(e) {}
-  }
-
-  function boot(){
-    enforceLight();
-    installCopyDelegation();
-  }
-
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', function(){ boot(); setTimeout(boot, 400); setTimeout(boot, 1200); });
-  } else {
-    boot(); setTimeout(boot, 400); setTimeout(boot, 1200);
-  }
-})();
-"""
-
-# Append fallback JS so the critical behaviour survives environments
-# where only the `js` hook executes reliably.
-JS_ON_LOAD = (JS_ON_LOAD + "\n" + JS_LIGHT_COPY_FALLBACK).strip()
-
-
 def _gradio_major_version() -> int:
     """Best-effort: parse gradio.__version__ major number.
 
@@ -1733,17 +1173,14 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
     except Exception:
         theme = None
 
-    # We apply UI safety-critical assets (CSS + JS + head meta) as defensively as possible.
-    # - Gradio 5.x expects these in the Blocks initializer.
-    # - Gradio 6.x moved them to `.launch()`. Some deployments may ignore one path.
-    # Therefore we:
-    #   (a) try attaching them to Blocks (and gracefully drop unsupported keys)
-    #   (b) also pass them into `.launch()` (see rhk_launch.py) with similar fallbacks.
     blocks_kwargs: Dict[str, Any] = {"title": APP_TITLE}
-    blocks_kwargs.update({"css": CSS, "js": JS_ON_LOAD, "head": HEAD_HTML})
-    if theme is not None:
-        blocks_kwargs.update({"theme": theme})
-    # Build Blocks with best-effort compatibility across Gradio 5.x / 6.x
+    major = _gradio_major_version()
+    # Gradio >=6 moves theme/css/js/head to launch(); avoid passing them into Blocks to prevent warnings.
+    if (not major) or major < 6:
+        blocks_kwargs.update({"css": CSS, "js": JS_ON_LOAD, "head": HEAD_HTML})
+        if theme is not None:
+            blocks_kwargs.update({"theme": theme})
+# Build Blocks with best-effort compatibility across Gradio 5.x / 6.x
     demo_ctx = None
     _kwargs_try = dict(blocks_kwargs)
     for _drop in [[], ["head"], ["head", "js"], ["head", "js", "css"], ["head", "js", "css", "theme"]]:
@@ -2311,63 +1748,20 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
                 # Copy/paste helpers (plain text, no formatting chaos)
                 with gr.Row(elem_id="rhk_copy_row"):
-                    btn_copy_doc = gr.Button("Arztbericht komplett kopieren", variant="secondary", elem_id="btn_copy_doc")
-                    btn_copy_pat = gr.Button("Patient*innenbrief komplett kopieren", variant="secondary", elem_id="btn_copy_pat")
-                    btn_copy_rhk = gr.Button("nur RHK Abschnitt kopieren", variant="secondary", elem_id="btn_copy_rhk")
+                    btn_copy_doc = gr.Button("Arztbericht komplett kopieren", variant="secondary")
+                    btn_copy_pat = gr.Button("Patient*innenbrief komplett kopieren", variant="secondary")
+                    btn_copy_rhk = gr.Button("nur RHK Abschnitt kopieren", variant="secondary")
                 copy_feedback = gr.Markdown("", elem_id="rhk_copy_feedback")
 
-                # Clipboard payloads MUST stay in DOM for robust cross-browser copy.
-                # We hide them via CSS (display:none) instead of Gradio's visible=False,
-                # because visible=False may not render the component at all.
-                copy_doc_plain = gr.Textbox(
-                    value="",
-                    label="",
-                    show_label=False,
-                    interactive=False,
-                    elem_id="copy_doc_plain",
-                    elem_classes=["rhk-hidden-payload"],
-                )
-                copy_pat_plain = gr.Textbox(
-                    value="",
-                    label="",
-                    show_label=False,
-                    interactive=False,
-                    elem_id="copy_pat_plain",
-                    elem_classes=["rhk-hidden-payload"],
-                )
-                copy_rhk_plain = gr.Textbox(
-                    value="",
-                    label="",
-                    show_label=False,
-                    interactive=False,
-                    elem_id="copy_rhk_plain",
-                    elem_classes=["rhk-hidden-payload"],
-                )
+                # Hidden plain-text payloads for clipboard
+                copy_doc_plain = gr.Textbox(value="", visible=False)
+                copy_pat_plain = gr.Textbox(value="", visible=False)
+                copy_rhk_plain = gr.Textbox(value="", visible=False)
 
-                copy_doc_html = gr.Textbox(
-                    value="",
-                    label="",
-                    show_label=False,
-                    interactive=False,
-                    elem_id="copy_doc_html",
-                    elem_classes=["rhk-hidden-payload"],
-                )
-                copy_pat_html = gr.Textbox(
-                    value="",
-                    label="",
-                    show_label=False,
-                    interactive=False,
-                    elem_id="copy_pat_html",
-                    elem_classes=["rhk-hidden-payload"],
-                )
-                copy_rhk_html = gr.Textbox(
-                    value="",
-                    label="",
-                    show_label=False,
-                    interactive=False,
-                    elem_id="copy_rhk_html",
-                    elem_classes=["rhk-hidden-payload"],
-                )
+                # Hidden HTML payloads for formatted (Word) clipboard
+                copy_doc_html = gr.Textbox(value="", visible=False)
+                copy_pat_html = gr.Textbox(value="", visible=False)
+                copy_rhk_html = gr.Textbox(value="", visible=False)
 
                 with gr.Tabs(elem_id="rhk_output_tabs"):
                     with gr.TabItem("Arztbericht"):
@@ -2479,74 +1873,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             return {k: v for k, v in zip(input_keys, vals)}
 
         def apply_ui_to_components(ui_dict: Dict[str, Any]) -> List[Any]:
-            def _choice_values(comp) -> List[Any]:
-                try:
-                    ch = list(getattr(comp, "choices", []) or [])
-                except Exception:
-                    return []
-                vals: List[Any] = []
-                for c in ch:
-                    if isinstance(c, (tuple, list)) and len(c) >= 1:
-                        # Gradio supports (label, value) tuples. Prefer value when present.
-                        if len(c) >= 2:
-                            vals.append(c[1])
-                        else:
-                            vals.append(c[0])
-                    else:
-                        vals.append(c)
-                return vals
-
-            def _coerce_for_component(k: str, v: Any) -> Any:
-                comp = field_components.get(k)
-                cname = (comp.__class__.__name__ if comp else "").lower()
-
-                # Defaults for cleared/missing values (prevents Gradio "value not in choices" + red error badges)
-                if v is None:
-                    if "checkboxgroup" in cname:
-                        return []
-                    if "checkbox" in cname and "checkboxgroup" not in cname:
-                        return False
-                    if "number" in cname or "slider" in cname:
-                        return 0
-                    if hasattr(comp, "choices"):
-                        choices = _choice_values(comp)
-                        if "keine Angabe" in choices:
-                            return "keine Angabe"
-                        return choices[0] if choices else ""
-                    return ""
-
-                # Coerce numbers from legacy string values
-                if ("number" in cname or "slider" in cname) and isinstance(v, str):
-                    s = v.strip()
-                    if s == "":
-                        return 0
-                    try:
-                        return float(s.replace(",", "."))
-                    except Exception:
-                        return 0
-
-                # Coerce checkbox groups to list
-                if "checkboxgroup" in cname and not isinstance(v, (list, tuple, set)):
-                    return [v] if v not in ("", None) else []
-
-                # Guard any single-choice component with choices
-                if hasattr(comp, "choices"):
-                    choices = _choice_values(comp)
-                    if choices and v not in choices:
-                        v_low = str(v).strip().lower()
-                        for ch in choices:
-                            if str(ch).strip().lower() == v_low:
-                                v = ch
-                                break
-                    if choices and v not in choices:
-                        v = "keine Angabe" if "keine Angabe" in choices else choices[0]
-
-                # Text inputs: avoid None sneaking through
-                if "textbox" in cname and v is None:
-                    return ""
-
-                return v
-
             # --- Legacy: manche Case-Files speichern Module in modules_lvl1/2/3.
             # Wir führen alles auf ui['modules'] zusammen und geben die Level-Checkboxen
             # beim Laden zunächst leer zurück, damit es keine Choice/Value-Fehler gibt.
@@ -2601,70 +1927,15 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     elif vvl in ("sonstiges", "other", "misc", "unknown"):
                         v = "sonstiges"
                 if k == "anticoag_indication":
-                    # Normalize legacy values and enforce a valid choice to prevent Gradio "value not in choices" crashes.
-                    # Canonical UI choices:
-                    # ["keine Angabe","Vorhofflimmern","Venenthrombose/Lungenembolie","CTEPH/CTEPD","Mechanische Klappe","Andere/unklar"]
-                    canonical_map = {
-                        "": "keine Angabe",
-                        "none": "keine Angabe",
-                        "keine angabe": "keine Angabe",
-                        "n/a": "keine Angabe",
-                        "na": "keine Angabe",
-                        "af": "Vorhofflimmern",
-                        "a.f.": "Vorhofflimmern",
-                        "atrial fibrillation": "Vorhofflimmern",
-                        "vorhofflimmern": "Vorhofflimmern",
-                        "venenthrombose/lungenembolie": "Venenthrombose/Lungenembolie",
-                        "venenthrombose": "Venenthrombose/Lungenembolie",
-                        "tvt": "Venenthrombose/Lungenembolie",
-                        "dvt": "Venenthrombose/Lungenembolie",
-                        "pe": "Venenthrombose/Lungenembolie",
-                        "lungenembolie": "Venenthrombose/Lungenembolie",
-                        "lungenembolie/venenthrombose": "Venenthrombose/Lungenembolie",
-                        "cteph": "CTEPH/CTEPD",
-                        "ctepd": "CTEPH/CTEPD",
-                        "cteph/ctepd": "CTEPH/CTEPD",
-                        "cteph/embolie": "CTEPH/CTEPD",
-                        "cteph/embolie(n)": "CTEPH/CTEPD",
-                        "cteph/embolie ": "CTEPH/CTEPD",
-                        "cteph/embolie (ctepd)": "CTEPH/CTEPD",
-                        "mechanische klappe": "Mechanische Klappe",
-                        "mechanical valve": "Mechanische Klappe",
-                        "andere": "Andere/unklar",
-                        "unklar": "Andere/unklar",
-                        "andere/unklar": "Andere/unklar",
-                        "other": "Andere/unklar",
-                    }
-
                     if v is None:
                         v = "keine Angabe"
                     elif isinstance(v, str):
                         vv = v.strip()
                         if vv == "":
                             v = "keine Angabe"
-                        else:
-                            v = canonical_map.get(vv.lower(), vv)
-
-                    # Final guard: choose must be one of the component's choices (case-insensitive fallback).
-                    try:
-                        comp = field_components.get("anticoag_indication")
-                        choices = list(getattr(comp, "choices", []) or [])
-                    except Exception:
-                        choices = []
-
-                    if choices:
-                        if v not in choices:
-                            # try case-insensitive match to tolerate capitalization changes
-                            v_low = str(v).strip().lower()
-                            for ch in choices:
-                                if str(ch).strip().lower() == v_low:
-                                    v = ch
-                                    break
-
-                        if v not in choices:
-                            # safest downgrade
-                            v = "Andere/unklar" if "Andere/unklar" in choices else choices[0]
-
+                        # tolerate short/legacy variants
+                        elif vv.lower() in ("af", "a.f.", "atrial fibrillation"):
+                            v = "Vorhofflimmern"
                 if k == "anemia_type" and isinstance(v, str):
                     v_map = {
                         "microcytic": "mikrozytär",
@@ -2675,7 +1946,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                         "other": "unklar",
                     }
                     v = v_map.get(v, v)
-                v = _coerce_for_component(k, v)
                 out.append(v)
             return out
 
@@ -3053,58 +2323,41 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
 
         # --- Clear all (Befunde leeren) ---
-        # Reset inputs to safe defaults and clear all outputs/state.
-        # IMPORTANT: Must return exactly len(load_outputs) values.
+        # Reset inputs to their initial default values and clear all outputs/state.
         load_outputs = [*input_components, *generate_outputs]
+        _DEFAULT_INPUT_VALUES = [c.value for c in input_components]
+        _INIT_CHOICES_LVL1 = getattr(modules_lvl1_comp, "choices", None)
+        _INIT_CHOICES_LVL2 = getattr(modules_lvl2_comp, "choices", None)
+        _INIT_CHOICES_LVL3 = getattr(modules_lvl3_comp, "choices", None)
 
         def _clear_all():
-            # Inputs: build empty UI dict and let apply_ui_to_components normalize legacy/defaults.
-            empty_ui = {k: None for k in input_keys}
-            for lk in ("meds", "comorbidities", "modules", "modules_lvl1", "modules_lvl2", "modules_lvl3"):
-                if lk in empty_ui:
-                    empty_ui[lk] = []
-            # Dropdowns that must never be invalid (avoid "value not in choices" crashes)
-            empty_ui["anticoag_indication"] = "keine Angabe"
-
-            vals = apply_ui_to_components(empty_ui)
-
-            flags0 = {"dirty": False, "saved_at": None, "has_report": False, "report_stale": False, "warnings": []}
-
-            # Reset module UI deterministically
-            modules_lvl1_update = gr.update(choices=[], value=[])
-            modules_lvl2_update = gr.update(choices=[], value=[])
-            modules_lvl3_update = gr.update(choices=base_module_choices, value=[])
+            # Inputs
+            vals = list(_DEFAULT_INPUT_VALUES)
 
             # Outputs (mirror generate_outputs order)
             cleared_outputs = (
                 None, None, None, None, None, None,  # auto_mpap..auto_dpg
                 build_dashboard_html(None),           # dashboard
-                "", "", "", "",                       # out_doc, out_pat, out_echo_pat, out_int
-                "{}",                                 # out_summary_json
-                "{}",                                 # out_json
-                "", "", "",                           # copy_*_plain
-                "", "", "",                           # copy_*_html
-                "",                                   # copy_feedback
-                None,                                 # state_case
-                flags0,                                # state_flags
+                "", "", "", "",                    # out_doc, out_pat, out_echo_pat, out_int
+                "{}",                               # out_summary_json
+                "{}",                               # out_json
+                "", "", "",                         # copy payloads
+                "",                                  # copy feedback
+                None,                                # state_case
+                {"dirty": False, "saved_at": None, "has_report": False, "report_stale": False, "warnings": []},  # state_flags
                 {"lvl1": [], "lvl2": [], "lvl3": []},  # state_pmods_selected
-                modules_lvl1_update,
-                modules_lvl2_update,
-                modules_lvl3_update,
-                "",                                   # modules_disabled_html
-                build_sticky_summary_html(None, flags0),
-                "",                                   # compare_overview_html
-                "",                                   # modules_cards_html
+                gr.update(choices=_INIT_CHOICES_LVL1, value=[]),
+                gr.update(choices=_INIT_CHOICES_LVL2, value=[]),
+                gr.update(choices=_INIT_CHOICES_LVL3, value=[]),
+                "",                                  # modules_disabled_html
+                build_sticky_summary_html(None, {"dirty": False, "saved_at": None, "has_report": False, "report_stale": False, "warnings": []}),
+                "",                                  # compare overview
+                "",                                  # module cards
             )
             return (*vals, *cleared_outputs)
 
-        try:
-            btn_clear_top.click(_clear_all, inputs=[], outputs=load_outputs, queue=False)
-            btn_clear_bottom.click(_clear_all, inputs=[], outputs=load_outputs, queue=False)
-        except TypeError:
-            # Older Gradio builds may not support queue=...
-            btn_clear_top.click(_clear_all, inputs=[], outputs=load_outputs)
-            btn_clear_bottom.click(_clear_all, inputs=[], outputs=load_outputs)
+        btn_clear_top.click(_clear_all, inputs=[], outputs=load_outputs)
+        btn_clear_bottom.click(_clear_all, inputs=[], outputs=load_outputs)
 
 
         # --- Clear / reset ---
@@ -3218,7 +2471,63 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_generate, inputs=[state_flags] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
-        # Copy-to-Word buttons are handled by the HEAD script (cross-browser; no Gradio _js dependency).
+        # --- Copy buttons (Word-friendly: HTML + plain fallback) ---
+        _COPY_WORD_JS = r"""async (html, plain) => {
+            const h = (html === undefined || html === null) ? "" : String(html);
+            const t = (plain === undefined || plain === null) ? "" : String(plain);
+
+            const fallbackCopyText = () => {
+                const ta = document.createElement("textarea");
+                ta.value = t;
+                ta.style.position = "fixed";
+                ta.style.left = "-9999px";
+                ta.style.top = "0";
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                const ok = document.execCommand("copy");
+                document.body.removeChild(ta);
+                return ok;
+            };
+
+            // Prefer rich HTML for Word (text/html) and also provide text/plain.
+            try {
+                if (navigator.clipboard && navigator.clipboard.write && window.ClipboardItem) {
+                    const blobHtml = new Blob([h], { type: "text/html" });
+                    const blobText = new Blob([t], { type: "text/plain" });
+                    const item = new ClipboardItem({ "text/html": blobHtml, "text/plain": blobText });
+                    await navigator.clipboard.write([item]);
+                    return "✅ Formatiert für Word kopiert.";
+                }
+            } catch (e) {
+                // fall back
+            }
+
+            // Fallback: plain text
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(t);
+                    return "✅ Als Text kopiert (Browser erlaubt kein formatiertes Kopieren).";
+                }
+            } catch (e) {
+                // fall back
+            }
+
+            try {
+                const ok = fallbackCopyText();
+                return ok ? "✅ Als Text kopiert (Fallback)." : "⚠️ Konnte nicht automatisch kopieren.";
+            } catch (e) {
+                return "⚠️ Konnte nicht automatisch kopieren.";
+            }
+        }"""
+
+        try:
+            btn_copy_doc.click(fn=None, inputs=[copy_doc_html, copy_doc_plain], outputs=[copy_feedback], _js=_COPY_WORD_JS)
+            btn_copy_pat.click(fn=None, inputs=[copy_pat_html, copy_pat_plain], outputs=[copy_feedback], _js=_COPY_WORD_JS)
+            btn_copy_rhk.click(fn=None, inputs=[copy_rhk_html, copy_rhk_plain], outputs=[copy_feedback], _js=_COPY_WORD_JS)
+        except Exception:
+            # If JS hooks are not supported in a given Gradio build, the buttons will no-op.
+            pass
 
 
     return demo, CSS, theme

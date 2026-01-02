@@ -37,7 +37,7 @@ except Exception:  # pragma: no cover
 # =============================================================================
 
 APP_NAME = "RHK Befundassistent"
-APP_VERSION = "v25.8.19"
+APP_VERSION = "v25.8.13"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 WHATS_NEW = (
     "Neu: Plausibilitätschecks mit Warnsystem (robust, blockiert Befund nicht) · "
