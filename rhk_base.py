@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RHK Befundassistent (Web) – v25.0 (flat)
+RHK Befundassistent (Web) – v25.8.9 (split)
 
 - Ultra-interaktiver Gradio-Assistenzbogen für RHK-/PH-Befunde
 - Deklaratives Regelwerk (YAML) zur Guideline-nahen Klassifikation, Modulen & Empfehlungen
@@ -37,9 +37,15 @@ except Exception:  # pragma: no cover
 # =============================================================================
 
 APP_NAME = "RHK Befundassistent"
-APP_VERSION = "v25.8.5"
+APP_VERSION = "v25.8.19"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
-WHATS_NEW = "Neu: PH-Status exklusiv (Diagnose vs Verdacht) · Beispiel-Fälle: PH-Details automatisch gefüllt · Build 31.12.2025"
+WHATS_NEW = (
+    "Neu: Plausibilitätschecks mit Warnsystem (robust, blockiert Befund nicht) · "
+    "Neu: Regelwerk-Explainability im Debug (ausgelöste Regeln + Fehler) · "
+    "Neu: YAML Snapshot Tests (Regression-Schutz für Beispiel-Fälle) · "
+    "Fix: UI-Rendering stabil (kein Viewport-Zwang standardmäßig) · "
+    "Build 02.01.2026"
+)
 
 
 # =============================================================================
@@ -84,6 +90,8 @@ RHK_HEADER_HTML = f"""
     /* Hier ist der Trick: Max-Width verhindert, dass er auf 4k Monitoren "dünn" aussieht */
     max-width: 1600px; 
     position: relative;
+    /* Ensure predictable stacking across browsers (prevents washed-out text) */
+    isolation: isolate;
     overflow: hidden;
 
     display: grid;
@@ -119,8 +127,16 @@ RHK_HEADER_HTML = f"""
         radial-gradient(circle at 0% 0%, var(--primary-glow), transparent 40%),
         radial-gradient(circle at 100% 100%, rgba(139, 92, 246, 0.15), transparent 40%);
     filter: blur(40px);
-    z-index: -1;
+    /* Keep the aurora behind content, never above text */
+    z-index: 0;
     opacity: 0.8;
+    pointer-events: none;
+}}
+
+/* Content above the aurora layer */
+.rhk-left-section, .rhk-right-section, .rhk-text-content {{
+    position: relative;
+    z-index: 1;
 }}
 
 /* --- Linke Sektion (Logo & Text) --- */
@@ -158,14 +174,15 @@ RHK_HEADER_HTML = f"""
     font-size: clamp(24px, 1.8vw, 32px);
     font-weight: 800;
     letter-spacing: -0.03em;
-    color: var(--text-main);
+    /* Explicit colors to avoid variable collisions with framework themes */
+    color: #0f172a !important;
     white-space: nowrap;
 }}
 
 .rhk-sub-title {{
     font-size: clamp(15px, 1vw, 18px);
     font-weight: 600;
-    color: var(--text-muted);
+    color: rgba(15, 23, 42, 0.65) !important;
     margin-top: 2px;
 }}
 
@@ -176,7 +193,7 @@ RHK_HEADER_HTML = f"""
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #64748b;
+    color: #64748b !important;
 }}
 
 /* --- Rechte Sektion (Status Badges) --- */
@@ -1219,6 +1236,171 @@ class Decision:
     leading_action: Optional[str] = None
 
 
+
+@dataclass
+class WarningItem:
+    code: str
+    severity: str  # "info" | "warn" | "error"
+    message: str
+    fields: List[str] = field(default_factory=list)
+    values: Dict[str, Any] = field(default_factory=dict)
+
+
+def collect_plausibility_warnings(ui: Dict[str, Any], derived: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Sammelt Plausibilitätswarnungen für Eingaben und abgeleitete Werte.
+
+    Prinzipien:
+    - **Kein Hard-Fail**: Warnungen blockieren die Befunderstellung nicht.
+    - **Konservativ**: Nur klare Ausreißer/Inkonsistenzen markieren.
+    - **Backwards compatible**: Fehlende Felder führen höchstens zu 'info'-Hinweisen.
+
+    Rückgabe:
+    - Liste aus dicts (JSON-freundlich): {code, severity, message, fields, values}
+    """
+    items: List[WarningItem] = []
+
+    def add(code: str, severity: str, message: str, fields: Optional[List[str]] = None, values: Optional[Dict[str, Any]] = None) -> None:
+        items.append(WarningItem(
+            code=str(code),
+            severity=str(severity),
+            message=str(message),
+            fields=list(fields or []),
+            values=dict(values or {}),
+        ))
+
+    def rng(name: str, val: Optional[float], lo: float, hi: float, severity: str = "warn") -> None:
+        if val is None:
+            return
+        if val < lo or val > hi:
+            add(
+                code=f"range_{name}",
+                severity=severity,
+                message=f"{name} liegt außerhalb eines plausiblen Bereichs ({lo}–{hi}). Bitte prüfen.",
+                fields=[name],
+                values={name: val},
+            )
+
+    # --- Demografie / Vitalparameter ---
+    rng("age", _safe_float(ui.get("age")), 0, 110, severity="warn")
+    rng("height_cm", _safe_float(ui.get("height_cm")), 120, 220, severity="warn")
+    rng("weight_kg", _safe_float(ui.get("weight_kg")), 30, 250, severity="warn")
+    rng("bp_sys", _safe_float(ui.get("bp_sys")), 70, 240, severity="warn")
+    rng("bp_dia", _safe_float(ui.get("bp_dia")), 30, 150, severity="warn")
+    rng("hr", _safe_float(ui.get("hr")), 30, 220, severity="warn")
+
+    # --- RHK Ruhe Hämodynamik ---
+    spap = _safe_float(ui.get("spap_rest"))
+    dpap = _safe_float(ui.get("dpap_rest"))
+    mpap_in = _safe_float(ui.get("mpap_rest"))
+    mpap_calc = _safe_float(derived.get("mpap_calc"))
+    mpap = _safe_float(derived.get("mpap_rest"))
+    pawp = _safe_float(ui.get("pawp_rest"))
+    rap = _safe_float(ui.get("rap_rest"))
+    co = _safe_float(derived.get("co_rest"))
+    ci = _safe_float(derived.get("ci_rest"))
+    pvr = _safe_float(derived.get("pvr_rest"))
+
+    rng("spap_rest", spap, 5, 140, severity="warn")
+    rng("dpap_rest", dpap, 0, 80, severity="warn")
+    rng("mpap_rest", mpap, 0, 100, severity="warn")
+    rng("pawp_rest", pawp, 0, 40, severity="warn")
+    rng("rap_rest", rap, 0, 30, severity="warn")
+    rng("co_rest", co, 1, 15, severity="warn")
+    rng("ci_rest", ci, 1, 8, severity="warn")
+    rng("pvr_rest", pvr, 0, 30, severity="warn")
+
+    # Inkonsistenzen
+    if spap is not None and dpap is not None and dpap > spap:
+        add(
+            code="hemo_spap_dpap_order",
+            severity="error",
+            message="sPAP ist kleiner als dPAP. Bitte Werte prüfen (Reihenfolge/Einheit).",
+            fields=["spap_rest", "dpap_rest"],
+            values={"spap_rest": spap, "dpap_rest": dpap},
+        )
+
+    if mpap_in is not None and mpap_calc is not None:
+        try:
+            diff = abs(float(mpap_in) - float(mpap_calc))
+            if diff >= 7:
+                add(
+                    code="hemo_mpap_mismatch",
+                    severity="warn",
+                    message="Eingegebener mPAP weicht deutlich vom aus sPAP/dPAP berechneten mPAP ab. Bitte prüfen.",
+                    fields=["mpap_rest", "spap_rest", "dpap_rest"],
+                    values={"mpap_rest": mpap_in, "mpap_calc": mpap_calc},
+                )
+        except Exception:
+            pass
+
+    if mpap is not None and pawp is not None and pawp > mpap:
+        add(
+            code="hemo_pawp_gt_mpap",
+            severity="warn",
+            message="PAWP ist größer als mPAP. Das ist ungewöhnlich und sollte geprüft werden.",
+            fields=["pawp_rest", "mpap_rest"],
+            values={"pawp_rest": pawp, "mpap_rest": mpap},
+        )
+
+    # PVR aus Eingabe vs. berechnet (falls beides vorhanden)
+    pvr_in = _safe_float(ui.get("pvr_rest"))
+    pvr_calc = _safe_float(derived.get("pvr_calc"))
+    if pvr_in is not None and pvr_calc is not None:
+        try:
+            diff = abs(float(pvr_in) - float(pvr_calc))
+            if diff >= 1.5:
+                add(
+                    code="hemo_pvr_mismatch",
+                    severity="warn",
+                    message="Eingegebene PVR weicht deutlich von der aus mPAP/PAWP/CO berechneten PVR ab. Bitte prüfen.",
+                    fields=["pvr_rest", "mpap_rest", "pawp_rest", "co_rest"],
+                    values={"pvr_rest": pvr_in, "pvr_calc": pvr_calc},
+                )
+        except Exception:
+            pass
+
+    # --- Sättigungen ---
+    for k in ("sat_svc", "sat_ivc", "sat_ra", "sat_rv", "sat_pa", "sat_ao"):
+        v = _safe_float(ui.get(k))
+        if v is None:
+            continue
+        if v < 0 or v > 100:
+            add(
+                code=f"range_{k}",
+                severity="error",
+                message=f"{k} liegt außerhalb 0–100%. Bitte prüfen.",
+                fields=[k],
+                values={k: v},
+            )
+
+    # --- Echo (nur grob) ---
+    rng("lvef", _safe_float(ui.get("lvef")), 10, 80, severity="warn")
+    rng("tapse_mm", _safe_float(ui.get("tapse_mm")), 5, 30, severity="warn")
+    rng("s_prime_cm_s", _safe_float(ui.get("s_prime_cm_s")), 3, 25, severity="warn")
+    rng("pasp_echo", _safe_float(ui.get("pasp_echo")), 10, 120, severity="warn")
+    rng("trv_ms", _safe_float(ui.get("trv_ms")), 1.0, 6.0, severity="warn")
+    rng("ra_esa_cm2", _safe_float(ui.get("ra_esa_cm2")), 5, 40, severity="warn")
+    rng("ee_ratio", _safe_float(ui.get("ee_ratio")), 1, 30, severity="warn")
+
+    # Interpretations-Hinweise (konservativ)
+    if _safe_float(ui.get("pasp_echo")) is not None and _safe_float(ui.get("trv_ms")) is None:
+        add(
+            code="echo_pasp_without_trv",
+            severity="info",
+            message="sPAP (Echo) ist angegeben, TRV jedoch nicht. Die Einordnung im Echo kann dadurch eingeschränkt sein.",
+            fields=["pasp_echo", "trv_ms"],
+            values={"pasp_echo": _safe_float(ui.get('pasp_echo'))},
+        )
+
+    # Serialisieren als dicts
+    return [asdict(i) for i in items]
+
+
+@dataclass
+class RuleTrace:
+    fired: List[Dict[str, Any]] = field(default_factory=list)
+    errors: List[Dict[str, Any]] = field(default_factory=list)
+
 # --- Safe boolean expression evaluator (no builtins, no calls) ----------------
 
 class SafeExprError(Exception):
@@ -1329,45 +1511,81 @@ def load_rulebook(path: str) -> List[Rule]:
     return rules
 
 
-def apply_rule_engine(env: Dict[str, Any], rules: List[Rule]) -> Decision:
+
+def apply_rule_engine_trace(env: Dict[str, Any], rules: List[Rule]) -> Tuple[Decision, RuleTrace]:
+    """Wendet das Regelwerk an und liefert zusätzlich eine nachvollziehbare Trace.
+
+    Trace enthält:
+    - fired: ausgelöste Regeln in Evaluationsreihenfolge
+    - errors: Regeln, die wegen Parse-/Eval-Fehlern übersprungen wurden
+    """
     d = Decision(bundle="K00", primary_dx="Kein Hinweis auf PH")
+    trace = RuleTrace()
+
     for rule in rules:
+        matched = False
         try:
-            if safe_eval_bool(rule.when, env):
-                then = rule.then or {}
-
-                if "set_bundle" in then:
-                    d.bundle = str(then["set_bundle"])
-                if "set_primary_dx" in then:
-                    d.primary_dx = str(then["set_primary_dx"])
-                if "set_leading_cause" in then:
-                    d.leading_cause = str(then["set_leading_cause"])
-                if "set_leading_action" in then:
-                    d.leading_action = str(then["set_leading_action"])
-
-                if "add_modules" in then:
-                    for m in then.get("add_modules") or []:
-                        if m not in d.modules:
-                            d.modules.append(m)
-
-                if "add_recommendations" in then:
-                    for rec in then.get("add_recommendations") or []:
-                        if rec and rec not in d.recommendations:
-                            d.recommendations.append(str(rec))
-
-                if "require_fields" in then:
-                    for fld in then.get("require_fields") or []:
-                        if fld not in d.require_fields:
-                            d.require_fields.append(str(fld))
-
-                if "add_tags" in then:
-                    for t in then.get("add_tags") or []:
-                        if t and t not in d.tags:
-                            d.tags.append(str(t))
-
-        except Exception:
-            # Never crash on rule evaluation.
+            matched = safe_eval_bool(rule.when, env)
+        except Exception as e:
+            trace.errors.append(
+                {
+                    "id": rule.id,
+                    "priority": rule.priority,
+                    "when": rule.when,
+                    "error": str(e),
+                }
+            )
             continue
+
+        if not matched:
+            continue
+
+        trace.fired.append(
+            {
+                "id": rule.id,
+                "priority": rule.priority,
+                "when": rule.when,
+                "then": rule.then,
+            }
+        )
+
+        then = rule.then or {}
+
+        if "set_bundle" in then:
+            d.bundle = str(then["set_bundle"])
+        if "set_primary_dx" in then:
+            d.primary_dx = str(then["set_primary_dx"])
+        if "set_leading_cause" in then:
+            d.leading_cause = str(then["set_leading_cause"])
+        if "set_leading_action" in then:
+            d.leading_action = str(then["set_leading_action"])
+
+        if "add_modules" in then:
+            for m in then.get("add_modules") or []:
+                if m not in d.modules:
+                    d.modules.append(m)
+
+        if "add_recommendations" in then:
+            for rec in then.get("add_recommendations") or []:
+                if rec and rec not in d.recommendations:
+                    d.recommendations.append(str(rec))
+
+        if "require_fields" in then:
+            for fld in then.get("require_fields") or []:
+                if fld not in d.require_fields:
+                    d.require_fields.append(str(fld))
+
+        if "add_tags" in then:
+            for t in then.get("add_tags") or []:
+                if t and t not in d.tags:
+                    d.tags.append(str(t))
+
+    return d, trace
+
+
+def apply_rule_engine(env: Dict[str, Any], rules: List[Rule]) -> Decision:
+    # Backwards compatible wrapper
+    d, _trace = apply_rule_engine_trace(env, rules)
     return d
 
 

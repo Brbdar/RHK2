@@ -11,7 +11,7 @@ Enthält:
 from __future__ import annotations
 
 from rhk_base import *  # noqa: F401,F403
-from rhk_ui import build_demo, _gradio_major_version, JS_ON_LOAD, HEAD_HTML  # noqa: F401
+from rhk_ui import build_demo, JS_ON_LOAD, HEAD_HTML  # noqa: F401
 
 # =============================================================================
 # Main
@@ -90,8 +90,35 @@ def main():
     _require_gradio_version(5)
 
     demo, css, theme = build_demo()
-    major = _gradio_major_version()
     cloud = _is_cloud_runtime()
+
+    def _launch_with_compat(_demo, _kwargs: Dict[str, Any]) -> None:
+        """Launch with best-effort support across Gradio 5.x/6.x.
+
+        Depending on Gradio version, theme/css/js/head may be accepted either in
+        Blocks() or in launch(). We try them in launch() first and gracefully
+        drop unsupported keys.
+        """
+        drop_plans = [
+            [],
+            ["head"],
+            ["head", "js"],
+            ["head", "js", "css"],
+            ["head", "js", "css", "theme"],
+        ]
+        last_err = None
+        for drop in drop_plans:
+            try:
+                k = dict(_kwargs)
+                for kk in drop:
+                    k.pop(kk, None)
+                _demo.launch(**k)
+                return
+            except TypeError as e:
+                last_err = e
+                continue
+        if last_err:
+            raise last_err
 
     if cloud:
         # Render expects 0.0.0.0:$PORT exactly
@@ -106,23 +133,18 @@ def main():
             "share": False,
         }
 
-        if (not major) or major >= 6:
-            launch_kwargs.update(
-                {
-                    "theme": theme,
-                    "css": css,
-                    "js": JS_ON_LOAD,
-                    "head": HEAD_HTML,
-                }
-            )
+        # Always try to pass UI assets into launch(). If unsupported, we drop them.
+        # (Blocks() also tries to accept them; see rhk_ui.build_demo)
+        launch_kwargs.update(
+            {
+                "theme": theme,
+                "css": css,
+                "js": JS_ON_LOAD,
+                "head": HEAD_HTML,
+            }
+        )
 
-        try:
-            demo.launch(**launch_kwargs)
-        except TypeError:
-            # Older Gradio: drop head/js first
-            launch_kwargs.pop("head", None)
-            launch_kwargs.pop("js", None)
-            demo.launch(**launch_kwargs)
+        _launch_with_compat(demo, launch_kwargs)
 
         return
 
@@ -139,22 +161,26 @@ def main():
         "share": False,
     }
 
-    if (not major) or major >= 6:
-        launch_kwargs.update(
-            {
-                "theme": theme,
-                "css": css,
-                "js": JS_ON_LOAD,
-                "head": HEAD_HTML,
-            }
-        )
+    launch_kwargs.update(
+        {
+            "theme": theme,
+            "css": css,
+            "js": JS_ON_LOAD,
+            "head": HEAD_HTML,
+        }
+    )
 
     try:
+        # local: keep existing port/proxy fallbacks
         _safe_launch_local(demo, launch_kwargs)
     except TypeError:
-        launch_kwargs.pop("head", None)
-        launch_kwargs.pop("js", None)
-        _safe_launch_local(demo, launch_kwargs)
+        # Some Gradio builds reject theme/css/js/head in launch(); try compat drops
+        # but still keep the port fallback behaviour.
+        try:
+            _launch_with_compat(demo, launch_kwargs)
+        except OSError:
+            launch_kwargs["server_port"] = 0
+            _launch_with_compat(demo, launch_kwargs)
 
 
 if __name__ == "__main__":

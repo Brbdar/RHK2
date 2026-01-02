@@ -1,9 +1,10 @@
-# RHK Befundassistent – v25.1 (flat)
+# RHK Befundassistent – v25.8.9 (split)
 
-## Neu in v25.1
-- Befunde leeren: setzt Inputs, Outputs und Case-State zuverlässig zurück
-- Tabs: keine .../Overflow-Menüs, Tab-Titel werden vollständig angezeigt
-- Header: kompakte Neu-Zeile direkt unter dem Titel
+## Neu in v25.8.9
+- Plausibilitätschecks mit Warnsystem (blockiert Befund nicht)
+- Regelwerk-Explainability im Debug (ausgelöste Regeln + Fehler)
+- YAML Snapshot Tests für Beispiel-Fälle (Regression-Schutz)
+- UI-Rendering stabil: kein Viewport-Zwang standardmäßig (optional per ENV)
 
 Eine **Gradio-Web-App** zur strukturierten Auswertung von Rechtsherzkatheter-Daten (RHK) inkl.:
 
@@ -23,15 +24,16 @@ Eine **Gradio-Web-App** zur strukturierten Auswertung von Rechtsherzkatheter-Dat
 
 > Hinweis: v25.0 ist primär ein UX-/Robustheits-Release; die klinische Logik entspricht inhaltlich weitgehend v24.16.
 
-## Desktop-only (erzwungen)
+## Desktop-only (optional)
 
 Diese App ist bewusst für **Desktop/Laptop** optimiert (viele Eingaben, breite Tabs).  
-Beim Laden wird auf **kleinen Bildschirmen** automatisch ein Overlay angezeigt und die Nutzung blockiert.
+Optional kann auf **kleinen Bildschirmen** ein Overlay angezeigt werden, das die Nutzung blockiert.
 
-**Optional (nur zum Testen):**
-- `RHK_DESKTOP_ONLY=0` deaktiviert die Blockade
+**Konfiguration:**
+- `RHK_DESKTOP_ONLY=1` aktiviert die Blockade (Standard: aus)
 - `RHK_DESKTOP_MIN_WIDTH=1100` setzt die Mindestbreite (in px)
-- `RHK_DESKTOP_VIEWPORT_WIDTH=1200` setzt die „Desktop-Viewport“-Breite auf Mobilgeräten (in px)
+- `RHK_FORCE_DESKTOP_VIEWPORT=1` injiziert optional eine „Desktop-Viewport“-Breite (Default: aus)
+- `RHK_DESKTOP_VIEWPORT_WIDTH=1200` setzt die Viewport-Breite (in px)
 
 ---
 
@@ -48,6 +50,22 @@ python rhk_app_web_master.py
 ```
 
 Danach läuft ein lokaler Webserver (Standard: `http://127.0.0.1:7860`).
+
+## Snapshot Tests (Regelwerk Regression)
+
+Die Datei `tests/rules_snapshot.py` erzeugt/vergleicht Snapshots der Regelwerk-Outputs für definierte Beispiel-Fälle.
+
+### Vergleich gegen bestehende Snapshots
+
+```bash
+python tests/rules_snapshot.py
+```
+
+### Snapshots aktualisieren (bewusst, nach Regeländerungen)
+
+```bash
+python tests/rules_snapshot.py --update
+```
 
 ---
 

@@ -231,7 +231,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
         klinik_lines.append(_md_kv("LTX-Evaluation", f"{ltx}{extra}"))
 
     if not klinik_lines:
-        klinik_lines.append("_Keine klinischen Angaben erfasst._")
+        klinik_lines.append("Keine klinischen Angaben erfasst.")
 
     parts.append(_md_section("Klinik", klinik_lines))
 
@@ -288,7 +288,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
     elif isinstance(cong_org, str) and cong_org.lower().startswith("nein"):
         lab_tail_lines.append("Hinweis auf congestive Organopathie: nein")
 
-    lab_flow = "; ".join(lab_items) if lab_items else "_Keine Laborwerte erfasst._"
+    lab_flow = "; ".join(lab_items) if lab_items else "Keine Laborwerte erfasst."
     lab_section = "### Labor\n" + lab_flow
     if lab_tail_lines:
         lab_section += "\n\n" + "\n".join(lab_tail_lines)
@@ -394,7 +394,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
             img_lines.append(_md_kv("CMR", "durchgeführt (keine Details angegeben)"))
 
     if not img_lines:
-        img_lines.append("_Keine Bildgebung/Echo/CMR-Angaben._")
+        img_lines.append("Keine Bildgebung oder Echo oder CMR Angaben erfasst.")
 
     parts.append(_md_section("Bildgebung / Echo / CMR", img_lines))
 
@@ -439,7 +439,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
         if rv is not None:
             lufu_items.append(f"Residualvolumen (RV): {_fmt(rv,2)} l")
 
-        lufu_flow = "; ".join(lufu_items) if lufu_items else "_Lungenfunktion durchgeführt (Details nicht angegeben)._"
+        lufu_flow = "; ".join(lufu_items) if lufu_items else "Lungenfunktion durchgeführt (Details nicht angegeben)."
         lufu_section = "### Lungenfunktion\n" + lufu_flow
 
         summ = (ui.get("lufu_summary") or "").strip()
@@ -448,7 +448,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
 
         parts.append(lufu_section)
     else:
-        parts.append("### Lungenfunktion\n_Keine Lungenfunktion erfasst._")
+        parts.append("### Lungenfunktion\nKeine Lungenfunktion erfasst.")
 
     # Join sections
     return "\n\n".join([p for p in parts if p]).strip()
@@ -607,7 +607,7 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
             risk_lines.append(_md_kv("REVEAL Lite 2", f"{pts_txt} Punkte ({cat_de})"))
     if der.get("hfpef_category"):
         risk_lines.append(_md_kv("HFpEF (H2FPEF)", f"{der['hfpef_category']} (~{_fmt(der.get('hfpef_percent'),0)}%)"))
-    risk_block = "\n".join(risk_lines) if risk_lines else "_Keine Risikostratifizierung möglich (Daten fehlen)._"
+    risk_block = "\n".join(risk_lines) if risk_lines else "Keine Risikostratifizierung möglich (Daten fehlen)."
 
     # Modules (engine + user selected) – fallbasiert sortiert + ggf. gefiltert
     selected = _normalize_module_ids(ui.get("modules") or [])
@@ -756,19 +756,37 @@ def _stable_patient_seed(case: Dict[str, Any]) -> int:
 
 
 def _patient_name(ui: Dict[str, Any]) -> str:
-    first = (ui.get("firstname") or "").strip()
-    last = (ui.get("name") or "").strip()
+    # Support multiple possible UI key names (historic variants)
+    first = ""
+    for k in ("firstname", "first_name", "vorname", "first"):
+        v = ui.get(k)
+        if isinstance(v, str) and v.strip():
+            first = v.strip()
+            break
+
+    last = ""
+    for k in ("name", "lastname", "last_name", "nachname", "surname"):
+        v = ui.get(k)
+        if isinstance(v, str) and v.strip():
+            last = v.strip()
+            break
+
     full = (first + " " + last).strip()
     return full
 
 
+
 def _patient_salutation(ui: Dict[str, Any], rng: random.Random) -> str:
+    """Returns a stable, formal salutation.
+
+    Patient-facing report templates predominantly use formal address (Sie/Ihre).
+    Randomly switching between "Hallo" and "Guten Tag" caused an inconsistent
+    register (Hallo + Sie), which is confusing for patients.
+    """
     name = _patient_name(ui)
     if name:
-        base = [f"Guten Tag {name},", f"Hallo {name},"]
-    else:
-        base = ["Guten Tag,", "Hallo,"]
-    return rng.choice(base)
+        return f"Guten Tag {name},"
+    return "Guten Tag,"
 
 
 def _load_patient_textdb() -> Tuple[Dict[str, Any], Dict[str, List[str]], Dict[str, str], Dict[str, str]]:
@@ -794,6 +812,301 @@ def _load_patient_textdb() -> Tuple[Dict[str, Any], Dict[str, List[str]], Dict[s
         except Exception:
             continue
     return {}, {}, {}, {}
+
+
+def _load_echo_patient_textdb() -> Tuple[Dict[str, Any], Dict[str, str]]:
+    """Loads echo patient-facing text blocks if available (flat file, no folders)."""
+    import sys
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+
+    for mod_name in ("rhk_textdb_echo_patient",):
+        try:
+            mod = __import__(mod_name)  # type: ignore
+            blocks = getattr(mod, "ECHO_PATIENT_BLOCKS", None)
+            glossary = getattr(mod, "ECHO_PATIENT_GLOSSARY", {}) or {}
+            if isinstance(blocks, dict):
+                if not isinstance(glossary, dict):
+                    glossary = {}
+                return blocks, glossary
+        except Exception:
+            continue
+    return {}, {}
+
+
+def _pick_echo_patient_template(block: Any, rng: random.Random) -> str:
+    """Pick a template variant for echo patient blocks."""
+    if block is None:
+        return ""
+    if isinstance(block, dict):
+        temps = block.get("templates")
+        if isinstance(temps, (list, tuple)) and temps:
+            return str(rng.choice(list(temps)))
+        if isinstance(temps, str) and temps.strip():
+            return str(temps)
+        if isinstance(block.get("template"), str):
+            return str(block.get("template"))
+        return ""
+
+    temps = getattr(block, "templates", None)
+    if isinstance(temps, (list, tuple)) and temps:
+        return str(rng.choice(list(temps)))
+    if isinstance(temps, str) and temps.strip():
+        return temps
+    templ = getattr(block, "template", None)
+    if isinstance(templ, str):
+        return templ
+    return ""
+
+
+def _render_echo_patient_text(block_id: str, blocks: Dict[str, Any], ctx: Dict[str, Any], rng: random.Random) -> str:
+    block = blocks.get(block_id)
+    templ = _pick_echo_patient_template(block, rng)
+    if not templ:
+        return ""
+    txt = templ.format_map(SafeDict(ctx)).strip()
+    txt = re.sub(r"\n{3,}", "\n\n", txt)
+    txt = re.sub(r"[ \t]{2,}", " ", txt)
+    return txt.strip()
+
+
+def build_echo_patient_report(case: Dict[str, Any]) -> str:
+    """Erstellt einen patientenfreundlichen Echo Bericht.
+
+    Ziel: Echokardiographische Werte in verständlicher Sprache einordnen.
+    Das ist ein Startbaustein und wird schrittweise erweitert.
+    """
+    ui: Dict[str, Any] = case.get("ui", {}) or {}
+    der: Dict[str, Any] = case.get("derived", {}) or {}
+
+    if not ui.get("echo_done") and not ui.get("cmr_done"):
+        return "## Echo Patientenbericht\n\nFür diesen Fall sind aktuell keine Herzultraschall oder CMR Werte dokumentiert."
+
+    blocks, glossary = _load_echo_patient_textdb()
+    rng = random.Random(_stable_patient_seed(case) + 17)
+
+    def _fmt_val(v: Any, digits: int = 0) -> str:
+        vv = _safe_float(v)
+        if vv is None:
+            return "—"
+        return _fmt(vv, digits)
+
+    # --- Values ---
+    name = _patient_name(ui)
+    sal = _patient_salutation(ui, rng)
+
+    lvef = _safe_float(ui.get("lvef"))
+    tapse = _safe_float(ui.get("tapse_mm"))
+    sprime = _safe_float(ui.get("s_prime_cm_s"))
+    pasp = _safe_float(ui.get("pasp_echo"))
+    trv = _safe_float(ui.get("trv_ms"))
+    ee = _safe_float(ui.get("ee_ratio"))
+    ra_esa = _safe_float(ui.get("ra_esa_cm2"))
+    rv_ef = _safe_float(ui.get("rv_3d_ef"))
+    if rv_ef is None:
+        rv_ef = _safe_float(ui.get("rvef"))
+
+    ivc_diam = _safe_float(ui.get("ivc_diam_mm"))
+    ivc_collapse = (ui.get("ivc_collapse") or "").strip().lower()  # "ja" / "nein"
+
+    echo_prob = (der.get("echo_probability") or "").strip().lower() or None
+
+    # --- Classifications ---
+    def _class_lvef(v: Optional[float]) -> Optional[str]:
+        if v is None:
+            return None
+        if v >= 55:
+            return "lv_normal"
+        if v >= 45:
+            return "lv_mild"
+        if v >= 35:
+            return "lv_moderate"
+        return "lv_severe"
+
+    def _class_rvef(v: Optional[float]) -> Optional[str]:
+        if v is None:
+            return None
+        if v >= 45:
+            return "rv_ef_normal"
+        if v >= 40:
+            return "rv_ef_mild"
+        if v >= 30:
+            return "rv_ef_moderate"
+        return "rv_ef_severe"
+
+    def _class_tapse(v: Optional[float]) -> Optional[str]:
+        if v is None:
+            return None
+        if v >= 17:
+            return "rv_tapse_normal"
+        if v >= 14:
+            return "rv_tapse_mild"
+        if v >= 10:
+            return "rv_tapse_moderate"
+        return "rv_tapse_severe"
+
+    def _class_sprime(v: Optional[float]) -> Optional[str]:
+        if v is None:
+            return None
+        if v >= 9.5:
+            return "rv_sprime_normal"
+        if v >= 8.0:
+            return "rv_sprime_border"
+        if v >= 6.0:
+            return "rv_sprime_reduced"
+        return "rv_sprime_severe"
+
+    def _class_pasp(v: Optional[float]) -> Optional[str]:
+        if v is None:
+            return None
+        if v < 35:
+            return "pasp_normal"
+        if v < 50:
+            return "pasp_mild"
+        if v < 70:
+            return "pasp_moderate"
+        return "pasp_severe"
+
+    def _class_ee(v: Optional[float]) -> Optional[str]:
+        if v is None:
+            return None
+        if v < 8:
+            return "ee_normal"
+        if v <= 14:
+            return "ee_intermediate"
+        return "ee_high"
+
+    def _class_ra(v: Optional[float]) -> Optional[str]:
+        if v is None:
+            return None
+        return "ra_enlarged" if v > 18 else "ra_normal"
+
+    def _class_ivc(d: Optional[float], c: str) -> Optional[str]:
+        if d is None and not c:
+            return None
+        # grobe klinische Logik
+        if d is not None and d > 21 and c == "nein":
+            return "ivc_high_rap"
+        if d is not None and d <= 21 and c == "ja":
+            return "ivc_normal"
+        return "ivc_unclear"
+
+    ctx = {
+        "salutation": sal,
+        "name": name,
+        "lvef": lvef,
+        "lvef_fmt": _fmt_val(lvef, 0),
+        "tapse": tapse,
+        "tapse_fmt": _fmt_val(tapse, 0),
+        "sprime": sprime,
+        "sprime_fmt": _fmt_val(sprime, 1),
+        "pasp": pasp,
+        "pasp_fmt": _fmt_val(pasp, 0),
+        "trv": trv,
+        "trv_fmt": _fmt_val(trv, 2),
+        "ee": ee,
+        "ee_fmt": _fmt_val(ee, 1),
+        "ra_esa": ra_esa,
+        "ra_esa_fmt": _fmt_val(ra_esa, 0),
+        "rv_ef": rv_ef,
+        "rv_ef_fmt": _fmt_val(rv_ef, 0),
+        "echo_prob": echo_prob or "—",
+        "ivc_diam": ivc_diam,
+        "ivc_diam_fmt": _fmt_val(ivc_diam, 0),
+        "ivc_collapse": ivc_collapse or "—",
+    }
+
+    parts: List[str] = []
+    parts.append("## Echo Patientenbericht")
+    parts.append(
+        _render_echo_patient_text("intro", blocks, ctx, rng)
+        or (
+            f"{sal}\n\nHier finden Sie eine verständliche Einordnung der Werte aus dem Herzultraschall. "
+            "Das hilft beim Mitlesen und Einordnen. Die endgültige Bewertung ergibt sich immer aus Beschwerden, "
+            "Laborwerten und weiteren Untersuchungen."
+        )
+    )
+
+    parts.append("### Linke Herzkammer")
+    bid = _class_lvef(lvef)
+    if bid:
+        parts.append(_render_echo_patient_text(bid, blocks, ctx, rng))
+    else:
+        parts.append("Zur Pumpfunktion der linken Herzkammer liegt aktuell kein Zahlenwert vor.")
+
+    parts.append("### Rechte Herzkammer")
+    parts.append(_render_echo_patient_text("rv_section_intro", blocks, ctx, rng) or "")
+
+    for bid in (_class_tapse(tapse), _class_sprime(sprime), _class_rvef(rv_ef)):
+        if bid:
+            txt = _render_echo_patient_text(bid, blocks, ctx, rng)
+            if txt:
+                parts.append(txt)
+
+    if not any([tapse is not None, sprime is not None, rv_ef is not None]):
+        parts.append("Zur Funktion der rechten Herzkammer liegen aktuell keine Zahlenwerte vor.")
+
+    parts.append("### Abschätzung des Drucks in den Lungengefäßen")
+    parts.append(_render_echo_patient_text("pasp_section_intro", blocks, ctx, rng) or "")
+
+    bid = _class_pasp(pasp)
+    if bid:
+        parts.append(_render_echo_patient_text(bid, blocks, ctx, rng))
+    if echo_prob:
+        prob_id = f"echo_prob_{echo_prob}" if echo_prob in ("niedrig", "intermediär", "hoch") else None
+        if prob_id:
+            txt = _render_echo_patient_text(prob_id, blocks, ctx, rng)
+            if txt:
+                parts.append(txt)
+    if trv is not None:
+        parts.append(f"Die maximale TRV beträgt {ctx['trv_fmt']} m/s. Dieser Messwert wird im Ultraschall genutzt, um den Druck abzuschätzen.")
+    if pasp is None and trv is None and not echo_prob:
+        parts.append("Für die Abschätzung des Drucks liegen aktuell keine verwertbaren Echo Angaben vor.")
+
+    parts.append("### Vorhöfe und Stauungszeichen")
+    parts.append(_render_echo_patient_text("stau_section_intro", blocks, ctx, rng) or "")
+
+    bid = _class_ra(ra_esa)
+    if bid:
+        parts.append(_render_echo_patient_text(bid, blocks, ctx, rng))
+    bid = _class_ivc(ivc_diam, ivc_collapse)
+    if bid:
+        txt = _render_echo_patient_text(bid, blocks, ctx, rng)
+        if txt:
+            parts.append(txt)
+
+    parts.append("### Einordnung der Füllungsdrücke")
+    parts.append(_render_echo_patient_text("ee_section_intro", blocks, ctx, rng) or "")
+
+    bid = _class_ee(ee)
+    if bid:
+        parts.append(_render_echo_patient_text(bid, blocks, ctx, rng))
+    else:
+        parts.append("E/e ist aktuell nicht dokumentiert.")
+
+    parts.append(
+        _render_echo_patient_text("outro", blocks, ctx, rng)
+        or (
+            "### Wie geht es weiter\n\n"
+            "Wir betrachten Ultraschallwerte immer im Zusammenhang mit Beschwerden, Belastbarkeit, Laborwerten "
+            "und, wenn nötig, der Messung im Rechtsherzkatheter. Wenn Sie einzelne Begriffe nicht verstehen, "
+            "sprechen Sie uns bitte an."
+        )
+    )
+
+    # Optional: Mini Glossar (als kompakte Liste, ohne leere Zeilen zwischen Items)
+    if glossary:
+        gloss_lines: List[str] = []
+        for k in ("LVEF", "TAPSE", "sPAP", "E/e", "S'", "TRV"):
+            if k in glossary:
+                gloss_lines.append(f"• {k}: {glossary[k]}")
+        if gloss_lines:
+            parts.append("### Begriffe kurz erklärt\n" + "\n".join(gloss_lines))
+
+    txt = "\n\n".join([p for p in parts if isinstance(p, str) and p.strip()])
+    txt = re.sub(r"\n{3,}", "\n\n", txt)
+    return txt.strip()
 
 
 def _pick_patient_template(block: Any, rng: random.Random) -> str:
@@ -1179,7 +1492,7 @@ def build_patient_report(case: Dict[str, Any]) -> str:
     if hemo_items:
         lines.extend(hemo_items)
     else:
-        lines.append("_Keine Kernwerte verfügbar._")
+        lines.append("Keine Kernwerte verfügbar.")
     lines.append("")
 
     # Kurz erklärt: Was bedeuten diese Werte?
@@ -1371,7 +1684,7 @@ def build_patient_report(case: Dict[str, Any]) -> str:
             lines.append(f"- **{term}:** {glossary[term]}")
             added += 1
     if added == 0:
-        lines.append("_Keine Begriffe zu erklären._")
+        lines.append("Keine Begriffe zu erklären.")
     lines.append("")
 
     # 9) Disclaimer
@@ -1385,18 +1698,85 @@ def build_patient_report(case: Dict[str, Any]) -> str:
     return out
 
 
+
 def build_internal_report(case: Dict[str, Any]) -> str:
     env = case.get("env") or {}
     dec = case.get("decision") or {}
+    debug = case.get("debug") or {}
+    warns = case.get("warnings") or debug.get("warnings") or []
+    rule_trace = debug.get("rule_trace") or {}
+    fired = rule_trace.get("fired") or []
+    errors = rule_trace.get("errors") or []
+
     lines = [
         "## Internal Debug",
         f"- Bundle: {dec.get('bundle')}",
         f"- Primary DX: {dec.get('primary_dx')}",
         f"- Tags: {', '.join(dec.get('tags') or [])}",
-        f"- Missing: {', '.join(dec.get('missing_fields') or [])}",
+        f"- Missing (Regelwerk): {', '.join(dec.get('missing_fields') or [])}",
+        f"- Warnungen (Plausibilität): {len(warns)}",
+        "",
+        "### Plausibilitätswarnungen (Auszug)",
+    ]
+
+    if not warns:
+        lines.append("- keine")
+    else:
+        for w in warns[:12]:
+            try:
+                sev = str(w.get("severity") or "warn").upper()
+                msg = str(w.get("message") or "").strip()
+                flds = w.get("fields") or []
+                ftxt = f" (Felder: {', '.join([str(x) for x in flds])})" if flds else ""
+                lines.append(f"- [{sev}] {msg}{ftxt}")
+            except Exception:
+                continue
+        if len(warns) > 12:
+            lines.append(f"- … weitere {len(warns) - 12} Warnungen")
+
+    lines += [
+        "",
+        "### Regelwerk – Trace",
+        f"- Ausgelöste Regeln: {len(fired)}",
+        f"- Regel-Fehler: {len(errors)}",
+        "",
+        "#### Ausgelöste Regeln (Auszug)",
+    ]
+
+    if not fired:
+        lines.append("- keine")
+    else:
+        for r in fired[:20]:
+            try:
+                rid = r.get("id")
+                pr = r.get("priority")
+                wh = str(r.get("when") or "")
+                wh_short = (wh[:160] + "…") if len(wh) > 160 else wh
+                lines.append(f"- {rid} (prio {pr}): {wh_short}")
+            except Exception:
+                continue
+        if len(fired) > 20:
+            lines.append(f"- … weitere {len(fired) - 20} Regeln")
+
+    if errors:
+        lines += ["", "#### Regel-Fehler (Auszug)"]
+        for e in errors[:12]:
+            try:
+                rid = e.get("id")
+                pr = e.get("priority")
+                err = str(e.get("error") or "")
+                err_short = (err[:180] + "…") if len(err) > 180 else err
+                lines.append(f"- {rid} (prio {pr}): {err_short}")
+            except Exception:
+                continue
+        if len(errors) > 12:
+            lines.append(f"- … weitere {len(errors) - 12} Fehler")
+
+    lines += [
         "",
         "### Env (Auszug)",
     ]
+
     keys = [
         "mpap", "pawp_rest", "pvr", "ci", "tpg", "dpg",
         "hemo_category", "precap", "ipcph", "cpcph",
@@ -1405,6 +1785,7 @@ def build_internal_report(case: Dict[str, Any]) -> str:
         "mpap_co_slope", "pawp_co_slope", "exercise_pattern",
         "adaptation_type",
         "s_prime_raai",
+        "warnings_count",
     ]
     for k in keys:
         lines.append(f"- {k}: {env.get(k)}")
@@ -1415,7 +1796,7 @@ def build_internal_report(case: Dict[str, Any]) -> str:
 # Random example generation (now with lab constellations)
 # =============================================================================
 
-def random_example() -> Dict[str, Any]:
+def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -> Dict[str, Any]:
     """
     Liefert ein zufälliges, aber in sich stimmiges Beispiel.
 
@@ -1426,6 +1807,9 @@ def random_example() -> Dict[str, Any]:
     """
     today = _dt.date.today()
 
+    rng = random if seed is None else random.Random(int(seed))
+
+
     scenarios = [
         "no_ph",            # normale Hämodynamik
         "pah_pre",          # präkapilläre PH (PAH-typisch)
@@ -1435,33 +1819,33 @@ def random_example() -> Dict[str, Any]:
         "cpcph",            # cPcPH
         "shunt_asd",        # Shunt/Step-up
     ]
-    scen = random.choice(scenarios)
+    scen = scenario if (isinstance(scenario, str) and scenario in scenarios) else rng.choice(scenarios)
 
     ui: Dict[str, Any] = {}
 
     # --- Demografie ---
     if scen in ("pah_pre", "shunt_asd"):
-        age = random.choice([28, 34, 41])
-        sex = random.choice(["weiblich", "weiblich", "männlich"])
+        age = rng.choice([28, 34, 41])
+        sex = rng.choice(["weiblich", "weiblich", "männlich"])
     elif scen in ("hfpef_ipcph", "cpcph"):
-        age = random.choice([62, 68, 74, 79])
-        sex = random.choice(["weiblich", "männlich"])
+        age = rng.choice([62, 68, 74, 79])
+        sex = rng.choice(["weiblich", "männlich"])
     else:
-        age = random.choice([45, 52, 58, 66, 72])
-        sex = random.choice(["weiblich", "männlich"])
+        age = rng.choice([45, 52, 58, 66, 72])
+        sex = rng.choice(["weiblich", "männlich"])
 
-    ui["firstname"] = random.choice(["Anna", "Max", "Sofia", "Leon", "Mara", "Jonas"])
-    ui["name"] = random.choice(["Beispiel", "Muster", "Patient", "Testfall"])
+    ui["firstname"] = rng.choice(["Anna", "Max", "Sofia", "Leon", "Mara", "Jonas"])
+    ui["name"] = rng.choice(["Beispiel", "Muster", "Patient", "Testfall"])
     ui["age"] = age
     ui["sex"] = sex
-    ui["height_cm"] = random.choice([160, 168, 175, 182])
-    ui["weight_kg"] = random.choice([58, 72, 86, 98])
+    ui["height_cm"] = rng.choice([160, 168, 175, 182])
+    ui["weight_kg"] = rng.choice([58, 72, 86, 98])
 
-    ui["bp_sys"] = random.choice([105, 115, 125, 135, 145])
-    ui["bp_dia"] = random.choice([65, 70, 75, 80, 85])
-    ui["hr"] = random.choice([55, 65, 75, 85, 95])
+    ui["bp_sys"] = rng.choice([105, 115, 125, 135, 145])
+    ui["bp_dia"] = rng.choice([65, 70, 75, 80, 85])
+    ui["hr"] = rng.choice([55, 65, 75, 85, 95])
 
-    ui["story"] = random.choice([
+    ui["story"] = rng.choice([
         "Belastungsdyspnoe seit Monaten, reduzierte Belastbarkeit.",
         "Zunehmende Luftnot, gelegentlich Schwindel.",
         "Kontrolle nach PH-Verdachtsdiagnose.",
@@ -1477,40 +1861,40 @@ def random_example() -> Dict[str, Any]:
     if ui.get("ph_known"):
         if scen == "pah_pre":
             ui["ph_known_dx"] = "PAH (Gruppe 1)"
-            ui["ph_known_subtype"] = random.choice([
+            ui["ph_known_subtype"] = rng.choice([
                 "SOP: Systemsklerose-assoziierte PAH",
                 "idiopathische PAH",
                 "portopulmonale Hypertonie",
             ])
-            ui["ph_current_meds"] = random.choice([
+            ui["ph_current_meds"] = rng.choice([
                 ["PDE‑5‑Hemmer", "Endothelin‑Rezeptorantagonist (ERA)"],
                 ["PDE‑5‑Hemmer"],
                 ["sGC‑Stimulator (Riociguat)", "Endothelin‑Rezeptorantagonist (ERA)"],
             ])
         elif scen == "cteph":
             ui["ph_known_dx"] = "CTEPH (Gruppe 4)"
-            ui["ph_known_subtype"] = random.choice([
+            ui["ph_known_subtype"] = rng.choice([
                 "inoperable CTEPH (BPA-Evaluation)",
                 "Status nach LE mit Residuen",
                 "CTED/CTEPH im Verlauf",
             ])
-            ui["ph_current_meds"] = random.choice([
+            ui["ph_current_meds"] = rng.choice([
                 ["sGC‑Stimulator (Riociguat)"],
                 ["sGC‑Stimulator (Riociguat)", "Diuretikum"],
             ])
-            ui["ph_interventions"] = random.choice([
+            ui["ph_interventions"] = rng.choice([
                 ["BPA (Ballonangioplastie, Katheter)"],
                 ["PEA (Pulmonalisendarteriektomie, OP)"],
                 [],
             ])
         elif scen == "cpcph":
             ui["ph_known_dx"] = "PH bei Linksherzerkrankung / HFpEF (Gruppe 2)"
-            ui["ph_known_subtype"] = random.choice([
+            ui["ph_known_subtype"] = rng.choice([
                 "HFpEF mit postkapillärer PH",
                 "cPcPH bei HFpEF (Mischkomponente wahrscheinlich)",
                 "Linksherzerkrankung im Verlauf",
             ])
-            ui["ph_current_meds"] = random.choice([
+            ui["ph_current_meds"] = rng.choice([
                 ["Diuretikum"],
                 ["Diuretikum", "Sauerstofftherapie"],
             ])
@@ -1520,8 +1904,8 @@ def random_example() -> Dict[str, Any]:
             ui["ph_current_meds"] = []
 
         # Pflichtähnliche Felder (in Beispielen immer gefüllt)
-        ui["ph_first_dx"] = random.choice(["03/2020", "09/2021", "01/2022", "06/2023"])
-        ui["ph_reason_rhk"] = random.choice(["Verlaufskontrolle", "Therapieentscheidung", "Neusymptomatik"])
+        ui["ph_first_dx"] = rng.choice(["03/2020", "09/2021", "01/2022", "06/2023"])
+        ui["ph_reason_rhk"] = rng.choice(["Verlaufskontrolle", "Therapieentscheidung", "Neusymptomatik"])
         ui["ph_prev_meds"] = ui.get("ph_prev_meds") or []
         # Bei bekannter Diagnose ist Verdacht nicht gesetzt
         ui["ph_suspected"] = False
@@ -1536,62 +1920,62 @@ def random_example() -> Dict[str, Any]:
         ui["ph_interventions"] = ui.get("ph_interventions") or []
 
     # --- Klinik/Funktion ---
-    ui["who_fc"] = random.choice(["II", "III"]) if scen != "no_ph" else random.choice(["I", "II"])
-    ui["six_mwd_m"] = random.choice([240, 320, 420]) if scen != "no_ph" else random.choice([420, 480, 520])
-    ui["stairs_flights"] = random.choice([0, 1, 2, 3])
-    ui["syncope"] = random.choices(["keine", "gelegentlich", "wiederholt"], weights=[0.83, 0.14, 0.03], k=1)[0]
-    ui["hemoptysis"] = (scen == "cteph") and (random.random() < 0.15)
-    ui["dizziness"] = random.choice([False, True])
+    ui["who_fc"] = rng.choice(["II", "III"]) if scen != "no_ph" else rng.choice(["I", "II"])
+    ui["six_mwd_m"] = rng.choice([240, 320, 420]) if scen != "no_ph" else rng.choice([420, 480, 520])
+    ui["stairs_flights"] = rng.choice([0, 1, 2, 3])
+    ui["syncope"] = rng.choices(["keine", "gelegentlich", "wiederholt"], weights=[0.83, 0.14, 0.03], k=1)[0]
+    ui["hemoptysis"] = (scen == "cteph") and (rng.random() < 0.15)
+    ui["dizziness"] = rng.choice([False, True])
 
     # --- Labor ---
-    lab_mode = random.choice(["normal", "inflammation", "anemia", "renal"])
-    ui["crp_mg_l"] = random.choice([2, 4, 6]) if lab_mode != "inflammation" else random.choice([25, 60])
-    ui["leukocytes_g_l"] = random.choice([6.5, 7.8, 9.1]) if lab_mode != "inflammation" else random.choice([12.0, 15.5])
-    ui["creatinine_mg_dl"] = random.choice([0.8, 1.0, 1.2]) if lab_mode != "renal" else random.choice([1.8, 2.2])
-    ui["egfr"] = random.choice([65, 75, 85, 95]) if lab_mode != "renal" else random.choice([25, 30, 35, 40, 45])
-    ui["platelets_g_l"] = random.choice([190, 240, 320])
-    ui["inr"] = random.choice([1.0, 1.1, 1.2])
-    ui["ptt_s"] = random.choice([28, 31, 34])
+    lab_mode = rng.choice(["normal", "inflammation", "anemia", "renal"])
+    ui["crp_mg_l"] = rng.choice([2, 4, 6]) if lab_mode != "inflammation" else rng.choice([25, 60])
+    ui["leukocytes_g_l"] = rng.choice([6.5, 7.8, 9.1]) if lab_mode != "inflammation" else rng.choice([12.0, 15.5])
+    ui["creatinine_mg_dl"] = rng.choice([0.8, 1.0, 1.2]) if lab_mode != "renal" else rng.choice([1.8, 2.2])
+    ui["egfr"] = rng.choice([65, 75, 85, 95]) if lab_mode != "renal" else rng.choice([25, 30, 35, 40, 45])
+    ui["platelets_g_l"] = rng.choice([190, 240, 320])
+    ui["inr"] = rng.choice([1.0, 1.1, 1.2])
+    ui["ptt_s"] = rng.choice([28, 31, 34])
 
     # Hb gezielt setzen: in ~50% fehlt Hb, um "nicht anwählbar" Logik zu testen
-    if random.random() < 0.5:
+    if rng.random() < 0.5:
         ui["hb_g_dl"] = None
         ui["anemia_type"] = None
     else:
         if lab_mode == "anemia":
-            ui["hb_g_dl"] = random.choice([9.8, 10.6, 11.4])
-            ui["anemia_type"] = random.choice(["mikrozytär", "normozytär", "makrozytär"])
+            ui["hb_g_dl"] = rng.choice([9.8, 10.6, 11.4])
+            ui["anemia_type"] = rng.choice(["mikrozytär", "normozytär", "makrozytär"])
         else:
-            ui["hb_g_dl"] = random.choice([12.6, 13.8, 15.1])
+            ui["hb_g_dl"] = rng.choice([12.6, 13.8, 15.1])
             ui["anemia_type"] = None
 
-    ui["bnp_kind"] = random.choice(["NT-proBNP", "BNP"])
+    ui["bnp_kind"] = rng.choice(["NT-proBNP", "BNP"])
     if scen in ("no_ph",):
-        ui["bnp_value"] = random.choice([40, 80, 120])
+        ui["bnp_value"] = rng.choice([40, 80, 120])
     elif scen in ("hfpef_ipcph", "cpcph"):
-        ui["bnp_value"] = random.choice([380, 900, 1800])
+        ui["bnp_value"] = rng.choice([380, 900, 1800])
     else:
-        ui["bnp_value"] = random.choice([120, 380, 1200, 2400])
+        ui["bnp_value"] = rng.choice([120, 380, 1200, 2400])
 
     # --- Bildgebung/Echo ---
     ui["ct_done"] = True
-    ui["ct_koronarkalk"] = random.choice([False, True])
+    ui["ct_koronarkalk"] = rng.choice([False, True])
 
     ui["ct_ild"] = (scen == "ild_ph")
-    ui["ct_emphysema"] = (scen == "ild_ph") and random.choice([False, True])
+    ui["ct_emphysema"] = (scen == "ild_ph") and rng.choice([False, True])
     ui["ct_embolie"] = (scen == "cteph")
     ui["ct_mosaic"] = (scen == "cteph")
 
-    ui["vq_done"] = (scen == "cteph") or (random.random() < 0.4)
+    ui["vq_done"] = (scen == "cteph") or (rng.random() < 0.4)
     ui["vq_defect"] = (scen == "cteph") and ui["vq_done"]
     ui["vq_desc"] = "Mehrsegmentale Perfusionsdefekte." if ui["vq_defect"] else ""
 
     ui["echo_done"] = True
     ui["lvef"] = 60 if scen not in ("cpcph",) else 55
-    ui["la_enlarged"] = True if scen in ("hfpef_ipcph", "cpcph") else random.choice([False, True])
-    ui["ee_ratio"] = 16 if scen in ("hfpef_ipcph", "cpcph") else random.choice([9, 11, 13])
-    ui["pasp_echo"] = random.choice([35, 45, 60]) if scen != "no_ph" else 28
-    ui["tapse_mm"] = 22 if scen == "no_ph" else random.choice([14, 16, 18, 20])
+    ui["la_enlarged"] = True if scen in ("hfpef_ipcph", "cpcph") else rng.choice([False, True])
+    ui["ee_ratio"] = 16 if scen in ("hfpef_ipcph", "cpcph") else rng.choice([9, 11, 13])
+    ui["pasp_echo"] = rng.choice([35, 45, 60]) if scen != "no_ph" else 28
+    ui["tapse_mm"] = 22 if scen == "no_ph" else rng.choice([14, 16, 18, 20])
     ui["atrial_fib"] = True if scen in ("hfpef_ipcph", "cpcph") else False
 
 
@@ -1600,21 +1984,21 @@ def random_example() -> Dict[str, Any]:
     # Antikoagulation
     if scen == "cteph" or ui.get("atrial_fib"):
         ui["anticoag_status"] = "ja"
-        ui["anticoag_substance"] = random.choice(["DOAC (Apixaban, Rivaroxaban)", "VKA (Phenprocoumon/Warfarin)"])
-        ui["anticoag_indication"] = "CTEPH/Embolie" if scen == "cteph" else "Vorhofflimmern"
-        ui["anticoag_since"] = random.choice(["09/2023", "03/2024", "11/2024"])
+        ui["anticoag_substance"] = rng.choice(["DOAC (Apixaban, Rivaroxaban)", "VKA (Phenprocoumon/Warfarin)"])
+        ui["anticoag_indication"] = "CTEPH/CTEPD" if scen == "cteph" else "Vorhofflimmern"
+        ui["anticoag_since"] = rng.choice(["09/2023", "03/2024", "11/2024"])
         ui["anticoag_note"] = ""
     else:
         ui["anticoag_status"] = "nein"
         ui["anticoag_substance"] = None
-        ui["anticoag_indication"] = ""
+        ui["anticoag_indication"] = "keine Angabe"
         ui["anticoag_since"] = ""
         ui["anticoag_note"] = ""
 
     # Immunologie Autoimmun
-    if scen in ("pah_pre",) and random.random() < 0.35:
+    if scen in ("pah_pre",) and rng.random() < 0.35:
         ui["immunology_pos"] = True
-        ui["immunology_items"] = random.sample([
+        ui["immunology_items"] = rng.sample([
             "Systemische Sklerose (Sklerodermie)",
             "SLE (Lupus erythematodes)",
             "MCTD (Mixed connective tissue disease)",
@@ -1627,9 +2011,9 @@ def random_example() -> Dict[str, Any]:
         ui["immunology_desc"] = ""
 
     # Virologie Infektiologie
-    if scen in ("pah_pre",) and random.random() < 0.15:
+    if scen in ("pah_pre",) and rng.random() < 0.15:
         ui["virology_pos"] = True
-        ui["virology_items"] = random.sample([
+        ui["virology_items"] = rng.sample([
             "HIV",
             "Hepatitis B",
             "Hepatitis C",
@@ -1642,9 +2026,9 @@ def random_example() -> Dict[str, Any]:
         ui["virology_desc"] = ""
 
     # Mutation Genetik
-    if (scen == "pah_pre") and (age is not None) and (age < 45) and (random.random() < 0.18):
+    if (scen == "pah_pre") and (age is not None) and (age < 45) and (rng.random() < 0.18):
         ui["mutation_pos"] = True
-        ui["mutation_items"] = random.sample([
+        ui["mutation_items"] = rng.sample([
             "BMPR2 Mutation",
             "ALK1 ACVRL1 Mutation",
             "EIF2AK4 Mutation",
@@ -1656,34 +2040,34 @@ def random_example() -> Dict[str, Any]:
         ui["mutation_desc"] = ""
 
     # Abdomensonographie
-    ui["abd_sono_done"] = random.random() < 0.55
+    ui["abd_sono_done"] = rng.random() < 0.55
     if ui["abd_sono_done"]:
-        if random.random() < 0.12:
+        if rng.random() < 0.12:
             ui["abd_sono_desc"] = "Hinweis auf Leberzirrhose und portale Hypertension."
         else:
-            ui["abd_sono_desc"] = random.choice(["Unauffällig.", "Normalbefund.", "Kein Hinweis auf Leberzirrhose."])
+            ui["abd_sono_desc"] = rng.choice(["Unauffällig.", "Normalbefund.", "Kein Hinweis auf Leberzirrhose."])
     else:
         ui["abd_sono_desc"] = ""
-    ui["s_prime_cm_s"] = random.choice([9.0, 11.0, 13.0])
-    ui["ra_esa_cm2"] = random.choice([16.0, 20.0, 26.0])
+    ui["s_prime_cm_s"] = rng.choice([9.0, 11.0, 13.0])
+    ui["ra_esa_cm2"] = rng.choice([16.0, 20.0, 26.0])
 
     # --- Lufu ---
     ui["lufu_done"] = True
     ui["lufu_obstructive"] = bool(ui["ct_emphysema"])
     ui["lufu_restrictive"] = bool(ui["ct_ild"])
-    ui["lufu_diffusion"] = bool(ui["ct_ild"]) or (random.random() < 0.35)
-    ui["fev1_l"] = random.choice([1.4, 2.1, 2.8])
-    ui["fvc_l"] = random.choice([2.0, 2.8, 3.6])
-    ui["dlco_sb"] = random.choice([35, 52, 68])
-    ui["lufu_summary"] = random.choice(["", "Leichte Diffusionsstörung.", "Obstruktives Muster."])
+    ui["lufu_diffusion"] = bool(ui["ct_ild"]) or (rng.random() < 0.35)
+    ui["fev1_l"] = rng.choice([1.4, 2.1, 2.8])
+    ui["fvc_l"] = rng.choice([2.0, 2.8, 3.6])
+    ui["dlco_sb"] = rng.choice([35, 52, 68])
+    ui["lufu_summary"] = rng.choice(["", "Leichte Diffusionsstörung.", "Obstruktives Muster."])
 
 
     # In einem Teil der Fälle explizit unauffällige Lufu setzen, damit P12 klar deaktiviert werden kann
-    if scen == "no_ph" or random.random() < 0.18:
+    if scen == "no_ph" or rng.random() < 0.18:
         ui["lufu_obstructive"] = False
         ui["lufu_restrictive"] = False
         ui["lufu_diffusion"] = False
-        ui["lufu_summary"] = random.choice(["Unauffällig.", "Normalbefund.", "Keine relevanten Auffälligkeiten."])
+        ui["lufu_summary"] = rng.choice(["Unauffällig.", "Normalbefund.", "Keine relevanten Auffälligkeiten."])
     # --- Hämodynamik (Ruhe) ---
     if scen == "no_ph":
         spap, dpap, pawp, co, rap = 28, 10, 10, 5.2, 6
@@ -1704,15 +2088,15 @@ def random_example() -> Dict[str, Any]:
     ui["pvr_rest"] = None
 
     # --- Belastung / Volumen ---
-    ui["exercise_done"] = scen in ("pah_pre", "hfpef_ipcph", "cpcph") and (random.random() < 0.75)
+    ui["exercise_done"] = scen in ("pah_pre", "hfpef_ipcph", "cpcph") and (rng.random() < 0.75)
     if ui["exercise_done"]:
-        ui["exercise_protocol"] = random.choice(["WHO-Rampe", "Stufenprotokoll"])
-        ui["exercise_peak_watts"] = random.choice([75, 100, 125, 150, 175])
-        ui["spap_peak"] = spap + random.choice([25, 35])
-        ui["dpap_peak"] = dpap + random.choice([10, 15])
+        ui["exercise_protocol"] = rng.choice(["WHO-Rampe", "Stufenprotokoll"])
+        ui["exercise_peak_watts"] = rng.choice([75, 100, 125, 150, 175])
+        ui["spap_peak"] = spap + rng.choice([25, 35])
+        ui["dpap_peak"] = dpap + rng.choice([10, 15])
         ui["mpap_peak"] = None
-        ui["pawp_peak"] = pawp + (random.choice([3, 10, 15]) if scen in ("hfpef_ipcph", "cpcph") else random.choice([2, 4, 6]))
-        ui["co_peak"] = co + random.choice([1.0, 1.8, 2.5])
+        ui["pawp_peak"] = pawp + (rng.choice([3, 10, 15]) if scen in ("hfpef_ipcph", "cpcph") else rng.choice([2, 4, 6]))
+        ui["co_peak"] = co + rng.choice([1.0, 1.8, 2.5])
     else:
         ui["exercise_protocol"] = ""
         ui["exercise_peak_watts"] = None
@@ -1722,12 +2106,12 @@ def random_example() -> Dict[str, Any]:
         ui["pawp_peak"] = None
         ui["co_peak"] = None
 
-    ui["volume_challenge_done"] = (scen == "hfpef_ipcph") and (random.random() < 0.6)
+    ui["volume_challenge_done"] = (scen == "hfpef_ipcph") and (rng.random() < 0.6)
     if ui["volume_challenge_done"]:
-        ui["volume_ml"] = random.choice([500, 750])
-        ui["pawp_post"] = pawp + random.choice([5, 8, 12])
+        ui["volume_ml"] = rng.choice([500, 750])
+        ui["pawp_post"] = pawp + rng.choice([5, 8, 12])
         ui["mpap_post"] = None
-        ui["co_post"] = co + random.choice([0.5, 1.0])
+        ui["co_post"] = co + rng.choice([0.5, 1.0])
     else:
         ui["volume_ml"] = None
         ui["pawp_post"] = None
@@ -1735,12 +2119,12 @@ def random_example() -> Dict[str, Any]:
         ui["co_post"] = None
 
     # --- Vaso (nur PAH-Beispiel) ---
-    ui["vaso_test_done"] = (scen == "pah_pre") and (random.random() < 0.5)
+    ui["vaso_test_done"] = (scen == "pah_pre") and (rng.random() < 0.5)
     if ui["vaso_test_done"]:
-        ui["vaso_substance"] = random.choice(["NO", "Iloprost"])
+        ui["vaso_substance"] = rng.choice(["NO", "Iloprost"])
         ui["vaso_mpap_pre"] = None
         ui["vaso_mpap_post"] = None
-        ui["vaso_response_desc"] = random.choice([
+        ui["vaso_response_desc"] = rng.choice([
             "Kein signifikanter Abfall des mPAP.",
             "Vasoreaktivitätskriterium erreicht (Abfall mPAP, CO stabil).",
         ])
@@ -1767,17 +2151,17 @@ def random_example() -> Dict[str, Any]:
         ui["sat_ao"] = None
 
     # --- Kurvenflags ---
-    ui["wedge_v_wave"] = (scen in ("hfpef_ipcph", "cpcph")) and (random.random() < 0.5)
-    ui["wedge_a_wave"] = (scen in ("hfpef_ipcph", "cpcph")) and (random.random() < 0.35)
-    ui["rap_a_wave"] = random.random() < 0.2
-    ui["rap_v_wave"] = random.random() < 0.15
-    ui["rv_pseudo_dip"] = random.random() < 0.1
-    ui["rv_dip_plateau"] = random.random() < 0.05
+    ui["wedge_v_wave"] = (scen in ("hfpef_ipcph", "cpcph")) and (rng.random() < 0.5)
+    ui["wedge_a_wave"] = (scen in ("hfpef_ipcph", "cpcph")) and (rng.random() < 0.35)
+    ui["rap_a_wave"] = rng.random() < 0.2
+    ui["rap_v_wave"] = rng.random() < 0.15
+    ui["rv_pseudo_dip"] = rng.random() < 0.1
+    ui["rv_dip_plateau"] = rng.random() < 0.05
 
     # --- Infekt/Immunologie (v.a. ILD) ---
-    ui["virology_pos"] = random.choice([False, False, True])
+    ui["virology_pos"] = rng.choice([False, False, True])
     ui["virology_desc"] = "HIV positiv." if ui["virology_pos"] else ""
-    ui["immunology_pos"] = (scen == "ild_ph") and random.choice([False, True])
+    ui["immunology_pos"] = (scen == "ild_ph") and rng.choice([False, True])
     ui["immunology_desc"] = "ANA/ENA auffällig." if ui["immunology_pos"] else ""
 
     # --- Procedere/Module ---
@@ -1797,7 +2181,7 @@ def random_example() -> Dict[str, Any]:
         ui["modules"] = ["P14"]
 
     # Optional: Schwangerschaft-Modul gelegentlich vorselektieren (nur wenn weiblich und <= 50)
-    if sex == "weiblich" and age <= 50 and random.random() < 0.15:
+    if sex == "weiblich" and age <= 50 and rng.random() < 0.15:
         ui["modules"] = list(dict.fromkeys(ui["modules"] + ["P21"]))
 
     # Optional: Anämie-Modul vorselektieren, wenn Hb tatsächlich niedrig ist
@@ -1807,13 +2191,13 @@ def random_example() -> Dict[str, Any]:
         ui["modules"] = list(dict.fromkeys(ui["modules"] + ["P13"]))
 
     # --- Vor-RHK (gelegentlich) ---
-    if random.random() < 0.35:
-        ui["prev_rhk_date"] = random.choice(["03/21", "11/22", "06/23"])
-        ui["prev_label"] = random.choice(["stabiler Verlauf", "leicht progredient", "gebessert"])
-        ui["prev_mpap"] = random.choice([18, 24, 30])
-        ui["prev_pawp"] = random.choice([7, 12, 18])
-        ui["prev_ci"] = random.choice([2.1, 2.8, 3.2])
-        ui["prev_pvr"] = random.choice([1.5, 2.6, 4.2])
+    if rng.random() < 0.35:
+        ui["prev_rhk_date"] = rng.choice(["03/21", "11/22", "06/23"])
+        ui["prev_label"] = rng.choice(["stabiler Verlauf", "leicht progredient", "gebessert"])
+        ui["prev_mpap"] = rng.choice([18, 24, 30])
+        ui["prev_pawp"] = rng.choice([7, 12, 18])
+        ui["prev_ci"] = rng.choice([2.1, 2.8, 3.2])
+        ui["prev_pvr"] = rng.choice([1.5, 2.6, 4.2])
     else:
         ui["prev_rhk_date"] = ""
         ui["prev_label"] = ""
@@ -1832,9 +2216,416 @@ def random_example() -> Dict[str, Any]:
 # JSON export/import helpers
 # =============================================================================
 
+def markdown_to_plain(md: Any) -> str:
+    """Best-effort Markdown -> plain text.
+
+    Goal: copy/paste into Arztbrief systems without formatting artifacts.
+    This is intentionally conservative and avoids clever formatting.
+    """
+    try:
+        s = "" if md is None else str(md)
+    except Exception:
+        return ""
+
+    # Normalize line endings
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Remove code fences (keep content)
+    s = re.sub(r"```[a-zA-Z0-9_-]*\n", "", s)
+    s = s.replace("```", "")
+
+    # Tables: replace pipes with tabs and strip separator rows
+    lines: List[str] = []
+    for ln in s.split("\n"):
+        if re.match(r"^\s*\|?\s*[:-]+\s*\|", ln):
+            continue
+        if "|" in ln:
+            ln = ln.strip().strip("|")
+            ln = "\t".join([c.strip() for c in ln.split("|")])
+        lines.append(ln)
+    s = "\n".join(lines)
+
+    # Headings: strip leading hashes
+    s = re.sub(r"^\s{0,3}#{1,6}\s+", "", s, flags=re.M)
+
+    # Bold/italic/underline markers
+    s = s.replace("**", "").replace("__", "").replace("*", "").replace("_", "")
+
+    # Links: [text](url) -> text
+    s = re.sub(r"\[([^\]]+)\]\(([^\)]+)\)", r"\1", s)
+
+    # Inline code
+    s = s.replace("`", "")
+
+    # Collapse extra spaces but keep intentional newlines
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
+
+
+
+def markdown_to_word_html(md: Any) -> str:
+    """Best-effort Markdown -> HTML fragment suitable for pasting into MS Word.
+
+    Notes:
+    - Preserves headings, paragraphs, simple lists, and simple tables.
+    - Avoids italics (no <em>) by stripping single * / _ emphasis.
+    - Uses minimal inline styling to match Word defaults.
+
+    Returns a full HTML document string. For clipboard usage, it includes
+    <!--StartFragment--> / <!--EndFragment--> markers.
+    """
+    import html as _html
+
+    try:
+        s = "" if md is None else str(md)
+    except Exception:
+        s = ""
+
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Remove code fences (keep content)
+    s = re.sub(r"```[a-zA-Z0-9_-]*\n", "", s)
+    s = s.replace("```", "")
+
+    # Inline helpers
+    def _inline(x: str) -> str:
+        x = "" if x is None else str(x)
+
+        # Links: [text](url) -> text
+        x = re.sub(r"\[([^\]]+)\]\(([^\)]+)\)", r"\1", x)
+
+        # Bold: **text** or __text__
+        BOPEN = "@@BOPEN@@"
+        BCLOSE = "@@BCLOSE@@"
+        x = re.sub(r"\*\*(.+?)\*\*", lambda m: f"{BOPEN}{m.group(1)}{BCLOSE}", x)
+        x = re.sub(r"__(.+?)__", lambda m: f"{BOPEN}{m.group(1)}{BCLOSE}", x)
+
+        # Italics: *text* or _text_ (single markers only)
+        x = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", lambda m: m.group(1), x)
+        x = re.sub(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", lambda m: m.group(1), x)
+
+        # Inline code: `x` -> x
+        x = x.replace("`", "")
+
+        # Escape HTML
+        x = _html.escape(x, quote=False)
+
+        # Restore bold placeholders
+        x = x.replace(BOPEN, "<strong>").replace(BCLOSE, "</strong>")
+        return x
+
+    lines = s.split("\n")
+
+    out = []
+    out.append("<html><body>")
+    out.append("<!--StartFragment-->")
+    out.append("<div style=\"font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.25;\">")
+
+    i = 0
+    in_ul = False
+    in_ol = False
+    in_table = False
+
+    def _close_lists():
+        nonlocal in_ul, in_ol
+        if in_ul:
+            out.append("</ul>")
+            in_ul = False
+        if in_ol:
+            out.append("</ol>")
+            in_ol = False
+
+    def _close_table():
+        nonlocal in_table
+        if in_table:
+            out.append("</table>")
+            in_table = False
+
+    # Paragraph buffer
+    para: list[str] = []
+
+    def _flush_para():
+        nonlocal para
+        if not para:
+            return
+        _close_lists()
+        _close_table()
+        txt = _inline(" ".join([p.strip() for p in para if p.strip()]))
+        if txt:
+            out.append(f"<p>{txt}</p>")
+        para = []
+
+    def _is_table_sep(ln: str) -> bool:
+        # e.g. |---|:---:|
+        return bool(re.match(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$", ln))
+
+    while i < len(lines):
+        ln = lines[i]
+        raw_ln = ln
+        ln = ln.rstrip("\n")
+        stripped = ln.strip()
+
+        # Blank line flushes paragraph
+        if stripped == "":
+            _flush_para()
+            i += 1
+            continue
+
+        # Headings
+        hm = re.match(r"^\s{0,3}(#{1,6})\s+(.*)$", ln)
+        if hm:
+            _flush_para()
+            _close_lists()
+            _close_table()
+            level = min(len(hm.group(1)), 4)
+            text_h = _inline(hm.group(2).strip())
+            out.append(f"<h{level}>{text_h}</h{level}>")
+            i += 1
+            continue
+
+        # Tables (pipe tables)
+        if "|" in stripped and stripped.count("|") >= 2:
+            # detect contiguous table block
+            # start only if next line is separator OR looks like table row and we are already in table
+            nxt = lines[i+1].strip() if i + 1 < len(lines) else ""
+            if in_table or _is_table_sep(nxt):
+                _flush_para()
+                _close_lists()
+                if not in_table:
+                    out.append("<table border=\"1\" cellspacing=\"0\" cellpadding=\"4\" style=\"border-collapse:collapse;\">")
+                    in_table = True
+                # Skip separator rows
+                if _is_table_sep(stripped):
+                    i += 1
+                    continue
+                row = stripped.strip("|")
+                cells = [c.strip() for c in row.split("|")]
+                # Header heuristic: if next line is separator and we're at start of table
+                is_header = False
+                if i + 1 < len(lines) and _is_table_sep(lines[i+1].strip()):
+                    # This line is header
+                    is_header = True
+                tag = "th" if is_header else "td"
+                out.append("<tr>" + "".join([f"<{tag}>{_inline(c)}</{tag}>" for c in cells]) + "</tr>")
+                i += 1
+                continue
+
+        # Unordered list
+        m_ul = re.match(r"^\s*[-•\*]\s+(.*)$", ln)
+        if m_ul:
+            _flush_para()
+            _close_table()
+            if in_ol:
+                out.append("</ol>")
+                in_ol = False
+            if not in_ul:
+                out.append("<ul>")
+                in_ul = True
+            out.append(f"<li>{_inline(m_ul.group(1).strip())}</li>")
+            i += 1
+            continue
+
+        # Ordered list
+        m_ol = re.match(r"^\s*\d+\.\s+(.*)$", ln)
+        if m_ol:
+            _flush_para()
+            _close_table()
+            if in_ul:
+                out.append("</ul>")
+                in_ul = False
+            if not in_ol:
+                out.append("<ol>")
+                in_ol = True
+            out.append(f"<li>{_inline(m_ol.group(1).strip())}</li>")
+            i += 1
+            continue
+
+        # Default: paragraph line
+        para.append(raw_ln)
+        i += 1
+
+    _flush_para()
+    _close_lists()
+    _close_table()
+
+    out.append("</div>")
+    out.append("<!--EndFragment-->")
+    out.append("</body></html>")
+    return "\n".join(out)
+
+
+def extract_markdown_section(md: Any, start_heading: str, end_heading: Optional[str] = None) -> str:
+    """Extract a section from markdown by headings (best-effort).
+
+    Returns the substring starting at the first occurrence of start_heading
+    (as a Markdown heading line) until end_heading (exclusive) if provided.
+    """
+    try:
+        s = "" if md is None else str(md)
+    except Exception:
+        return ""
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    # Match headings like "## Rechtsherzkatheter"
+    start_pat = re.compile(rf"^\s*#+\s*{re.escape(start_heading)}\s*$", re.M)
+    m = start_pat.search(s)
+    if not m:
+        # fallback: plain substring search
+        idx = s.find(start_heading)
+        if idx < 0:
+            return s
+        s2 = s[idx:]
+        if end_heading and end_heading in s2:
+            return s2.split(end_heading, 1)[0]
+        return s2
+
+    start_idx = m.start()
+    s2 = s[start_idx:]
+    if end_heading:
+        end_pat = re.compile(rf"^\s*#+\s*{re.escape(end_heading)}\s*$", re.M)
+        m2 = end_pat.search(s2)
+        if m2:
+            return s2[:m2.start()].strip()
+        # fallback substring
+        if end_heading in s2:
+            return s2.split(end_heading, 1)[0].strip()
+    return s2.strip()
+
+
+def build_summary_dict(case: Dict[str, Any], rulebook_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Structured, stable JSON summary for studies/registries/QA."""
+    ui = case.get("ui") or {}
+    der = case.get("derived") or {}
+    scores = case.get("scores") or {}
+    dec = case.get("decision") or {}
+    warns = case.get("warnings") or []
+
+    def _num(x: Any) -> Optional[float]:
+        try:
+            if x is None or x == "":
+                return None
+            return float(x)
+        except Exception:
+            return None
+
+    # Slim warnings (message + severity + code if present)
+    wslim: List[Dict[str, Any]] = []
+    if isinstance(warns, list):
+        for w in warns:
+            if not isinstance(w, dict):
+                continue
+            wslim.append(
+                {
+                    "severity": w.get("severity"),
+                    "code": w.get("code"),
+                    "message": w.get("message"),
+                }
+            )
+
+    rb = rulebook_meta or {}
+    rb_meta = {
+        "version": (rb.get("version") if isinstance(rb, dict) else None),
+        "updated": (rb.get("updated") if isinstance(rb, dict) else None),
+    }
+
+    # Dates
+    today = _dt.datetime.now().isoformat(timespec="seconds")
+
+    # Core hemodynamics
+    hemo = {
+        "rap_rest_mmHg": _num(der.get("rap_rest")),
+        "spap_rest_mmHg": _num(der.get("spap_rest")),
+        "dpap_rest_mmHg": _num(der.get("dpap_rest")),
+        "mpap_rest_mmHg": _num(der.get("mpap_rest")),
+        "pawp_rest_mmHg": _num(der.get("pawp_rest")),
+        "co_rest_L_min": _num(der.get("co")),
+        "ci_rest_L_min_m2": _num(der.get("ci")),
+        "pvr_rest_WU": _num(der.get("pvr_rest")),
+        "pvri_rest_WU_m2": _num(der.get("pvri")),
+        "tpg_mmHg": _num(der.get("tpg")),
+        "dpg_mmHg": _num(der.get("dpg")),
+    }
+
+    # Classification / risk
+    classification = {
+        "hemo_category": der.get("hemo_category"),
+        "primary_dx": dec.get("primary_dx"),
+        "bundle": dec.get("bundle"),
+        "risk_category": der.get("risk_category"),
+        "esc_ers_4s": scores.get("esc_ers_4s"),
+        "esc_ers_3s": scores.get("esc_ers_3s"),
+        "reveal_lite2": scores.get("reveal_lite2"),
+        "reveal_lite2_points": scores.get("reveal_lite2_points"),
+    }
+
+    # Echo snapshot (only the main fields used in patient echo report)
+    echo = {
+        "lvef_percent": _num(ui.get("lvef")),
+        "tapse_mm": _num(ui.get("tapse_mm")),
+        "s_prime_cm_s": _num(ui.get("s_prime_cm_s")),
+        "pasp_echo_mmHg": _num(ui.get("pasp_echo")),
+        "ra_esa_cm2": _num(ui.get("ra_esa_cm2")),
+        "ee_ratio": _num(ui.get("ee_ratio")),
+        "trv_ms": _num(ui.get("trv_ms")),
+    }
+
+    labs = {
+        "hb_g_dl": _num(ui.get("hb_g_dl")),
+        "crp_mg_l": _num(ui.get("crp_mg_l")),
+        "creatinine_mg_dl": _num(ui.get("creatinine_mg_dl")),
+        "egfr_ml_min_1_73m2": _num(ui.get("egfr")),
+        "bnp_kind": ui.get("bnp_kind"),
+        "bnp_value_pg_ml": _num(ui.get("bnp_value")),
+    }
+
+    patient = {
+        "firstname": ui.get("firstname"),
+        "name": ui.get("name"),
+        "age_years": _num(ui.get("age")),
+        "sex": ui.get("sex"),
+        "height_cm": _num(ui.get("height_cm")),
+        "weight_kg": _num(ui.get("weight_kg")),
+    }
+
+    context = {
+        "who_fc": ui.get("who_fc"),
+        "six_mwd_m": _num(ui.get("six_mwd_m")),
+        "story": ui.get("story"),
+        "ph_known": ui.get("ph_known"),
+        "ph_suspected": ui.get("ph_suspected"),
+        "ph_known_dx": ui.get("ph_known_dx"),
+    }
+
+    procedere = {
+        "modules_selected": ui.get("modules") or [],
+        "procedere_free": ui.get("procedere_free") or "",
+    }
+
+    return {
+        "schema": "rhk_summary_v1",
+        "generated_at": today,
+        "app_version": APP_VERSION,
+        "rulebook": rb_meta,
+        "patient": patient,
+        "context": context,
+        "hemodynamics": hemo,
+        "classification": classification,
+        "echo": echo,
+        "labs": labs,
+        "procedere": procedere,
+        "warnings": wslim,
+    }
+
+
 def export_json(case: Dict[str, Any], path: str) -> str:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(case, f, ensure_ascii=False, indent=2)
+    return path
+
+
+def export_summary_json(summary: Dict[str, Any], path: str) -> str:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, ensure_ascii=False, indent=2)
     return path
 
 

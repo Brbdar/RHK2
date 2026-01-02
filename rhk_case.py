@@ -472,8 +472,8 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
     env["pawp_gt15"] = (pawp is not None and pawp > 15)
     env["lvef_ge50"] = (lvef is not None and lvef >= 50)
 
-    # apply rules
-    decision = apply_rule_engine(env, rules)
+    # apply rules (mit Trace für Debug/Regression-Tests)
+    decision, rule_trace = apply_rule_engine_trace(env, rules)
 
     # missing fields required
     missing: List[str] = []
@@ -482,6 +482,18 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
         if v is None or v == "" or v is False:
             missing.append(fld)
     decision.missing_fields = missing
+
+
+    # Plausibilitätschecks (blockieren nicht)
+    warnings = collect_plausibility_warnings(ui, derived)
+    derived["warnings_count"] = len(warnings)
+    env["warnings_count"] = len(warnings)
+
+    # Debug payload: Rule-Trace + Warnungen
+    debug_payload = {
+        "warnings": warnings,
+        "rule_trace": asdict(rule_trace),
+    }
 
 
     # Ätiologie-Helfer (mehrere Ursachen können parallel bestehen)
@@ -519,6 +531,8 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
         "decision": asdict(decision),
         "hfpef": asdict(hfpef_res),
         "env": env,
+        "warnings": warnings,
+        "debug": debug_payload,
     }
     return case
 
@@ -931,8 +945,14 @@ def build_dashboard_html(case: Optional[Dict[str, Any]]) -> str:
     der = case["derived"]
     sc = case["scores"]
 
-    def badge(text: str, cls: str = "badge") -> str:
-        return f'<span class="{cls}">{text}</span>'
+    def badge(text: str, cls: str = "badge", title: Optional[str] = None) -> str:
+        tattr = ""
+        if title:
+            try:
+                tattr = f' title="{html_escape(title)}"'
+            except Exception:
+                tattr = ""
+        return f'<span class="{cls}"{tattr}>{text}</span>'
 
     risk_badges = []
     # REVEAL Lite 2 (wenn möglich prominent anzeigen)
@@ -957,6 +977,21 @@ def build_dashboard_html(case: Optional[Dict[str, Any]]) -> str:
     if der.get("congestion_likely"):
         risk_badges.append(badge("Hinweis venöse Kongestion", "badge badge-orange"))
 
+    # Plausibilitätswarnungen (nicht blockierend)
+    warns = case.get("warnings") or []
+    if warns:
+        sev = {str(w.get('severity')) for w in warns if isinstance(w, dict)}
+        cls = "badge badge-orange"
+        if "error" in sev:
+            cls = "badge badge-red"
+        # Tooltip with full warning list
+        w_msgs = []
+        for w in warns:
+            if isinstance(w, dict) and str(w.get("message") or "").strip():
+                w_msgs.append(str(w.get("message")).strip())
+        tooltip = "\n".join([f"- {m}" for m in w_msgs]) if w_msgs else None
+        risk_badges.append(badge(f"Warnungen: {len(warns)}", cls, tooltip))
+
     if der.get("exercise_pattern"):
         risk_badges.append(badge(f"Belastungsmuster: {describe_exercise_pattern(der['exercise_pattern'])}", "badge badge-teal"))
 
@@ -978,6 +1013,17 @@ def build_dashboard_html(case: Optional[Dict[str, Any]]) -> str:
 
     tags = d.get("tags") or []
     missing = d.get("missing_fields") or []
+    warns_summary = '<span class="muted">keine</span>'
+    try:
+        if warns:
+            msgs_all = [str(w.get("message") or "").strip() for w in warns if isinstance(w, dict) and str(w.get("message") or "").strip()]
+            if msgs_all:
+                # Show all warnings as a compact bullet list (copy/paste friendly)
+                li = "".join([f"<li>{html_escape(m)}</li>" for m in msgs_all])
+                warns_summary = f"<ul style='margin:0.25rem 0 0.25rem 1.25rem;padding:0'>{li}</ul>"
+    except Exception:
+        warns_summary = '<span class="muted">keine</span>'
+
 
     return f"""
     <div class="card">
@@ -992,6 +1038,9 @@ def build_dashboard_html(case: Optional[Dict[str, Any]]) -> str:
       </div>
       <div class="row">
         <div><b>Fehlende Angaben (für Regelwerk):</b> {', '.join(missing) if missing else '<span class="muted">keine</span>'}</div>
+      </div>
+      <div class="row">
+        <div><b>Plausibilitätswarnungen:</b> {warns_summary}</div>
       </div>
     </div>
     """

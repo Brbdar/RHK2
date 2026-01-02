@@ -19,9 +19,15 @@ from rhk_case import build_case, build_dashboard_html  # noqa: F401
 from rhk_reports import (
     build_doctor_report,
     build_patient_report,
+    build_echo_patient_report,
     build_internal_report,
     random_example,
     export_json,
+    export_summary_json,
+    build_summary_dict,
+    markdown_to_plain,
+    markdown_to_word_html,
+    extract_markdown_section,
     load_case_json,
 )  # noqa: F401
 
@@ -30,18 +36,257 @@ from rhk_reports import (
 # =============================================================================
 
 # --- Client/UI behaviour ------------------------------------------------------
-# Desktop-only enforcement:
-# - The app is designed for wide screens. On small screens we display an overlay and block interaction.
-# - Override for testing with: RHK_DESKTOP_ONLY=0
-DESKTOP_ONLY: bool = os.environ.get("RHK_DESKTOP_ONLY", "1").strip().lower() not in ("0", "false", "no", "off")
+# Desktop-only enforcement (optional):
+# - The app is designed for wide screens.
+# - If enabled, on small screens we display an overlay and block interaction.
+# - Default is OFF, because forced viewports/min-width can produce confusing rendering.
+# - Enable explicitly with: RHK_DESKTOP_ONLY=1
+DESKTOP_ONLY: bool = os.environ.get("RHK_DESKTOP_ONLY", "0").strip().lower() not in ("0", "false", "no", "off")
 DESKTOP_MIN_WIDTH_PX: int = int(os.environ.get("RHK_DESKTOP_MIN_WIDTH", "1100"))
 DESKTOP_VIEWPORT_WIDTH_PX: int = int(os.environ.get("RHK_DESKTOP_VIEWPORT_WIDTH", "1200"))
 
-# Inject a desktop-like viewport on mobile browsers (desktop browsers usually ignore this tag).
-HEAD_HTML = f'<meta name="viewport" content="width={DESKTOP_VIEWPORT_WIDTH_PX}, initial-scale=1">'
+# Optional: Inject a desktop-like viewport on mobile browsers.
+# This can be useful for debugging, but can also affect desktop rendering depending on browser/zoom.
+# Default is OFF.
+FORCE_DESKTOP_VIEWPORT: bool = os.environ.get("RHK_FORCE_DESKTOP_VIEWPORT", "0").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+_VIEWPORT_META = (
+    f'<meta name="viewport" content="width={DESKTOP_VIEWPORT_WIDTH_PX}, initial-scale=1">'
+    if FORCE_DESKTOP_VIEWPORT
+    else ""
+)
+
+# NOTE: We enforce a readable light UI even if the browser/system prefers dark.
+# Additionally, we attach a robust, cross-browser copy-to-Word handler to the three copy buttons.
+HEAD_HTML = "".join(
+    [
+        _VIEWPORT_META,
+        '<meta name="color-scheme" content="light">',
+        '<meta name="supported-color-schemes" content="light">',
+        """
+<script>
+(function(){
+  // ------------------------------------------------------------------
+  // Hard-default to Gradio light theme.
+  // Gradio's own theme system is driven by the query param `__theme`.
+  // If it is missing, some browsers/system-preferences will render dark,
+  // which breaks our carefully tuned light UI.
+  // We therefore enforce: /?__theme=light (single reload, no flicker).
+  // ------------------------------------------------------------------
+  try {
+    var u = new URL(window.location.href);
+    var th = u.searchParams.get('__theme');
+    if(th !== 'light'){
+      u.searchParams.set('__theme', 'light');
+      window.location.replace(u.toString());
+      return;
+    }
+  } catch(e) {}
+
+  function byId(id){ return document.getElementById(id); }
+  function getTextboxValue(rootId){
+    var root = byId(rootId);
+    if(!root) return "";
+    var el = root.querySelector('textarea,input');
+    if(el && typeof el.value === 'string') return el.value;
+    return (root.textContent || "").trim();
+  }
+  function setFeedback(msg){
+    var root = byId('rhk_copy_feedback');
+    if(!root) return;
+    // Gradio Markdown often wraps content; try common containers.
+    var tgt = root.querySelector('.prose, .markdown, .md, .wrap, div') || root;
+    tgt.textContent = msg;
+  }
+  function extractFragment(html){
+    if(!html) return "";
+    var s = '<!--StartFragment-->';
+    var e = '<!--EndFragment-->';
+    var i = html.indexOf(s);
+    var j = html.indexOf(e);
+    if(i >= 0 && j > i) return html.substring(i + s.length, j).trim();
+    // Fallback: extract <body>...</body>
+    var m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if(m && m[1]) return m[1].trim();
+    return String(html);
+  }
+  function copyToClipboard(html, plain){
+    // `html` is a full Word-friendly HTML document (incl. StartFragment markers)
+    // produced server-side. For copying we prefer the fragment so Word pastes cleanly.
+    var rawHtml = (html === undefined || html === null) ? "" : String(html);
+    var h = extractFragment(rawHtml);
+    var t = (plain === undefined || plain === null) ? "" : String(plain);
+
+    function copyPlainExec(){
+      var ta = document.createElement('textarea');
+      ta.value = t;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch(e) {}
+      document.body.removeChild(ta);
+      return ok;
+    }
+
+    function copyHtmlExec(){
+      // Robust cross-browser fallback:
+      // Use a temporary contenteditable container + explicit clipboardData injection.
+      var div = document.createElement('div');
+      var safeText = t
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+      div.innerHTML = (h && h.trim().length) ? h : safeText;
+      div.style.position = 'fixed';
+      div.style.left = '0';
+      div.style.top = '0';
+      div.style.opacity = '0';
+      div.style.pointerEvents = 'none';
+      div.style.width = '1px';
+      div.style.height = '1px';
+      div.style.overflow = 'hidden';
+      div.setAttribute('contenteditable', 'true');
+      document.body.appendChild(div);
+
+      var ok = false;
+      var sel = window.getSelection();
+      try {
+        div.focus();
+        var range = document.createRange();
+        range.selectNodeContents(div);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch(e) {}
+
+      function onCopy(e){
+        try {
+          if(e && e.clipboardData){
+            // Prefer fragment for Word.
+            e.clipboardData.setData('text/html', (h && h.trim().length) ? h : safeText);
+            e.clipboardData.setData('text/plain', t);
+            e.preventDefault();
+            ok = true;
+          }
+        } catch(err) {}
+      }
+      div.addEventListener('copy', onCopy);
+      try {
+        document.execCommand('copy');
+      } catch(e) {}
+      div.removeEventListener('copy', onCopy);
+
+      try { sel.removeAllRanges(); } catch(e) {}
+      document.body.removeChild(div);
+      return ok;
+    }
+
+    // 1) Clipboard API with HTML + plain (best quality, secure contexts)
+    try {
+      if(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem){
+        var blobHtml = new Blob([h], {type: 'text/html'});
+        var blobText = new Blob([t], {type: 'text/plain'});
+        var item = new ClipboardItem({'text/html': blobHtml, 'text/plain': blobText});
+        return navigator.clipboard.write([item]).then(function(){
+          setFeedback('✅ Formatiert für Word kopiert.');
+        }).catch(function(){
+          // fall through
+          if(copyHtmlExec()) setFeedback('✅ Formatiert für Word kopiert.');
+          else if(navigator.clipboard && navigator.clipboard.writeText){
+            navigator.clipboard.writeText(t).then(function(){
+              setFeedback('✅ Als Text kopiert (Browser erlaubt kein formatiertes Kopieren).');
+            }).catch(function(){
+              setFeedback(copyPlainExec() ? '✅ Als Text kopiert (Fallback).' : '⚠️ Konnte nicht automatisch kopieren.');
+            });
+          } else {
+            setFeedback(copyPlainExec() ? '✅ Als Text kopiert (Fallback).' : '⚠️ Konnte nicht automatisch kopieren.');
+          }
+        });
+      }
+    } catch(e) {}
+
+    // 2) execCommand (works also on http / older browsers)
+    try {
+      if(copyHtmlExec()) { setFeedback('✅ Formatiert für Word kopiert.'); return; }
+    } catch(e) {}
+
+    // 3) Plain text fallback
+    try {
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(t).then(function(){
+          setFeedback('✅ Als Text kopiert (Browser erlaubt kein formatiertes Kopieren).');
+        }).catch(function(){
+          setFeedback(copyPlainExec() ? '✅ Als Text kopiert (Fallback).' : '⚠️ Konnte nicht automatisch kopieren.');
+        });
+        return;
+      }
+    } catch(e) {}
+
+    setFeedback(copyPlainExec() ? '✅ Als Text kopiert (Fallback).' : '⚠️ Konnte nicht automatisch kopieren.');
+  }
+
+  // Gradio re-renders buttons; binding to the concrete <button> is brittle.
+  // Use ONE delegated click handler (capture) that survives any re-render.
+  function installCopyDelegation(){
+    if(window.__rhkCopyDelegationInstalled) return;
+    window.__rhkCopyDelegationInstalled = true;
+    document.addEventListener('click', function(ev){
+      try {
+        var t0 = ev && ev.target;
+        if(!t0 || !t0.closest) return;
+        var isDoc = !!t0.closest('#btn_copy_doc');
+        var isPat = !!t0.closest('#btn_copy_pat');
+        var isRhk = !!t0.closest('#btn_copy_rhk');
+        if(!(isDoc || isPat || isRhk)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        var htmlId = isDoc ? 'copy_doc_html' : (isPat ? 'copy_pat_html' : 'copy_rhk_html');
+        var plainId = isDoc ? 'copy_doc_plain' : (isPat ? 'copy_pat_plain' : 'copy_rhk_plain');
+        var h = getTextboxValue(htmlId);
+        var p = getTextboxValue(plainId);
+        copyToClipboard(h, p);
+      } catch(e) {
+        setFeedback('⚠️ Konnte nicht automatisch kopieren.');
+      }
+    }, true);
+  }
+
+  function enforceLight(){
+    try {
+      document.documentElement.style.colorScheme = 'light';
+      if(document.body) document.body.style.colorScheme = 'light';
+    } catch(e) {}
+  }
+
+  function boot(){
+    enforceLight();
+    installCopyDelegation();
+  }
+
+  // Gradio may re-render; bind on load and after short delays.
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ boot(); setTimeout(boot, 500); setTimeout(boot, 1500); });
+  } else {
+    boot(); setTimeout(boot, 500); setTimeout(boot, 1500);
+  }
+})();
+</script>
+""",
+    ]
+)
 
 CSS = ("""
 /* ------------------------------------------------------------------
+   Light UI (robust): enforce readability even if browser/system prefers dark
+   ------------------------------------------------------------------ */
 
 /* Neutralize "Befund erstellen/aktualisieren" buttons (avoid persistent blue look) */
 #btn_generate_top button, #btn_generate_bottom button {
@@ -53,9 +298,43 @@ CSS = ("""
 #btn_generate_top button:hover, #btn_generate_bottom button:hover {
   filter: brightness(0.98);
 }
-   Light Theme – enforced (incl. system/browser dark-mode)
-   ------------------------------------------------------------------ */
-:root, .dark {
+
+/* Top action buttons: keep the same conservative light style */
+#btn_example_top button, #btn_example_bottom button,
+#btn_clear_top button, #btn_clear_bottom button,
+#btn_save_top button, #btn_save_bottom button,
+#btn_load_top button, #btn_load_bottom button {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid rgba(148, 163, 184, 0.9) !important;
+  box-shadow: none !important;
+}
+#btn_example_top button:hover, #btn_example_bottom button:hover,
+#btn_clear_top button:hover, #btn_clear_bottom button:hover,
+#btn_save_top button:hover, #btn_save_bottom button:hover,
+#btn_load_top button:hover, #btn_load_bottom button:hover {
+  filter: brightness(0.98);
+}
+
+/* Copy buttons: match the same style (avoid heavy dark blocks) */
+#btn_copy_doc button, #btn_copy_pat button, #btn_copy_rhk button {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid rgba(148, 163, 184, 0.9) !important;
+  box-shadow: none !important;
+}
+#btn_copy_doc button:hover, #btn_copy_pat button:hover, #btn_copy_rhk button:hover {
+  filter: brightness(0.98);
+}
+
+/* Hidden clipboard payloads must remain in DOM for robust JS copy binding */
+.rhk-hidden-payload{ display: none !important; }
+
+:root,
+.dark,
+:root[data-theme="dark"], html[data-theme="dark"], body[data-theme="dark"],
+:root[data-color-mode="dark"], html[data-color-mode="dark"], body[data-color-mode="dark"],
+.gradio-container[data-theme="dark"], .gradio-container[data-color-mode="dark"] {
   color-scheme: light !important;
   --card-bg: rgba(255,255,255,0.96);
   --border: rgba(0,0,0,0.08);
@@ -74,7 +353,17 @@ CSS = ("""
 
 html, body { color-scheme: light !important; background: #f6f7fb !important; }
 
-.gradio-container { max-width: 1700px !important; min-width: %dpx !important; margin: 0 auto !important; padding-left: 8px; padding-right: 8px; }
+.gradio-container { max-width: 1700px !important; margin: 0 auto !important; padding-left: 8px; padding-right: 8px; }
+
+/* Force light cards/panels even if Gradio or browser applies dark-ish block fills */
+.gradio-container .gr-box,
+.gradio-container .gr-block,
+.gradio-container .panel,
+.gradio-container .form,
+.gradio-container .wrap {
+  background: rgba(255,255,255,0.96) !important;
+  color: #111111 !important;
+}
 
 /* Prevent any dark mode artefacts */
 .dark, .dark * { color-scheme: light !important; }
@@ -385,6 +674,12 @@ button[title*="Dark"] {
   color: rgba(15,23,42,0.8);
   white-space: nowrap;
 }
+.rhk-summarybar .rhk-schip--hint{
+  white-space: normal;
+  flex: 1 1 100%;
+  line-height: 1.25;
+}
+
 .rhk-summarybar .rhk-schip--good{ background: rgba(20,184,166,0.12); border-color: rgba(20,184,166,0.22); color:#0f766e; }
 .rhk-summarybar .rhk-schip--warn{ background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.22); color:#c2410c; }
 .rhk-summarybar .rhk-schip--bad{ background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.22); color:#b91c1c; }
@@ -403,6 +698,45 @@ button[title*="Dark"] {
   border: 1px solid rgba(0,0,0,0.06);
   border-radius: 14px;
   background: rgba(255,255,255,0.98);
+}
+
+/* Conservative typography & better line-length in previews */
+.rhk-scrollbox .prose,
+.rhk-scrollbox .markdown,
+.rhk-scrollbox .wrap {
+  max-width: 76ch;
+  margin: 0 auto;
+  line-height: 1.45;
+  font-size: 14px;
+}
+.rhk-scrollbox h1, .rhk-scrollbox h2, .rhk-scrollbox h3 {
+  letter-spacing: -0.01em;
+}
+
+/* Copy row */
+#rhk_copy_row {
+  gap: 8px !important;
+  align-items: center;
+  margin: 6px 0 8px;
+}
+.rhk-copy-feedback{
+  font-size: 12px;
+  color: rgba(15,23,42,0.7);
+  margin-top: 4px;
+}
+
+/* Consistent form rhythm (spacing/align) */
+.gradio-container .gr-row {
+  gap: 12px !important;
+}
+.gradio-container label {
+  line-height: 1.15;
+}
+.gradio-container input:not([type="checkbox"]):not([type="radio"]),
+.gradio-container textarea,
+.gradio-container select {
+  min-height: 38px;
+  border-radius: 12px !important;
 }
 .rhk-scrollbox pre,
 .rhk-scrollbox code {
@@ -493,7 +827,10 @@ button[title*="Dark"] {
 #rhk_compare_overview .cmp-delta-down{ color:#0f766e; font-weight: 800; }
 #rhk_compare_overview .cmp-delta-flat{ color:#334155; font-weight: 800; }
 
-""".strip() % DESKTOP_VIEWPORT_WIDTH_PX)
+""".strip())
+
+# Avoid %-formatting pitfalls (Gradio/CSS contains many % characters).
+CSS = CSS.replace("__DESKTOP_VIEWPORT_WIDTH_PX__", str(DESKTOP_VIEWPORT_WIDTH_PX)).replace("%%", "%")
 
 JS_ON_LOAD = r"""
 () => {
@@ -521,6 +858,8 @@ JS_ON_LOAD = r"""
 
   // Ensure nothing is collapsed into a "More/…" overflow menu.
   // Users must always see all tabs and all P-Module options deterministically.
+  // Keep "More/…" overflow controls out of the UI.
+  // IMPORTANT: must be lightweight; avoid full-document scans.
   const fixOverflows = () => {
     try {
       // Tabs: wrap instead of overflow (Gradio versions differ in markup)
@@ -576,25 +915,29 @@ JS_ON_LOAD = r"""
         }
       });
 
-      // Hide any overflow "More/Mehr" controls created by Gradio
-      const maybeHide = (el) => {
-        const t = (el && el.innerText ? el.innerText.trim() : '');
-        if (!t) return;
-        const isMore = (
-          t === 'More' || t === 'More…' || t === 'More...' ||
-          t === 'Mehr' || t === 'Mehr…' || t === 'Mehr...' ||
-          /^\+\d+\s*more$/i.test(t) || /^\+\d+\s*mehr$/i.test(t)
-        );
-        if (!isMore) return;
-
-        const inTabs = el.closest('[role="tablist"], .tabs, .tab-nav, .tabitem, .tab-nav__overflow, .tab-nav__more');
-        const inModules = el.closest('#pmods_choice_lvl1, #pmods_choice_lvl2, #pmods_choice_lvl3');
-        if (inTabs || inModules) {
-          try { el.style.display = 'none'; el.setAttribute('aria-hidden', 'true'); } catch (e) {}
-        }
-      };
-
-      document.querySelectorAll('button, div, span, a').forEach(maybeHide);
+      // Hide any overflow "More/Mehr" controls created by Gradio, but only inside relevant containers.
+      const roots = document.querySelectorAll(
+        '#rhk_input_tabs, #rhk_output_tabs, #pmods_choice_lvl1, #pmods_choice_lvl2, #pmods_choice_lvl3'
+      );
+      roots.forEach((root) => {
+        try {
+          root.querySelectorAll('button, div, span').forEach((el) => {
+            const t = (el && el.innerText ? el.innerText.trim() : '');
+            if (!t) return;
+            const isMore = (
+              t === 'More' || t === 'More…' || t === 'More...' ||
+              t === 'Mehr' || t === 'Mehr…' || t === 'Mehr...' ||
+              /^\+\d+\s*more$/i.test(t) || /^\+\d+\s*mehr$/i.test(t)
+            );
+            if (!isMore) return;
+            const inTabs = el.closest('[role="tablist"], .tabs, .tab-nav, .tabitem, .tab-nav__overflow, .tab-nav__more');
+            const inModules = el.closest('#pmods_choice_lvl1, #pmods_choice_lvl2, #pmods_choice_lvl3');
+            if (inTabs || inModules) {
+              try { el.style.display = 'none'; el.setAttribute('aria-hidden', 'true'); } catch (e) {}
+            }
+          });
+        } catch (e) {}
+      });
 
       document.querySelectorAll(
         'button[aria-label*="More"], button[aria-label*="Mehr"], button[title*="More"], button[title*="Mehr"]'
@@ -654,12 +997,77 @@ JS_ON_LOAD = r"""
 
   // Re-apply light mode if the framework toggles theme after render
   try {
-    const obs = new MutationObserver(() => { applyLight(); fixOverflows(); });
+    const obs = new MutationObserver(() => { applyLight(); });
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
     obs.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
   } catch (e) {}
 
+  // Debounced "dirty" ping -> server updates status badges once per burst.
+  const debounce = (fn, wait) => {
+    let t;
+    return (...args) => {
+      try { clearTimeout(t); } catch (e) {}
+      t = setTimeout(() => fn(...args), wait);
+    };
+  };
+
+  const setupDirtyPing = () => {
+    try {
+      if (window.__rhk_dirty_setup) return;
+      window.__rhk_dirty_setup = true;
+
+      const getPingEl = () => document.querySelector('#rhk_dirty_ping textarea, #rhk_dirty_ping input');
+
+      const bumpPing = debounce(() => {
+        try {
+          const el = getPingEl();
+          if (!el) return;
+          el.value = String(Date.now());
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        } catch (e) {}
+      }, 220);
+
+      const shouldIgnore = (target) => {
+        try {
+          if (!target || !target.closest) return true;
+          if (target.closest('#rhk_dirty_ping')) return true;
+          // Procedere/Module have their own live-update path (do not mark report stale).
+          if (target.closest('#pmods_choice_lvl1, #pmods_choice_lvl2, #pmods_choice_lvl3')) return true;
+          if (target.closest('#procedere_free')) return true;
+          return false;
+        } catch (e) {
+          return true;
+        }
+      };
+
+      const onAnyEdit = (ev) => {
+        try {
+          if (window.__rhk_bulk_until && Date.now() < window.__rhk_bulk_until) return;
+          const t = ev ? ev.target : null;
+          if (shouldIgnore(t)) return;
+          bumpPing();
+        } catch (e) {}
+      };
+
+      document.addEventListener('input', onAnyEdit, true);
+      document.addEventListener('change', onAnyEdit, true);
+
+      const armBulk = () => { window.__rhk_bulk_until = Date.now() + 1400; };
+      [
+        'btn_example_top','btn_example_bottom','btn_clear_top','btn_clear_bottom',
+        'btn_generate_top','btn_generate_bottom','btn_save_top','btn_save_bottom',
+        'btn_load_top','btn_load_bottom'
+      ].forEach((id) => {
+        const node = document.getElementById(id);
+        if (!node) return;
+        try { node.addEventListener('click', armBulk, true); } catch (e) {}
+      });
+    } catch (e) {}
+  };
+
   update();
+  setupDirtyPing();
   setTimeout(update, 50);
   setTimeout(update, 250);
   window.addEventListener("resize", () => setTimeout(update, 50));
@@ -667,6 +1075,297 @@ JS_ON_LOAD = r"""
 """
 JS_ON_LOAD = JS_ON_LOAD.replace("__DESKTOP_ONLY__", "true" if DESKTOP_ONLY else "false")
 JS_ON_LOAD = JS_ON_LOAD.replace("__MIN_WIDTH__", str(DESKTOP_MIN_WIDTH_PX)).strip()
+
+
+# -----------------------------------------------------------------------------
+# Light-mode enforcement + Word-friendly clipboard copy (robust, cross-browser)
+#
+# Why this exists:
+# - Some deployments (esp. Gradio 6+ / SSR / CDN caches) may ignore Blocks-level
+#   `head` injection, and some browsers default to dark mode.
+# - The app must remain readable and the copy buttons must work in Edge/Opera.
+#
+# We therefore run the enforcement & copy handler BOTH via `head` (best, earliest)
+# and via `js` (fallback, survives head being ignored).
+# -----------------------------------------------------------------------------
+
+JS_LIGHT_COPY_FALLBACK = r"""
+(function(){
+  // --- 1) Always prefer Gradio light theme ---------------------------------
+  // If the param is missing, some browsers/system themes will render dark.
+  // We enforce a single redirect to add `__theme=light`.
+  try {
+    var u = new URL(window.location.href);
+    var th = u.searchParams.get('__theme');
+    if (th !== 'light') {
+      u.searchParams.set('__theme', 'light');
+      window.location.replace(u.toString());
+      return;
+    }
+  } catch(e) {}
+
+  function byId(id){ return document.getElementById(id); }
+
+  function setFeedback(msg){
+    try {
+      var root = byId('rhk_copy_feedback');
+      if(!root) return;
+      var tgt = root.querySelector('.prose, .markdown, .md, .wrap, div') || root;
+      tgt.textContent = msg;
+    } catch(e) {}
+  }
+
+  function getTextboxValue(rootId){
+    var root = byId(rootId);
+    if(!root) return "";
+    var el = root.querySelector('textarea,input');
+    if(el && typeof el.value === 'string') return el.value;
+    return (root.textContent || '').trim();
+  }
+
+  function extractFragment(html){
+    if(!html) return "";
+    var s = '<!--StartFragment-->';
+    var e = '<!--EndFragment-->';
+    var i = html.indexOf(s);
+    var j = html.indexOf(e);
+    if(i >= 0 && j > i) return html.substring(i + s.length, j).trim();
+    var m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if(m && m[1]) return m[1].trim();
+    return String(html);
+  }
+
+  function showManualCopy(text){
+    try {
+      var overlay = document.createElement('div');
+      overlay.style.position = 'fixed';
+      overlay.style.inset = '0';
+      overlay.style.background = 'rgba(15, 23, 42, 0.35)';
+      overlay.style.zIndex = '999999';
+      overlay.style.display = 'flex';
+      overlay.style.alignItems = 'center';
+      overlay.style.justifyContent = 'center';
+
+      var box = document.createElement('div');
+      box.style.width = 'min(860px, 92vw)';
+      box.style.maxHeight = '80vh';
+      box.style.background = '#ffffff';
+      box.style.border = '1px solid rgba(0,0,0,0.18)';
+      box.style.borderRadius = '12px';
+      box.style.boxShadow = '0 10px 30px rgba(0,0,0,0.20)';
+      box.style.padding = '14px';
+      box.style.display = 'flex';
+      box.style.flexDirection = 'column';
+      box.style.gap = '10px';
+
+      var header = document.createElement('div');
+      header.style.display = 'flex';
+      header.style.alignItems = 'center';
+      header.style.justifyContent = 'space-between';
+
+      var title = document.createElement('div');
+      title.textContent = 'Manuell kopieren';
+      title.style.fontWeight = '600';
+      title.style.color = '#0f172a';
+
+      var close = document.createElement('button');
+      close.textContent = '✕';
+      close.style.border = 'none';
+      close.style.background = 'transparent';
+      close.style.cursor = 'pointer';
+      close.style.fontSize = '18px';
+      close.style.lineHeight = '18px';
+      close.style.color = '#0f172a';
+
+      header.appendChild(title);
+      header.appendChild(close);
+
+      var hint = document.createElement('div');
+      hint.textContent = 'Browser blockiert automatisches Kopieren. Text ist markiert: bitte Strg+C und dann in Word einfügen.';
+      hint.style.fontSize = '13px';
+      hint.style.color = 'rgba(15, 23, 42, 0.75)';
+
+      var ta = document.createElement('textarea');
+      ta.value = String(text || '');
+      ta.style.width = '100%';
+      ta.style.height = '55vh';
+      ta.style.resize = 'none';
+      ta.style.border = '1px solid rgba(0,0,0,0.18)';
+      ta.style.borderRadius = '10px';
+      ta.style.padding = '10px';
+      ta.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+      ta.style.fontSize = '12px';
+      ta.style.color = '#0f172a';
+      ta.style.background = '#ffffff';
+
+      box.appendChild(header);
+      box.appendChild(hint);
+      box.appendChild(ta);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+
+      function cleanup(){
+        try { document.body.removeChild(overlay); } catch(e) {}
+      }
+      overlay.addEventListener('click', function(ev){
+        if(ev && ev.target === overlay) cleanup();
+      });
+      close.addEventListener('click', function(){ cleanup(); });
+
+      setTimeout(function(){
+        try { ta.focus(); ta.select(); } catch(e) {}
+      }, 0);
+    } catch(e) {}
+  }
+
+  function copyToClipboard(html, plain){
+    var rawHtml = (html === undefined || html === null) ? '' : String(html);
+    var frag = extractFragment(rawHtml);
+    var t = (plain === undefined || plain === null) ? '' : String(plain);
+
+    function copyPlainExec(){
+      var ta = document.createElement('textarea');
+      ta.value = t;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch(e) {}
+      document.body.removeChild(ta);
+      return ok;
+    }
+
+    function copyHtmlExec(){
+      var div = document.createElement('div');
+      var safeText = t
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+      div.innerHTML = (frag && frag.trim().length) ? frag : safeText;
+      div.style.position = 'fixed';
+      div.style.left = '0';
+      div.style.top = '0';
+      div.style.opacity = '0';
+      div.style.width = '1px';
+      div.style.height = '1px';
+      div.style.overflow = 'hidden';
+      div.setAttribute('contenteditable', 'true');
+      document.body.appendChild(div);
+
+      var ok = false;
+      var sel = window.getSelection();
+      try {
+        div.focus();
+        var range = document.createRange();
+        range.selectNodeContents(div);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch(e) {}
+
+      function onCopy(e){
+        try {
+          if(e && e.clipboardData){
+            e.clipboardData.setData('text/html', (frag && frag.trim().length) ? frag : safeText);
+            e.clipboardData.setData('text/plain', t);
+            e.preventDefault();
+            ok = true;
+          }
+        } catch(err) {}
+      }
+      div.addEventListener('copy', onCopy);
+      try { document.execCommand('copy'); } catch(e) {}
+      div.removeEventListener('copy', onCopy);
+
+      try { sel.removeAllRanges(); } catch(e) {}
+      try { document.body.removeChild(div); } catch(e) {}
+      return ok;
+    }
+
+    // 1) Clipboard API (best)
+    try {
+      if(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem){
+        var blobHtml = new Blob([frag], {type: 'text/html'});
+        var blobText = new Blob([t], {type: 'text/plain'});
+        var item = new ClipboardItem({'text/html': blobHtml, 'text/plain': blobText});
+        navigator.clipboard.write([item]).then(function(){
+          setFeedback('✅ Formatiert für Word kopiert.');
+        }).catch(function(){
+          if(copyHtmlExec()) setFeedback('✅ Formatiert für Word kopiert.');
+          else if(copyPlainExec()) setFeedback('✅ Als Text kopiert (Fallback).');
+          else { setFeedback('⚠️ Kopieren blockiert.'); showManualCopy(t); }
+        });
+        return;
+      }
+    } catch(e) {}
+
+    // 2) execCommand
+    try {
+      if(copyHtmlExec()) { setFeedback('✅ Formatiert für Word kopiert.'); return; }
+    } catch(e) {}
+
+    // 3) Plain fallback
+    if(copyPlainExec()) { setFeedback('✅ Als Text kopiert (Fallback).'); return; }
+
+    setFeedback('⚠️ Kopieren blockiert.');
+    showManualCopy(t);
+  }
+
+  function installCopyDelegation(){
+    if(window.__rhkCopyDelegationInstalled) return;
+    window.__rhkCopyDelegationInstalled = true;
+    document.addEventListener('click', function(ev){
+      try {
+        var t0 = ev && ev.target;
+        if(!t0 || !t0.closest) return;
+        var isDoc = !!t0.closest('#btn_copy_doc');
+        var isPat = !!t0.closest('#btn_copy_pat');
+        var isRhk = !!t0.closest('#btn_copy_rhk');
+        if(!(isDoc || isPat || isRhk)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        var htmlId = isDoc ? 'copy_doc_html' : (isPat ? 'copy_pat_html' : 'copy_rhk_html');
+        var plainId = isDoc ? 'copy_doc_plain' : (isPat ? 'copy_pat_plain' : 'copy_rhk_plain');
+        var h = getTextboxValue(htmlId);
+        var p = getTextboxValue(plainId);
+        copyToClipboard(h, p);
+      } catch(e) {
+        setFeedback('⚠️ Konnte nicht automatisch kopieren.');
+      }
+    }, true);
+  }
+
+  function enforceLight(){
+    try {
+      document.documentElement.style.colorScheme = 'light';
+      document.documentElement.setAttribute('data-theme', 'light');
+      document.documentElement.setAttribute('data-color-mode', 'light');
+      if(document.body){
+        document.body.style.colorScheme = 'light';
+        document.body.classList.remove('dark');
+      }
+    } catch(e) {}
+  }
+
+  function boot(){
+    enforceLight();
+    installCopyDelegation();
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ boot(); setTimeout(boot, 400); setTimeout(boot, 1200); });
+  } else {
+    boot(); setTimeout(boot, 400); setTimeout(boot, 1200);
+  }
+})();
+"""
+
+# Append fallback JS so the critical behaviour survives environments
+# where only the `js` hook executes reliably.
+JS_ON_LOAD = (JS_ON_LOAD + "\n" + JS_LIGHT_COPY_FALLBACK).strip()
 
 
 def _gradio_major_version() -> int:
@@ -694,6 +1393,21 @@ def _fmt_or_dash(v: Any, nd: int = 0) -> str:
         return "–"
 
 
+def load_rulebook_meta(path: str) -> Dict[str, Any]:
+    """Read meta info (version/updated) from YAML rulebook without changing rule loading."""
+    try:
+        if not path or not os.path.exists(path):
+            return {}
+        if yaml is None:
+            return {}
+        with open(path, "r", encoding="utf-8") as f:
+            doc = yaml.safe_load(f) or {}
+        meta = doc.get("meta") if isinstance(doc, dict) else {}
+        return meta if isinstance(meta, dict) else {}
+    except Exception:
+        return {}
+
+
 def html_escape(s: Any) -> str:
     """HTML-escape helper (quote-safe)."""
     try:
@@ -702,9 +1416,23 @@ def html_escape(s: Any) -> str:
         return ""
 
 
-def build_sticky_summary_html(case: Optional[Dict[str, Any]]) -> str:
+
+def build_sticky_summary_html(case: Optional[Dict[str, Any]], flags: Optional[Dict[str, Any]] = None) -> str:
     """Concise, always-visible live preview of key values."""
     if not case:
+        status = ""
+        if flags:
+            # Minimal status even without case
+            dirty = bool(flags.get("dirty"))
+            saved_at = flags.get("saved_at")
+            has_report = bool(flags.get("has_report"))
+            stale = bool(flags.get("report_stale"))
+            if has_report:
+                status += "<span class='rhk-schip rhk-schip--warn'>Befund veraltet</span>" if stale else "<span class='rhk-schip rhk-schip--good'>Befund aktuell</span>"
+            if dirty:
+                status += "<span class='rhk-schip rhk-schip--warn'>Änderungen nicht gespeichert</span>"
+            elif saved_at:
+                status += "<span class='rhk-schip rhk-schip--good'>Gespeichert</span>"
         return (
             "<div class='rhk-summarybar'>"
             "<span class='rhk-schip rhk-schip--info'>Hämodynamik: –</span>"
@@ -714,12 +1442,37 @@ def build_sticky_summary_html(case: Optional[Dict[str, Any]]) -> str:
             "<span class='rhk-schip'>PVR: –</span>"
             "<span class='rhk-schip'>CI: –</span>"
             "<span class='rhk-schip rhk-schip--warn'>Risiko: –</span>"
+            f"{status}"
             "</div>"
         )
 
     ui = case.get("ui") or {}
     der = case.get("derived") or {}
     scores = case.get("scores") or {}
+
+    # Warnungen (nicht blockierend)
+    warns = case.get("warnings") or []
+    wcnt = len(warns) if isinstance(warns, list) else 0
+    wtone = "warn"
+    if wcnt:
+        try:
+            sev = {str(w.get("severity")) for w in warns if isinstance(w, dict)}
+            wtone = "bad" if "error" in sev else "warn"
+        except Exception:
+            wtone = "warn"
+    wchip = ""
+    if wcnt:
+        # Tooltip with full warning list
+        w_msgs = []
+        try:
+            for w in warns:
+                if isinstance(w, dict) and str(w.get("message") or "").strip():
+                    w_msgs.append(str(w.get("message")).strip())
+        except Exception:
+            w_msgs = []
+        tooltip = "\n".join([f"- {m}" for m in w_msgs]) if w_msgs else ""
+        tattr = f" title='{html_escape(tooltip)}'" if tooltip else ""
+        wchip = f"<span class='rhk-schip rhk-schip--{wtone}'{tattr}>Warnungen: {wcnt}</span>"
 
     hemo_cat = str(der.get("hemo_category") or "unknown")
     hemo_map = {
@@ -766,6 +1519,24 @@ def build_sticky_summary_html(case: Optional[Dict[str, Any]]) -> str:
     except Exception:
         cmp_hint = ""
 
+    # Status chips (saved/dirty/stale)
+    status_chips = ""
+    if flags:
+        try:
+            has_report = bool(flags.get("has_report"))
+            stale = bool(flags.get("report_stale"))
+            dirty = bool(flags.get("dirty"))
+            saved_at = flags.get("saved_at")
+
+            if has_report:
+                status_chips += "<span class='rhk-schip rhk-schip--warn'>Befund veraltet</span>" if stale else "<span class='rhk-schip rhk-schip--good'>Befund aktuell</span>"
+            if dirty:
+                status_chips += "<span class='rhk-schip rhk-schip--warn'>Änderungen nicht gespeichert</span>"
+            elif saved_at:
+                status_chips += "<span class='rhk-schip rhk-schip--good'>Gespeichert</span>"
+        except Exception:
+            status_chips = ""
+
     return (
         "<div class='rhk-summarybar'>"
         f"<span class='rhk-schip rhk-schip--info'>Hämodynamik: {html_escape(hemo_txt)}</span>"
@@ -775,7 +1546,9 @@ def build_sticky_summary_html(case: Optional[Dict[str, Any]]) -> str:
         f"<span class='rhk-schip'>PVR: {_fmt_or_dash(pvr,1)}</span>"
         f"<span class='rhk-schip'>CI: {_fmt_or_dash(ci,2)}</span>"
         f"<span class='rhk-schip rhk-schip--{risk_tone}'>Risiko: {html_escape(risk_txt)}</span>"
+        f"{wchip}"
         f"{cmp_hint}"
+        f"{status_chips}"
         "</div>"
     )
 
@@ -939,7 +1712,6 @@ def build_p_module_cards_html(blocks: Dict[str, Any], case: Optional[Dict[str, A
         f"<span class='rhk-schip'>Manuell {manual_n}</span>"
         f"<span class='rhk-schip rhk-schip--warn'>Gesperrt {locked_n}</span>"
         f"<span class='rhk-schip'>Anzeige: {shown_n}/{len(_ALL_P_MODULE_IDS)} (Level I–II + ausgewählt)</span>"
-        "<span class='rhk-schip'>Hinweis: Gesperrte Module werden separat inkl. Begründung angezeigt.</span>"
         "</div>"
     )
 
@@ -951,6 +1723,7 @@ def build_p_module_cards_html(blocks: Dict[str, Any], case: Optional[Dict[str, A
 def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
     blocks = load_textdb_blocks()
     rules = load_rulebook(DEFAULT_RULEBOOK_PATH)
+    rulebook_meta = load_rulebook_meta(DEFAULT_RULEBOOK_PATH)
 
     # Gradio versions differ; themes are available in newer builds.
     theme = None
@@ -960,13 +1733,16 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
     except Exception:
         theme = None
 
+    # We apply UI safety-critical assets (CSS + JS + head meta) as defensively as possible.
+    # - Gradio 5.x expects these in the Blocks initializer.
+    # - Gradio 6.x moved them to `.launch()`. Some deployments may ignore one path.
+    # Therefore we:
+    #   (a) try attaching them to Blocks (and gracefully drop unsupported keys)
+    #   (b) also pass them into `.launch()` (see rhk_launch.py) with similar fallbacks.
     blocks_kwargs: Dict[str, Any] = {"title": APP_TITLE}
-    major = _gradio_major_version()
-    # Apply styling/js/head across Gradio 5.x and 6.x
     blocks_kwargs.update({"css": CSS, "js": JS_ON_LOAD, "head": HEAD_HTML})
     if theme is not None:
         blocks_kwargs.update({"theme": theme})
-
     # Build Blocks with best-effort compatibility across Gradio 5.x / 6.x
     demo_ctx = None
     _kwargs_try = dict(blocks_kwargs)
@@ -994,11 +1770,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         )
 # Buttons top
         with gr.Row():
-            btn_example_top = gr.Button("Beispiel laden (random)", variant="secondary")
+            btn_example_top = gr.Button("Beispiel laden (random)", variant="secondary", elem_id="btn_example_top")
             btn_generate_top = gr.Button("Befund erstellen/aktualisieren", variant="secondary", elem_id="btn_generate_top")
-            btn_clear_top = gr.Button("Befunde leeren", variant="secondary")
-            save_btn_top = gr.Button("Fall speichern (.json)", variant="secondary")
-            load_btn_top = gr.UploadButton("Fall laden (.json)", file_types=[".json"], variant="secondary")
+            btn_clear_top = gr.Button("Befunde leeren", variant="secondary", elem_id="btn_clear_top")
+            save_btn_top = gr.Button("Fall speichern (.json)", variant="secondary", elem_id="btn_save_top")
+            load_btn_top = gr.UploadButton("Fall laden (.json)", file_types=[".json"], variant="secondary", elem_id="btn_load_top")
 
         # Layout: left inputs, right outputs
         with gr.Row():
@@ -1471,10 +2247,10 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     p_ids = sorted([bid for bid, b in blocks.items() if b.kind == "module" and bid.startswith("P")])
 
                     # Baseline-Choices (werden nach „Generieren“ fallbasiert sortiert & gelabelt)
-                    base_module_choices: List[Tuple[str, str]] = []
+                    base_module_choices: List[str] = []
                     for pid in p_ids:
                         if pid in blocks:
-                            base_module_choices.append((f"{pid} – {blocks[pid].title}", pid))
+                            base_module_choices.append(f"{pid} – {blocks[pid].title}")
 
                     # Visual Card Layer (Auto/Manuell/Gesperrt + Level)
                     # Wichtig: Diese Übersicht soll NICHT überladen wirken. Daher:
@@ -1527,31 +2303,103 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                 ),
                             )
 
-                    add("procedere_free", gr.Textbox(label="Procedere – Freitext", lines=3))
+                    add("procedere_free", gr.Textbox(label="Procedere – Freitext", lines=3, elem_id="procedere_free"))
                     gr.Markdown("Hinweis: Bereits durchgeführte Untersuchungen werden in den Modulen möglichst ausgefiltert (z.B. V/Q, CT, Echo, Lufu).")
 
             with gr.Column(scale=5):
                 dashboard = gr.HTML(value=build_dashboard_html(None))
+
+                # Copy/paste helpers (plain text, no formatting chaos)
+                with gr.Row(elem_id="rhk_copy_row"):
+                    btn_copy_doc = gr.Button("Arztbericht komplett kopieren", variant="secondary", elem_id="btn_copy_doc")
+                    btn_copy_pat = gr.Button("Patient*innenbrief komplett kopieren", variant="secondary", elem_id="btn_copy_pat")
+                    btn_copy_rhk = gr.Button("nur RHK Abschnitt kopieren", variant="secondary", elem_id="btn_copy_rhk")
+                copy_feedback = gr.Markdown("", elem_id="rhk_copy_feedback")
+
+                # Clipboard payloads MUST stay in DOM for robust cross-browser copy.
+                # We hide them via CSS (display:none) instead of Gradio's visible=False,
+                # because visible=False may not render the component at all.
+                copy_doc_plain = gr.Textbox(
+                    value="",
+                    label="",
+                    show_label=False,
+                    interactive=False,
+                    elem_id="copy_doc_plain",
+                    elem_classes=["rhk-hidden-payload"],
+                )
+                copy_pat_plain = gr.Textbox(
+                    value="",
+                    label="",
+                    show_label=False,
+                    interactive=False,
+                    elem_id="copy_pat_plain",
+                    elem_classes=["rhk-hidden-payload"],
+                )
+                copy_rhk_plain = gr.Textbox(
+                    value="",
+                    label="",
+                    show_label=False,
+                    interactive=False,
+                    elem_id="copy_rhk_plain",
+                    elem_classes=["rhk-hidden-payload"],
+                )
+
+                copy_doc_html = gr.Textbox(
+                    value="",
+                    label="",
+                    show_label=False,
+                    interactive=False,
+                    elem_id="copy_doc_html",
+                    elem_classes=["rhk-hidden-payload"],
+                )
+                copy_pat_html = gr.Textbox(
+                    value="",
+                    label="",
+                    show_label=False,
+                    interactive=False,
+                    elem_id="copy_pat_html",
+                    elem_classes=["rhk-hidden-payload"],
+                )
+                copy_rhk_html = gr.Textbox(
+                    value="",
+                    label="",
+                    show_label=False,
+                    interactive=False,
+                    elem_id="copy_rhk_html",
+                    elem_classes=["rhk-hidden-payload"],
+                )
+
                 with gr.Tabs(elem_id="rhk_output_tabs"):
                     with gr.TabItem("Arztbericht"):
                         out_doc = gr.Markdown(elem_id="out_doc", elem_classes=["rhk-scrollbox"])
                     with gr.TabItem("Patientenbericht"):
                         out_pat = gr.Markdown(elem_id="out_pat", elem_classes=["rhk-scrollbox"])
+                    with gr.TabItem("Echo Patientenbericht"):
+                        out_echo_pat = gr.Markdown(elem_id="out_echo_pat", elem_classes=["rhk-scrollbox"])
                     with gr.TabItem("Intern"):
                         out_int = gr.Markdown(elem_id="out_int", elem_classes=["rhk-scrollbox"])
+                    with gr.TabItem("Summary (JSON)"):
+                        out_summary_json = gr.Code(language="json", elem_id="out_summary_json", elem_classes=["rhk-scrollbox"])
                     with gr.TabItem("Debug"):
                         out_json = gr.Code(language="json", elem_id="out_json", elem_classes=["rhk-scrollbox"])
 
         # Buttons bottom (mirrored)
         with gr.Row():
-            btn_example_bottom = gr.Button("Beispiel laden (random)", variant="secondary")
+            btn_example_bottom = gr.Button("Beispiel laden (random)", variant="secondary", elem_id="btn_example_bottom")
             btn_generate_bottom = gr.Button("Befund erstellen/aktualisieren", variant="secondary", elem_id="btn_generate_bottom")
-            btn_clear_bottom = gr.Button("Befunde leeren", variant="secondary")
-            save_btn_bottom = gr.Button("Fall speichern (.json)", variant="secondary")
-            load_btn_bottom = gr.UploadButton("Fall laden (.json)", file_types=[".json"], variant="secondary")
+            btn_clear_bottom = gr.Button("Befunde leeren", variant="secondary", elem_id="btn_clear_bottom")
+            save_btn_bottom = gr.Button("Fall speichern (.json)", variant="secondary", elem_id="btn_save_bottom")
+            load_btn_bottom = gr.UploadButton("Fall laden (.json)", file_types=[".json"], variant="secondary", elem_id="btn_load_bottom")
 
-        file_out = gr.File(label="Download: gespeicherter Fall", visible=False)
+        file_out = gr.File(label="Download: gespeicherter Fall (.json)", visible=False)
+        file_summary_out = gr.File(label="Download: Summary (.json)", visible=False)
+
+        # Single "dirty" ping from the browser (debounced). Avoids binding change-handlers to dozens of fields.
+        dirty_ping = gr.Textbox(value="", visible=False, elem_id="rhk_dirty_ping")
+
         state_case = gr.State(value=None)
+        state_pmods_selected = gr.State(value={"lvl1": [], "lvl2": [], "lvl3": []})
+        state_flags = gr.State(value={"dirty": False, "saved_at": None, "has_report": False, "report_stale": False})
 
         # --- Conditional visibility bindings ---
         def _update_visibility_ild(ct_ild: bool):
@@ -1631,6 +2479,74 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             return {k: v for k, v in zip(input_keys, vals)}
 
         def apply_ui_to_components(ui_dict: Dict[str, Any]) -> List[Any]:
+            def _choice_values(comp) -> List[Any]:
+                try:
+                    ch = list(getattr(comp, "choices", []) or [])
+                except Exception:
+                    return []
+                vals: List[Any] = []
+                for c in ch:
+                    if isinstance(c, (tuple, list)) and len(c) >= 1:
+                        # Gradio supports (label, value) tuples. Prefer value when present.
+                        if len(c) >= 2:
+                            vals.append(c[1])
+                        else:
+                            vals.append(c[0])
+                    else:
+                        vals.append(c)
+                return vals
+
+            def _coerce_for_component(k: str, v: Any) -> Any:
+                comp = field_components.get(k)
+                cname = (comp.__class__.__name__ if comp else "").lower()
+
+                # Defaults for cleared/missing values (prevents Gradio "value not in choices" + red error badges)
+                if v is None:
+                    if "checkboxgroup" in cname:
+                        return []
+                    if "checkbox" in cname and "checkboxgroup" not in cname:
+                        return False
+                    if "number" in cname or "slider" in cname:
+                        return 0
+                    if hasattr(comp, "choices"):
+                        choices = _choice_values(comp)
+                        if "keine Angabe" in choices:
+                            return "keine Angabe"
+                        return choices[0] if choices else ""
+                    return ""
+
+                # Coerce numbers from legacy string values
+                if ("number" in cname or "slider" in cname) and isinstance(v, str):
+                    s = v.strip()
+                    if s == "":
+                        return 0
+                    try:
+                        return float(s.replace(",", "."))
+                    except Exception:
+                        return 0
+
+                # Coerce checkbox groups to list
+                if "checkboxgroup" in cname and not isinstance(v, (list, tuple, set)):
+                    return [v] if v not in ("", None) else []
+
+                # Guard any single-choice component with choices
+                if hasattr(comp, "choices"):
+                    choices = _choice_values(comp)
+                    if choices and v not in choices:
+                        v_low = str(v).strip().lower()
+                        for ch in choices:
+                            if str(ch).strip().lower() == v_low:
+                                v = ch
+                                break
+                    if choices and v not in choices:
+                        v = "keine Angabe" if "keine Angabe" in choices else choices[0]
+
+                # Text inputs: avoid None sneaking through
+                if "textbox" in cname and v is None:
+                    return ""
+
+                return v
+
             # --- Legacy: manche Case-Files speichern Module in modules_lvl1/2/3.
             # Wir führen alles auf ui['modules'] zusammen und geben die Level-Checkboxen
             # beim Laden zunächst leer zurück, damit es keine Choice/Value-Fehler gibt.
@@ -1685,15 +2601,70 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     elif vvl in ("sonstiges", "other", "misc", "unknown"):
                         v = "sonstiges"
                 if k == "anticoag_indication":
+                    # Normalize legacy values and enforce a valid choice to prevent Gradio "value not in choices" crashes.
+                    # Canonical UI choices:
+                    # ["keine Angabe","Vorhofflimmern","Venenthrombose/Lungenembolie","CTEPH/CTEPD","Mechanische Klappe","Andere/unklar"]
+                    canonical_map = {
+                        "": "keine Angabe",
+                        "none": "keine Angabe",
+                        "keine angabe": "keine Angabe",
+                        "n/a": "keine Angabe",
+                        "na": "keine Angabe",
+                        "af": "Vorhofflimmern",
+                        "a.f.": "Vorhofflimmern",
+                        "atrial fibrillation": "Vorhofflimmern",
+                        "vorhofflimmern": "Vorhofflimmern",
+                        "venenthrombose/lungenembolie": "Venenthrombose/Lungenembolie",
+                        "venenthrombose": "Venenthrombose/Lungenembolie",
+                        "tvt": "Venenthrombose/Lungenembolie",
+                        "dvt": "Venenthrombose/Lungenembolie",
+                        "pe": "Venenthrombose/Lungenembolie",
+                        "lungenembolie": "Venenthrombose/Lungenembolie",
+                        "lungenembolie/venenthrombose": "Venenthrombose/Lungenembolie",
+                        "cteph": "CTEPH/CTEPD",
+                        "ctepd": "CTEPH/CTEPD",
+                        "cteph/ctepd": "CTEPH/CTEPD",
+                        "cteph/embolie": "CTEPH/CTEPD",
+                        "cteph/embolie(n)": "CTEPH/CTEPD",
+                        "cteph/embolie ": "CTEPH/CTEPD",
+                        "cteph/embolie (ctepd)": "CTEPH/CTEPD",
+                        "mechanische klappe": "Mechanische Klappe",
+                        "mechanical valve": "Mechanische Klappe",
+                        "andere": "Andere/unklar",
+                        "unklar": "Andere/unklar",
+                        "andere/unklar": "Andere/unklar",
+                        "other": "Andere/unklar",
+                    }
+
                     if v is None:
                         v = "keine Angabe"
                     elif isinstance(v, str):
                         vv = v.strip()
                         if vv == "":
                             v = "keine Angabe"
-                        # tolerate short/legacy variants
-                        elif vv.lower() in ("af", "a.f.", "atrial fibrillation"):
-                            v = "Vorhofflimmern"
+                        else:
+                            v = canonical_map.get(vv.lower(), vv)
+
+                    # Final guard: choose must be one of the component's choices (case-insensitive fallback).
+                    try:
+                        comp = field_components.get("anticoag_indication")
+                        choices = list(getattr(comp, "choices", []) or [])
+                    except Exception:
+                        choices = []
+
+                    if choices:
+                        if v not in choices:
+                            # try case-insensitive match to tolerate capitalization changes
+                            v_low = str(v).strip().lower()
+                            for ch in choices:
+                                if str(ch).strip().lower() == v_low:
+                                    v = ch
+                                    break
+
+                        if v not in choices:
+                            # safest downgrade
+                            v = "Andere/unklar" if "Andere/unklar" in choices else choices[0]
+
                 if k == "anemia_type" and isinstance(v, str):
                     v_map = {
                         "microcytic": "mikrozytär",
@@ -1704,11 +2675,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                         "other": "unklar",
                     }
                     v = v_map.get(v, v)
+                v = _coerce_for_component(k, v)
                 out.append(v)
             return out
 
         # --- Generate function ---
-        def _generate(*vals):
+        def _generate(flags_state, *vals):
+            flags = dict(flags_state or {})
             raw = ui_get_raw(*vals)
             # Module kommen aus der UI als IDs (Choices liefern Value=Pxx); zusätzlich robust normalisieren.
             raw["modules"] = _normalize_module_ids((raw.get("modules_lvl1") or []) + (raw.get("modules_lvl2") or []) + (raw.get("modules_lvl3") or []) + (raw.get("modules") or []))
@@ -1716,8 +2689,37 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             doc = build_doctor_report(case, blocks)
             pat = build_patient_report(case)
+            echo_pat = build_echo_patient_report(case)
             internal = build_internal_report(case)
             dash = build_dashboard_html(case)
+
+            # Structured summary (stable schema) for studies/registries/QA
+            try:
+                summary_dict = build_summary_dict(case, rulebook_meta)
+                case["summary"] = summary_dict
+                summary_json = json.dumps(summary_dict, ensure_ascii=False, indent=2)
+            except Exception:
+                summary_dict = {}
+                summary_json = "{}"
+            # Copy/paste payloads
+            # - plain text for systems that break on rich formatting
+            # - HTML for Word (clipboard text/html)
+            try:
+                doc_plain = markdown_to_plain(doc)
+                pat_plain = markdown_to_plain(pat)
+                rhk_section = extract_markdown_section(doc, "Rechtsherzkatheter", "Beurteilung")
+                rhk_plain = markdown_to_plain(rhk_section)
+
+                doc_html = markdown_to_word_html(doc)
+                pat_html = markdown_to_word_html(pat)
+                rhk_html = markdown_to_word_html(rhk_section)
+            except Exception:
+                doc_plain = ""
+                pat_plain = ""
+                rhk_plain = ""
+                doc_html = ""
+                pat_html = ""
+                rhk_html = ""
 
             # computed outputs
             der = case["derived"]
@@ -1734,7 +2736,16 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             disabled_html = build_disabled_p_modules_html(blocks, policy)
 
             # --- Live preview layers ---
-            summary_html = build_sticky_summary_html(case)
+            # Status: report is now up-to-date
+            flags["has_report"] = True
+            flags["report_stale"] = False
+            flags["generated_at"] = _dt.datetime.now().isoformat(timespec="seconds")
+            try:
+                flags["warnings"] = case.get("warnings") or []
+            except Exception:
+                flags["warnings"] = []
+
+            summary_html = build_sticky_summary_html(case, flags)
             compare_html = build_compare_overview_html(case)
             cards_html = build_p_module_cards_html(blocks, case)
 
@@ -1759,28 +2770,55 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 pass
 
 
-            # --- P-Module UI updates (Level I/II/III + disabled list) ---
-            choices_lvl1 = [(lab, mid) for (lab, mid) in mod_choices if lab.strip().startswith("[I]")]
-            choices_lvl2 = [(lab, mid) for (lab, mid) in mod_choices if lab.strip().startswith("[II]")]
-            choices_lvl3 = [(lab, mid) for (lab, mid) in mod_choices if lab.strip().startswith("[III]")]
+            # --- P-Module UI: robust gegen Gradio-Versionen ---
+            # Wir nutzen reine Label-Strings als Choices und Values.
+            # Die spätere Ableitung nutzt _normalize_module_ids(), die Pxx aus dem Label extrahiert.
+            id_to_label = {mid: lab for (lab, mid) in mod_choices}
 
-            allowed_lvl1 = {mid for (_lab, mid) in choices_lvl1}
-            allowed_lvl2 = {mid for (_lab, mid) in choices_lvl2}
-            allowed_lvl3 = {mid for (_lab, mid) in choices_lvl3}
+            # Fallback: falls keine Level-Prefixes im Label vorhanden sind (z.B. bei leerer Policy),
+            # werden alle Module als Level III geführt.
+            has_level_prefix = any(str(lab).strip().startswith("[") for (lab, _mid) in mod_choices)
 
-            selected_lvl1 = [m for m in sel_vals if m in allowed_lvl1]
-            selected_lvl2 = [m for m in sel_vals if m in allowed_lvl2]
-            selected_lvl3 = [m for m in sel_vals if m in allowed_lvl3]
+            if has_level_prefix:
+                choices_lvl1 = [lab for (lab, _mid) in mod_choices if str(lab).strip().startswith("[I]")]
+                choices_lvl2 = [lab for (lab, _mid) in mod_choices if str(lab).strip().startswith("[II]")]
+                choices_lvl3 = [lab for (lab, _mid) in mod_choices if str(lab).strip().startswith("[III]")]
 
-            modules_lvl1_update = gr.update(choices=choices_lvl1, value=selected_lvl1)
-            modules_lvl2_update = gr.update(choices=choices_lvl2, value=selected_lvl2)
-            modules_lvl3_update = gr.update(choices=choices_lvl3, value=selected_lvl3)
+                allowed_lvl1_ids = {mid for (lab, mid) in mod_choices if str(lab).strip().startswith("[I]")}
+                allowed_lvl2_ids = {mid for (lab, mid) in mod_choices if str(lab).strip().startswith("[II]")}
+                allowed_lvl3_ids = {mid for (lab, mid) in mod_choices if str(lab).strip().startswith("[III]")}
+            else:
+                choices_lvl1 = []
+                choices_lvl2 = []
+                choices_lvl3 = [lab for (lab, _mid) in mod_choices]
+                allowed_lvl1_ids = set()
+                allowed_lvl2_ids = set()
+                allowed_lvl3_ids = {mid for (_lab, mid) in mod_choices}
 
+            selected_lvl1_ids = [m for m in sel_vals if m in allowed_lvl1_ids]
+            selected_lvl2_ids = [m for m in sel_vals if m in allowed_lvl2_ids]
+            selected_lvl3_ids = [m for m in sel_vals if m in allowed_lvl3_ids]
+
+            selected_lvl1 = [id_to_label.get(mid) for mid in selected_lvl1_ids if id_to_label.get(mid)]
+            selected_lvl2 = [id_to_label.get(mid) for mid in selected_lvl2_ids if id_to_label.get(mid)]
+            selected_lvl3 = [id_to_label.get(mid) for mid in selected_lvl3_ids if id_to_label.get(mid)]
+
+            pmods_sel_state = {"lvl1": selected_lvl1, "lvl2": selected_lvl2, "lvl3": selected_lvl3}
+
+            modules_lvl1_update = gr.update(choices=choices_lvl1, value=[])
+            modules_lvl2_update = gr.update(choices=choices_lvl2, value=[])
+            modules_lvl3_update = gr.update(choices=choices_lvl3, value=[])
             return (
                 der.get("mpap_calc"), ci_calc, der.get("pvr_calc"), der.get("pvri"), der.get("tpg"), der.get("dpg"),
-                dash, doc, pat, internal,
+                dash, doc, pat, echo_pat, internal,
+                summary_json,
                 json.dumps(case, ensure_ascii=False, indent=2),
+                doc_plain, pat_plain, rhk_plain,
+                doc_html, pat_html, rhk_html,
+                "",  # copy feedback reset
                 case,
+                flags,
+                pmods_sel_state,
                 modules_lvl1_update,
                 modules_lvl2_update,
                 modules_lvl3_update,
@@ -1789,12 +2827,32 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 compare_html,
                 cards_html,
             )
+
+        def _apply_pmods_values(sel_state: Optional[Dict[str, Any]]):
+            """2nd stage: set CheckboxGroup values AFTER choices were updated."""
+            if not sel_state:
+                return (gr.update(value=[]), gr.update(value=[]), gr.update(value=[]))
+            try:
+                return (
+                    gr.update(value=sel_state.get("lvl1") or []),
+                    gr.update(value=sel_state.get("lvl2") or []),
+                    gr.update(value=sel_state.get("lvl3") or []),
+                )
+            except Exception:
+                return (gr.update(value=[]), gr.update(value=[]), gr.update(value=[]))
+
         generate_outputs = [
             auto_mpap, auto_ci, auto_pvr, auto_pvri, auto_tpg, auto_dpg,
             dashboard,
-            out_doc, out_pat, out_int,
+            out_doc, out_pat, out_echo_pat, out_int,
+            out_summary_json,
             out_json,
+            copy_doc_plain, copy_pat_plain, copy_rhk_plain,
+            copy_doc_html, copy_pat_html, copy_rhk_html,
+            copy_feedback,
             state_case,
+            state_flags,
+            state_pmods_selected,
             modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp,
             modules_disabled_html,
             sticky_summary_html,
@@ -1802,70 +2860,166 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             modules_cards_html,
         ]
 
-        btn_generate_top.click(_generate, inputs=input_components, outputs=generate_outputs)
-        btn_generate_bottom.click(_generate, inputs=input_components, outputs=generate_outputs)
+        btn_generate_top.click(_generate, inputs=[state_flags] + input_components, outputs=generate_outputs)\
+            .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
+        btn_generate_bottom.click(_generate, inputs=[state_flags] + input_components, outputs=generate_outputs)\
+            .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
+        # --- Live status update (debounced client ping) ---
+        # Instead of attaching a .change handler to dozens of inputs (slow + triggers during bulk programmatic updates),
+        # we use ONE hidden textbox that the browser updates (debounced) whenever the user edits any input.
+        # Procedere/Module are handled by _update_procedere_only and therefore excluded from the client ping.
+        def _on_dirty_ping(flags_state, case_state, _ping_val: str):
+            flags = dict(flags_state or {})
 
-        # --- Live preview: update sticky summary + compare overview + module cards on key input changes ---
-        def _refresh_previews(*vals):
-            raw = ui_get_raw(*vals)
-            raw["modules"] = _normalize_module_ids(
-                (raw.get("modules_lvl1") or [])
-                + (raw.get("modules_lvl2") or [])
-                + (raw.get("modules_lvl3") or [])
-                + (raw.get("modules") or [])
-            )
-            case = build_case(raw, rules)
-            return (
-                build_sticky_summary_html(case),
-                build_compare_overview_html(case),
-                build_p_module_cards_html(blocks, case),
-            )
+            flags["dirty"] = True
+            if bool(flags.get("has_report")):
+                flags["report_stale"] = True
 
-        _preview_outputs = [sticky_summary_html, compare_overview_html, modules_cards_html]
-        _preview_triggers = [
-            # Core Hämodynamik
-            "spap_rest", "dpap_rest", "mpap_rest", "pawp_rest", "rap_rest", "co_rest", "ci_rest", "pvr_rest",
-            # Verlauf / Vor-RHK
-            "prev_rhk_date", "prev_mpap", "prev_pawp", "prev_rap", "prev_ci", "prev_pvr",
-            # Risk / Score relevant
-            "who_fc", "six_mwd", "bnp", "ntprobnp", "syncope",
-            "tapse_mm", "pasp_echo", "s_prime_cm_s", "ra_esa_cm2",
-        ]
-        for _k in _preview_triggers:
+            # Keep warnings from last generation for visibility; do not recompute.
             try:
-                if _k in field_components:
-                    field_components[_k].change(_refresh_previews, inputs=input_components, outputs=_preview_outputs)
+                if "warnings" not in flags or flags.get("warnings") is None:
+                    flags["warnings"] = (case_state or {}).get("warnings") or []
+                else:
+                    flags["warnings"] = list(flags.get("warnings") or [])
             except Exception:
-                pass
+                flags["warnings"] = []
+
+            case_for_ui = case_state if isinstance(case_state, dict) else None
+            return flags, build_sticky_summary_html(case_for_ui, flags)
+
+        try:
+            dirty_ping.change(
+                _on_dirty_ping,
+                inputs=[state_flags, state_case, dirty_ping],
+                outputs=[state_flags, sticky_summary_html],
+                trigger_mode="always_last",
+                queue=False,
+            )
+        except TypeError:
+            dirty_ping.change(
+                _on_dirty_ping,
+                inputs=[state_flags, state_case, dirty_ping],
+                outputs=[state_flags, sticky_summary_html],
+            )
+
 
         # --- Live-Update: Procedere/Module sollen deterministisch im Bericht landen ---
         # Häufiger UX-Fehler: User ändert Module/Freitext nach dem Generieren und erwartet, dass der Bericht folgt.
         # Wir aktualisieren daher den Bericht direkt aus dem bestehenden Case-State, ohne alle Ableitungen neu zu rechnen.
-        def _update_procedere_only(case_state, m1, m2, m3, free_text):
+        def _update_procedere_only(flags_state, case_state, m1, m2, m3, free_text):
             if not case_state:
                 # Noch kein Fall generiert – nichts zu aktualisieren.
-                return (gr.update(), gr.update(), gr.update(), gr.update(), None, gr.update())
+                return (
+                    gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),  # doc, pat, int, summary, debug
+                    gr.update(), gr.update(), gr.update(),  # copy payloads (plain)
+                    gr.update(), gr.update(), gr.update(),  # copy payloads (html)
+                    gr.update(),  # copy feedback
+                    None,  # state_case
+                    dict(flags_state or {}),  # state_flags
+                    build_sticky_summary_html(None, dict(flags_state or {})),
+                    gr.update(),
+                )
+            flags = dict(flags_state or {})
             try:
                 ui = dict(case_state.get("ui") or {})
                 ui["modules_lvl1"] = m1 or []
                 ui["modules_lvl2"] = m2 or []
                 ui["modules_lvl3"] = m3 or []
                 ui["procedere_free"] = free_text or ""
-                ui["modules"] = _normalize_module_ids((ui.get("modules_lvl1") or []) + (ui.get("modules_lvl2") or []) + (ui.get("modules_lvl3") or []))
+                ui["modules"] = _normalize_module_ids(
+                    (ui.get("modules_lvl1") or []) + (ui.get("modules_lvl2") or []) + (ui.get("modules_lvl3") or [])
+                )
                 case_state["ui"] = ui
 
                 doc = build_doctor_report(case_state, blocks)
                 pat = build_patient_report(case_state)
                 internal = build_internal_report(case_state)
+
+                # Structured summary + debug
+                try:
+                    summary_dict = build_summary_dict(case_state, rulebook_meta)
+                    case_state["summary"] = summary_dict
+                    summary_json = json.dumps(summary_dict, ensure_ascii=False, indent=2)
+                except Exception:
+                    summary_json = "{}"
                 dbg = json.dumps(case_state, ensure_ascii=False, indent=2)
+                # Copy/paste payloads
+                # - plain text for systems that break on rich formatting
+                # - HTML for Word (clipboard text/html)
+                try:
+                    doc_plain = markdown_to_plain(doc)
+                    pat_plain = markdown_to_plain(pat)
+                    rhk_section = extract_markdown_section(doc, "Rechtsherzkatheter", "Beurteilung")
+                    rhk_plain = markdown_to_plain(rhk_section)
+
+                    doc_html = markdown_to_word_html(doc)
+                    pat_html = markdown_to_word_html(pat)
+                    rhk_html = markdown_to_word_html(rhk_section)
+                except Exception:
+                    doc_plain = ""
+                    pat_plain = ""
+                    rhk_plain = ""
+                    doc_html = ""
+                    pat_html = ""
+                    rhk_html = ""
+
                 cards_html = build_p_module_cards_html(blocks, case_state)
-                return (doc, pat, internal, dbg, case_state, cards_html)
+
+                # Status: report stays current (we just updated it), but changes are unsaved
+                flags["dirty"] = True
+                flags["has_report"] = True
+                flags["report_stale"] = False
+                try:
+                    flags["warnings"] = case_state.get("warnings") or []
+                except Exception:
+                    flags["warnings"] = []
+
+                sticky = build_sticky_summary_html(case_state, flags)
+                return (
+                    doc,
+                    pat,
+                    internal,
+                    summary_json,
+                    dbg,
+                    doc_plain,
+                    pat_plain,
+                    rhk_plain,
+                    doc_html,
+                    pat_html,
+                    rhk_html,
+                    "",  # copy feedback reset
+                    case_state,
+                    flags,
+                    sticky,
+                    cards_html,
+                )
             except Exception:
                 # Fail-safe: do not break UI on minor issues
-                return (gr.update(), gr.update(), gr.update(), gr.update(), case_state, gr.update())
+                sticky = build_sticky_summary_html(case_state, flags)
+                return (
+                    gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                    gr.update(), gr.update(), gr.update(),
+                    gr.update(), gr.update(), gr.update(),
+                    gr.update(),
+                    case_state,
+                    flags,
+                    sticky,
+                    gr.update(),
+                )
 
-        _procedere_inputs = [state_case, modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp, field_components["procedere_free"]]
-        _procedere_outputs = [out_doc, out_pat, out_int, out_json, state_case, modules_cards_html]
+        _procedere_inputs = [state_flags, state_case, modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp, field_components["procedere_free"]]
+        _procedere_outputs = [
+            out_doc, out_pat, out_int,
+            out_summary_json,
+            out_json,
+            copy_doc_plain, copy_pat_plain, copy_rhk_plain,
+            copy_doc_html, copy_pat_html, copy_rhk_html,
+            copy_feedback,
+            state_case,
+            state_flags,
+            sticky_summary_html,
+            modules_cards_html,
+        ]
 
         modules_lvl1_comp.change(_update_procedere_only, inputs=_procedere_inputs, outputs=_procedere_outputs)
         modules_lvl2_comp.change(_update_procedere_only, inputs=_procedere_inputs, outputs=_procedere_outputs)
@@ -1878,47 +3032,79 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             pass
 
         # --- Example loader ---
-        def _load_example():
+
+        def _load_example_ui():
             ui = random_example()
             vals = apply_ui_to_components(ui)
-            gen = _generate(*vals)
-            return (*vals, *gen)
+            return vals
 
-        load_outputs = input_components + generate_outputs
+        def _reset_flags_after_load():
+            # New loaded example/file should be treated as clean until user edits.
+            return {"dirty": False, "saved_at": None, "has_report": False, "report_stale": False, "warnings": []}
 
-        btn_example_top.click(_load_example, inputs=[], outputs=load_outputs)
-        btn_example_bottom.click(_load_example, inputs=[], outputs=load_outputs)
+        btn_example_top.click(_load_example_ui, inputs=[], outputs=input_components)\
+            .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
+            .then(_generate, inputs=[state_flags] + input_components, outputs=generate_outputs)\
+            .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
+        btn_example_bottom.click(_load_example_ui, inputs=[], outputs=input_components)\
+            .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
+            .then(_generate, inputs=[state_flags] + input_components, outputs=generate_outputs)\
+            .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
+
 
         # --- Clear all (Befunde leeren) ---
-        # Reset inputs to their initial default values and clear all outputs/state.
-        _DEFAULT_INPUT_VALUES = [c.value for c in input_components]
-        _INIT_CHOICES_LVL1 = getattr(modules_lvl1_comp, "choices", None)
-        _INIT_CHOICES_LVL2 = getattr(modules_lvl2_comp, "choices", None)
-        _INIT_CHOICES_LVL3 = getattr(modules_lvl3_comp, "choices", None)
+        # Reset inputs to safe defaults and clear all outputs/state.
+        # IMPORTANT: Must return exactly len(load_outputs) values.
+        load_outputs = [*input_components, *generate_outputs]
 
         def _clear_all():
-            # Inputs
-            vals = list(_DEFAULT_INPUT_VALUES)
+            # Inputs: build empty UI dict and let apply_ui_to_components normalize legacy/defaults.
+            empty_ui = {k: None for k in input_keys}
+            for lk in ("meds", "comorbidities", "modules", "modules_lvl1", "modules_lvl2", "modules_lvl3"):
+                if lk in empty_ui:
+                    empty_ui[lk] = []
+            # Dropdowns that must never be invalid (avoid "value not in choices" crashes)
+            empty_ui["anticoag_indication"] = "keine Angabe"
+
+            vals = apply_ui_to_components(empty_ui)
+
+            flags0 = {"dirty": False, "saved_at": None, "has_report": False, "report_stale": False, "warnings": []}
+
+            # Reset module UI deterministically
+            modules_lvl1_update = gr.update(choices=[], value=[])
+            modules_lvl2_update = gr.update(choices=[], value=[])
+            modules_lvl3_update = gr.update(choices=base_module_choices, value=[])
 
             # Outputs (mirror generate_outputs order)
             cleared_outputs = (
                 None, None, None, None, None, None,  # auto_mpap..auto_dpg
-                "",                                   # dashboard
-                "", "", "",                            # out_doc, out_pat, out_int
+                build_dashboard_html(None),           # dashboard
+                "", "", "", "",                       # out_doc, out_pat, out_echo_pat, out_int
+                "{}",                                 # out_summary_json
                 "{}",                                 # out_json
+                "", "", "",                           # copy_*_plain
+                "", "", "",                           # copy_*_html
+                "",                                   # copy_feedback
                 None,                                 # state_case
-                gr.update(choices=_INIT_CHOICES_LVL1, value=[]),
-                gr.update(choices=_INIT_CHOICES_LVL2, value=[]),
-                gr.update(choices=_INIT_CHOICES_LVL3, value=[]),
+                flags0,                                # state_flags
+                {"lvl1": [], "lvl2": [], "lvl3": []},  # state_pmods_selected
+                modules_lvl1_update,
+                modules_lvl2_update,
+                modules_lvl3_update,
                 "",                                   # modules_disabled_html
-                build_sticky_summary_html(None),        # sticky summary
-                "",                                   # compare overview
-                "",                                   # module cards
+                build_sticky_summary_html(None, flags0),
+                "",                                   # compare_overview_html
+                "",                                   # modules_cards_html
             )
             return (*vals, *cleared_outputs)
 
-        btn_clear_top.click(_clear_all, inputs=[], outputs=load_outputs)
-        btn_clear_bottom.click(_clear_all, inputs=[], outputs=load_outputs)
+        try:
+            btn_clear_top.click(_clear_all, inputs=[], outputs=load_outputs, queue=False)
+            btn_clear_bottom.click(_clear_all, inputs=[], outputs=load_outputs, queue=False)
+        except TypeError:
+            # Older Gradio builds may not support queue=...
+            btn_clear_top.click(_clear_all, inputs=[], outputs=load_outputs)
+            btn_clear_bottom.click(_clear_all, inputs=[], outputs=load_outputs)
 
 
         # --- Clear / reset ---
@@ -1937,47 +3123,103 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             modules_lvl3_update = gr.update(choices=base_module_choices, value=[])
 
             dash = build_dashboard_html(None)
+            flags0 = {"dirty": False, "saved_at": None, "has_report": False, "report_stale": False, "warnings": []}
             return (
                 *vals,
                 None, None, None, None, None, None,   # auto_* (6)
                 dash,
-                "", "", "",                             # doc, patient, internal
-                "{}",                                   # JSON
-                None,                                   # state_case
+                "", "", "", "",                   # doc, patient, echo patient, internal
+                "{}",                                # out_summary_json
+                "{}",                                # out_json
+                "", "", "",                         # copy payloads
+                "",                                  # copy feedback
+                None,                                 # state_case
+                flags0,                               # state_flags
+                {"lvl1": [], "lvl2": [], "lvl3": []},   # state_pmods_selected
                 modules_lvl1_update, modules_lvl2_update, modules_lvl3_update,
-                "",                                     # disabled html
-                build_sticky_summary_html(None),           # sticky summary
-                "",                                     # compare overview
-                "",                                     # module cards
+                "",                                  # disabled html
+                build_sticky_summary_html(None, flags0),  # sticky summary
+                "",                                  # compare overview
+                "",                                  # module cards
             )
 
-        def _save_case(case_state):
+        def _save_case(case_state, flags_state):
             if not case_state:
-                return gr.update(visible=False, value=None)
-            # Store full case with ui/derived/decision; but saving 'ui' is enough; keep full for debugging
-            path = os.path.join("/tmp", f"rhk_case_{_dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
-            export_json(case_state, path)
-            return gr.update(visible=True, value=path)
+                # Hide both downloads
+                return (
+                    gr.update(visible=False, value=None),
+                    gr.update(visible=False, value=None),
+                    dict(flags_state or {}),
+                    build_sticky_summary_html(None, dict(flags_state or {})),
+                    gr.update(),
+                )
 
-        save_btn_top.click(_save_case, inputs=[state_case], outputs=[file_out])
-        save_btn_bottom.click(_save_case, inputs=[state_case], outputs=[file_out])
+            flags = dict(flags_state or {})
+            ts = _dt.datetime.now().strftime('%Y%m%d_%H%M%S')
+            case_path = os.path.join("/tmp", f"rhk_case_{ts}.json")
+            summary_path = os.path.join("/tmp", f"rhk_summary_{ts}.json")
+
+            # Ensure summary is present
+            try:
+                summary_dict = case_state.get("summary")
+                if not isinstance(summary_dict, dict) or not summary_dict:
+                    summary_dict = build_summary_dict(case_state, rulebook_meta)
+                    case_state["summary"] = summary_dict
+            except Exception:
+                summary_dict = {}
+
+            export_json(case_state, case_path)
+            export_summary_json(summary_dict, summary_path)
+
+            # Status: saved
+            flags["dirty"] = False
+            flags["saved_at"] = _dt.datetime.now().isoformat(timespec="seconds")
+            try:
+                flags["warnings"] = case_state.get("warnings") or []
+            except Exception:
+                flags["warnings"] = []
+
+            sticky = build_sticky_summary_html(case_state, flags)
+            return (
+                gr.update(visible=True, value=case_path),
+                gr.update(visible=True, value=summary_path),
+                flags,
+                sticky,
+                "✅ Gespeichert.",
+            )
+
+        _save_outputs = [file_out, file_summary_out, state_flags, sticky_summary_html, copy_feedback]
+        save_btn_top.click(_save_case, inputs=[state_case, state_flags], outputs=_save_outputs)
+        save_btn_bottom.click(_save_case, inputs=[state_case, state_flags], outputs=_save_outputs)
 
         # --- Load case ---
-        def _load_case(file):
+
+        def _load_case_ui(file):
             if file is None:
-                return
-            fp = file.name if hasattr(file, "name") else str(file)
-            data = load_case_json(fp)
-            # Accept either full case or ui-only
+                return [c.value for c in input_components]
+            try:
+                import json as _json
+                with open(file.name, "r", encoding="utf-8") as f:
+                    data = _json.load(f)
+            except Exception:
+                data = {}
+
             ui_dict = data.get("ui") if isinstance(data, dict) and "ui" in data else data
             if not isinstance(ui_dict, dict):
                 ui_dict = {}
-            vals = apply_ui_to_components(ui_dict)
-            gen = _generate(*vals)
-            return (*vals, *gen)
+            return apply_ui_to_components(ui_dict)
 
-        load_btn_top.upload(_load_case, inputs=[load_btn_top], outputs=load_outputs)
-        load_btn_bottom.upload(_load_case, inputs=[load_btn_bottom], outputs=load_outputs)
+        load_btn_top.upload(_load_case_ui, inputs=[load_btn_top], outputs=input_components)\
+            .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
+            .then(_generate, inputs=[state_flags] + input_components, outputs=generate_outputs)\
+            .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
+
+        load_btn_bottom.upload(_load_case_ui, inputs=[load_btn_bottom], outputs=input_components)\
+            .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
+            .then(_generate, inputs=[state_flags] + input_components, outputs=generate_outputs)\
+            .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
+        # Copy-to-Word buttons are handled by the HEAD script (cross-browser; no Gradio _js dependency).
+
 
     return demo, CSS, theme
 
