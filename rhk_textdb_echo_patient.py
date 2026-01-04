@@ -180,6 +180,70 @@ ECHO_PATIENT_BLOCKS = {
         ]
     },
 
+
+    # Linker Vorhof
+    "la_size_normal": {
+        "templates": [
+            "Der linke Vorhof ist nicht vergrößert. Das spricht eher gegen eine länger bestehende Druckbelastung des linken Herzens.",
+        ]
+    },
+    "la_size_enlarged": {
+        "templates": [
+            "Der linke Vorhof ist vergrößert. Das kann zu länger bestehenden erhöhten Drücken im linken Herzen passen.",
+        ]
+    },
+
+    # RV Strain (FWLS)
+    "rv_strain_normal": {
+        "templates": [
+            "Die Dehnungs Messung der rechten Herzkammer (Strain) ist unauffällig. Das unterstützt den Eindruck einer guten Pumpfunktion.",
+        ]
+    },
+    "rv_strain_border": {
+        "templates": [
+            "Die Dehnungs Messung der rechten Herzkammer (Strain) ist grenzwertig. Das kann ein frühes Zeichen einer Belastung sein.",
+        ]
+    },
+    "rv_strain_reduced": {
+        "templates": [
+            "Die Dehnungs Messung der rechten Herzkammer (Strain) ist vermindert. Das passt zu einer eingeschränkten Pumpfunktion.",
+        ]
+    },
+    "rv_strain_severe": {
+        "templates": [
+            "Die Dehnungs Messung der rechten Herzkammer (Strain) ist deutlich vermindert. Das spricht für eine ausgeprägte Einschränkung der Pumpfunktion.",
+        ]
+    },
+
+    # TAPSE zu sPAP
+    "tapse_spap_good": {
+        "templates": [
+            "Das Verhältnis aus TAPSE und dem geschätzten Druck in den Lungengefäßen wirkt günstig. Das spricht für eine gute Kopplung von rechter Herzkammer und Lungenkreislauf.",
+        ]
+    },
+    "tapse_spap_border": {
+        "templates": [
+            "Das Verhältnis aus TAPSE und dem geschätzten Druck in den Lungengefäßen ist grenzwertig. Das kann zu einer beginnenden Belastung des rechten Herzens passen.",
+        ]
+    },
+    "tapse_spap_low": {
+        "templates": [
+            "Das Verhältnis aus TAPSE und dem geschätzten Druck in den Lungengefäßen ist ungünstig. Das kann zu einer deutlicheren Belastung des rechten Herzens passen.",
+        ]
+    },
+
+    # Perikard
+    "pericardial_no": {
+        "templates": [
+            "Es wurde kein Hinweis auf einen Perikarderguss gefunden.",
+        ]
+    },
+    "pericardial_yes": {
+        "templates": [
+            "Es wurde ein Perikarderguss beschrieben. Das bedeutet, dass sich Flüssigkeit im Herzbeutel befindet. Bitte besprechen Sie mit uns die klinische Einordnung.",
+        ]
+    },
+
     # ------------------------------------------------------------------
     # Vorhöfe und Stauungszeichen
     # ------------------------------------------------------------------
@@ -247,4 +311,9 @@ ECHO_PATIENT_GLOSSARY = {
     "sPAP": "Im Ultraschall geschätzter Druck in der Lungenschlagader während der Auswurfphase. Das ist eine Abschätzung, kein direkt gemessener Wert.",
     "TRV": "Geschwindigkeit eines Rückflusssignals an der Trikuspidalklappe. Daraus lässt sich der Druck im Ultraschall abschätzen.",
     "E/e": "Verhältnis zweier Ultraschallmessungen, das Hinweise geben kann, ob der Druck im linken Herzen erhöht ist.",
+    "LAVI": "Volumen des linken Vorhofs bezogen auf die Körperoberfläche. Ein Langzeit Marker für Druckbelastung im linken Herzen.",
+    "RVFAC": "Flächenänderung der rechten Herzkammer während des Herzschlags. Ein Hinweis auf die Pumpfunktion des rechten Herzens.",
+    "Strain": "Dehnungs Messung des Herzmuskels. Beim rechten Herzen ist vor allem FWLS relevant. Mehr negativ ist meist besser.",
+    "PAAT": "Pulmonal Arterien Akzeleration Time. Ein kurzer Wert kann ein Hinweis auf höheren Druck im Lungenkreislauf sein.",
+    "VCI": "Vena cava inferior. Die Größe und der Kollaps können Hinweise auf Stauung geben.",
 }

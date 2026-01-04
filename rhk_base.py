@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RHK Befundassistent (Web) – v25.8.9 (split)
+RHK Befundassistent (Web) – v26.0.7
 
 - Ultra-interaktiver Gradio-Assistenzbogen für RHK-/PH-Befunde
 - Deklaratives Regelwerk (YAML) zur Guideline-nahen Klassifikation, Modulen & Empfehlungen
@@ -37,14 +37,13 @@ except Exception:  # pragma: no cover
 # =============================================================================
 
 APP_NAME = "RHK Befundassistent"
-APP_VERSION = "v25.8.13"
+APP_VERSION = "v26.1.23"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 WHATS_NEW = (
-    "Neu: Plausibilitätschecks mit Warnsystem (robust, blockiert Befund nicht) · "
-    "Neu: Regelwerk-Explainability im Debug (ausgelöste Regeln + Fehler) · "
-    "Neu: YAML Snapshot Tests (Regression-Schutz für Beispiel-Fälle) · "
-    "Fix: UI-Rendering stabil (kein Viewport-Zwang standardmäßig) · "
-    "Build 02.01.2026"
+    "Neu: DOCX Import für GE MacLab RHK Tabellen (Base 2 priorisiert, Fließtext ignoriert) · "
+    "Neu: Vor RHK DOCX Import für Verlauf Vergleich · "
+    "Neu: Visualisierung (mPAP und PAWP gegen CO, Volumenchallenge, Verlauf Delta) · "
+    "Sicherheit: Plausibilitätschecks und Import Ampel"
 )
 
 

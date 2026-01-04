@@ -1,85 +1,12 @@
-RHK Befundassistent – Patch v25.8.13
+Patch: Screenshot/Scan Import (optional OCR)
 
-Neu in v25.8.13
-- Bericht-Kopieren jetzt Word-kompatibel: kopiert formatiertes HTML (Headings, Absätze, Listen, Tabellen) + Text-Fallback.
-- Copy Buttons nutzen Clipboard text/html, falls vom Browser unterstützt; andernfalls Plain-Text mit Hinweis.
+- Echo Import akzeptiert jetzt PDF ODER Screenshot (PNG/JPG/JPEG/WebP).
+- PDF: Textlayer wird wie bisher extrahiert.
+- Screenshot: OCR via pytesseract/Tesseract, falls verfügbar.
+  Wenn Tesseract nicht installiert ist, zeigt die UI einen Hinweis.
 
-Fixes & Improvements
+Python-Pakete (falls nicht vorhanden):
+  pip install Pillow pytesseract
 
-0) UI Performance: weniger „holprig“ bei Eingaben & beim Laden
-- Der Live-Status („ungespeichert“, „Befund veraltet“) wird jetzt über EINEN debounced Browser-Ping aktualisiert.
-  -> Keine dutzenden Server-Calls mehr pro Eingabe/Bulk-Update.
-- Procedere/Module bleiben wie gehabt live im Bericht aktualisiert (ohne fälschliches „veraltet“).
-
-1) Frontend Performance: Overflows-Handling leichter
-- Das Entfernen/Hiden von „More/…“ Overflow-Controls läuft jetzt ohne Full-DOM-Scans.
-- Theme-Reapply (Light Mode) bleibt stabil, ohne unnötige Layout-Arbeit.
-
-Enthaltene Dateien
-- rhk_base.py
-- rhk_ui.py
-
-
----
-
-RHK Befundassistent – Patch v25.8.11
-
-Fixes & Improvements
-
-0) Strukturierter Summary-Export (JSON)
-- Zusätzlich zum Fließtext wird ein stabiler "rhk_summary_v1" JSON-Export erzeugt.
-- In der UI als eigener Output-Tab "Summary (JSON)" sichtbar.
-- Beim Speichern werden zwei Downloads angeboten: Fall (.json) und Summary (.json).
-
-1) Copy/Paste für Arztbrief-Systeme (Plain Text)
-- Neue Buttons: Arztbericht komplett kopieren, Patient*innenbrief komplett kopieren, nur RHK Abschnitt kopieren.
-- Copy erfolgt als Plain Text (Markdown wird entfernt) – weniger Format-Chaos beim Einfügen.
-
-2) Status/Feedback als dezente Badges
-- Sticky Summary Bar zeigt zusätzlich: Befund aktuell/veraltet, gespeichert/ungespeichert, Warnungen inkl. Tooltip.
-- "Warnungen" enthält per Hover die konkreten Texte; Dashboard-Badge ebenfalls mit Tooltip.
-
-3) Konsistenteres UI-Rhythmus & konservative Typografie
-- Einheitlichere Spacing/Row-Gaps, Feld-Mindesthöhe, bessere Zeilenlänge im Report-Preview.
-
-4) Performance-Fix: Beispiel laden / Bulk-Updates
-- Beim Laden von Beispielen wurden zuvor dutzende Input-Change-Events ausgelöst, die jeweils den kompletten Case neu berechnet haben.
-- Live-Status-Updates laufen jetzt im Fast-Path (keine build_case()-Neuberechnung pro Feld) und nutzen, wenn verfügbar, trigger_mode="always_last".
-- Ergebnis: Beispiel laden und Plot/Report erscheinen wieder ohne spürbare Verzögerung.
-
-Enthaltene Dateien
-- rhk_base.py
-- rhk_case.py
-- rhk_reports.py
-- rhk_ui.py
-
-
----
-
-RHK Befundassistent – Patch v25.8.9
-
-Fixes & Improvements
-
-0) Plausibilitätschecks + Warnsystem (nicht blockierend)
-- Konservative Range-Checks und Inkonsistenz-Prüfungen (Vitalwerte, Hämodynamik, Sättigungen, Echo).
-- Warnungen blockieren die Befunderstellung nicht, werden aber in Dashboard/Sticky-Bar sichtbar.
-- Warnungen werden in den Debug-Output und den internen Bericht übernommen.
-
-1) Regelwerk Explainability (Debug)
-- Rule-Trace: ausgelöste Regeln (ID, Prio, When, Then) plus Regeln mit Eval-/Parse-Fehlern.
-- Ziel: schneller nachvollziehen, warum ein Bundle/Tag/Empfehlung gesetzt wurde.
-
-2) YAML Snapshot Tests (Regression-Schutz)
-- Neue Tests unter tests/rules_snapshot.py.
-- Reproduzierbare Beispiel-Fälle über random_example(scenario=..., seed=...).
-- Vergleich/Update der Snapshots per CLI.
-
-Enthaltene Dateien
-- rhk_base.py
-- rhk_case.py
-- rhk_reports.py
-- rhk_ui.py
-- rhk_app_web_master.py
-- README.md
-- tests/rules_snapshot.py
-- tests/rule_snapshots.json
+System-Abhängigkeit:
+  Tesseract OCR muss installiert sein und im PATH liegen.

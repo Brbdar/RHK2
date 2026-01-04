@@ -9,8 +9,7 @@ Jetzt ist die App funktional identisch, aber in Module aufgeteilt.
 - `rhk_case.py` – `build_case()` + Ableitungen/Render-Context/Dashboard-HTML
 - `rhk_reports.py` – Arztbericht/Patientenbericht/Interner Bericht + JSON Export/Import
 - `rhk_ui.py` – Gradio UI (CSS/JS, Callbacks, `build_demo()`)
-- `rhk_launch.py` – Startlogik + `main()`
-- `rhk_app_web_master.py` – dünner Entry-Point (startet `main()` aus rhk_launch)
+- `rhk_app_web_master.py` – dünner Entry-Point (startet die Gradio-App direkt)
 
 ## Backward Compatibility
 

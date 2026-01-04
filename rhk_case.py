@@ -45,6 +45,20 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
     co_in = _safe_float(ui.get("co_rest"))
     ci_in = _safe_float(ui.get("ci_rest"))  # optional
 
+    # NOTE (v26): In some Gradio builds, empty gr.Number fields may roundtrip as 0.
+    # mPAP=0 is physiologisch nicht plausibel, wenn sPAP/dPAP valide Werte tragen.
+    # Deshalb behandeln wir mpap=0 in diesem Kontext als "nicht angegeben" und
+    # berechnen mPAP aus sPAP/dPAP.
+    if (
+        mpap_in is not None
+        and mpap_in == 0
+        and spap is not None
+        and spap > 10
+        and dpap is not None
+        and dpap >= 0
+    ):
+        mpap_in = None
+
     mpap_calc = calc_mpap_from_spap_dpap(spap, dpap)
     mpap = mpap_in if mpap_in is not None else mpap_calc
 
@@ -76,6 +90,15 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
     spap_pk = _safe_float(ui.get("spap_peak"))
     dpap_pk = _safe_float(ui.get("dpap_peak"))
     mpap_pk_in = _safe_float(ui.get("mpap_peak"))
+    if (
+        mpap_pk_in is not None
+        and mpap_pk_in == 0
+        and spap_pk is not None
+        and spap_pk > 10
+        and dpap_pk is not None
+        and dpap_pk >= 0
+    ):
+        mpap_pk_in = None
     mpap_pk_calc = calc_mpap_from_spap_dpap(spap_pk, dpap_pk)
     mpap_peak = mpap_pk_in if mpap_pk_in is not None else mpap_pk_calc
 
@@ -1112,11 +1135,13 @@ def build_render_ctx(case: Dict[str, Any]) -> Dict[str, Any]:
     pressure_resistance_short = ", ".join([x for x in [mpap_phrase, pawp_phrase, pvr_phrase, ci_phrase, tpg_hint, dpg_hint, slope_hint] if x])
 
     # Additional helper sentences for rhk_textdb templates (missing keys are filled with '' via SafeDict)
-    co_method_desc = "unbekannter Methode"
-    co_method = ui.get("co_method")
-    if co_method == "thermodilution":
+    # CO-Methode ist klinisch relevant; wenn nicht angegeben, neutral formulieren.
+    co_method_desc = "Thermodilution oder Fick-Prinzip (nicht angegeben)"
+    _cm = ui.get("co_method")
+    co_method_raw = str(_cm or "").strip().lower()
+    if co_method_raw in ("thermodilution", "thermo", "td") or str(_cm or "") == "Thermodilution":
         co_method_desc = "Thermodilution"
-    elif co_method == "fick":
+    elif co_method_raw in ("fick", "fick-prinzip") or str(_cm or "") == "Fick":
         co_method_desc = "Fick-Prinzip"
 
     cv_stauung_phrase = "Hinweise auf venöse Kongestion." if der.get("congestion_likely") else "Keine Hinweise auf venöse Kongestion."
