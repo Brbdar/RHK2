@@ -1,0 +1,33 @@
+Version v26.1.25 Patch
+
+Scope: Improvements requested (1, 3, 4)
+1) Central Echo guideline rule library
+3) Patient report upgrade (more patient relevant, less generic)
+4) Smarter trend logic (meaningful change, not just raw delta)
+
+Changes
+- NEW echo_guidelines.yaml
+  Central, versioned threshold and trend definition store.
+
+- NEW rhk_echo_guidelines.py
+  YAML loader and shared helpers:
+  - severity(key, value) -> g/y/r
+  - trend(key, prev, cur) -> meaningful change classification
+  - overall_trend(prev_map, cur_map, keys) -> improved/stable/worsened
+  - label_for / unit_for / fmt_value
+
+- UPDATED rhk_ui_echo.py
+  - Ampel classification now uses rhk_echo_guidelines (single source of truth)
+  - Compare table note now references guideline sources dynamically
+  - Table viewport expanded (more visible rows)
+
+- UPDATED rhk_reports.py
+  - build_echo_patient_report
+    More patient relevant explanation (what was assessed, what it can mean in daily life,
+    warning signs, what happens next) and meaningful trend summary when prior echo is present.
+  - build_echo_doctor_report_extended
+    Expert narrative is tightened and physiologic context improved,
+    includes guideline oriented classification and meaningful trend summary.
+
+- UPDATED rhk_base.py
+  - Version bump to v26.1.25

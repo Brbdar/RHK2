@@ -1,0 +1,246 @@
+meta:
+  title: Echo guideline cutoffs and trend rules
+  version: 2026-01-04
+  sources:
+    - ASE Right Heart Guideline 2025
+    - ASE LV Diastolic Function Update 2025
+    - ESC/ERS Pulmonary Hypertension Guidelines 2022
+
+# Each rule can define:
+# - label, unit
+# - direction: higher | lower | more_negative
+# - severity bands: g/y/r with min/max
+# - meaningful_delta: absolute change threshold for trend, used when category does not change
+# - note: short display note for UI annotation or tooltip
+rules:
+  # Linksherz
+  lvef:
+    label: LV EF
+    unit: "%"
+    direction: higher
+    severity:
+      g: {min: 55}
+      y: {min: 45, max: 54.9}
+      r: {max: 44.9}
+    meaningful_delta: 5
+    note: LV systolic function
+
+  ee_ratio:
+    label: E/e'
+    unit: ""
+    direction: lower
+    severity:
+      g: {max: 14}
+      y: {min: 14.1, max: 19}
+      r: {min: 19.1}
+    meaningful_delta: 2
+    note: Filling pressure surrogate
+
+  lavi_ml_m2:
+    label: LAVI
+    unit: "ml/m²"
+    direction: lower
+    severity:
+      g: {max: 34}
+      y: {min: 34.1, max: 48}
+      r: {min: 48.1}
+    meaningful_delta: 5
+    note: Left atrial size
+
+  # PH / pressure surrogates
+  trv_ms:
+    label: TRV max
+    unit: "m/s"
+    direction: lower
+    severity:
+      g: {max: 2.8}
+      y: {min: 2.81, max: 3.1}
+      r: {min: 3.11}
+    meaningful_delta: 0.2
+    note: Doppler PH sign
+
+  pasp_echo:
+    label: sPAP Echo
+    unit: "mmHg"
+    direction: lower
+    severity:
+      g: {max: 34}
+      y: {min: 35, max: 49}
+      r: {min: 50}
+    meaningful_delta: 5
+    note: Estimated pulmonary pressure
+
+  paat_ms:
+    label: PAAT
+    unit: "ms"
+    direction: higher
+    severity:
+      g: {min: 105}
+      y: {min: 80, max: 104.9}
+      r: {max: 79.9}
+    meaningful_delta: 10
+    note: RVOT acceleration time
+
+  paat_rvet_ratio:
+    label: PAAT/RVET
+    unit: ""
+    direction: higher
+    severity:
+      g: {min: 0.34}
+      y: {min: 0.28, max: 0.339}
+      r: {max: 0.279}
+    meaningful_delta: 0.03
+    note: PH surrogate ratio
+
+  # RV function
+  tapse_mm:
+    label: TAPSE
+    unit: "mm"
+    direction: higher
+    severity:
+      g: {min: 17}
+      y: {min: 13, max: 16.9}
+      r: {max: 12.9}
+    meaningful_delta: 2
+    note: Longitudinal RV function
+
+  s_prime_cm_s:
+    label: Trikuspidales S'
+    unit: "cm/s"
+    direction: higher
+    severity:
+      g: {min: 9.5}
+      y: {min: 7.2, max: 9.49}
+      r: {max: 7.19}
+    meaningful_delta: 1
+    note: Tissue Doppler RV function
+
+  rvfac_pct:
+    label: RVFAC
+    unit: "%"
+    direction: higher
+    severity:
+      g: {min: 35}
+      y: {min: 29, max: 34.9}
+      r: {max: 28.9}
+    meaningful_delta: 5
+    note: Global RV systolic function
+
+  rv_3d_ef_pct:
+    label: 3D RVEF
+    unit: "%"
+    direction: higher
+    severity:
+      g: {min: 45}
+      y: {min: 39, max: 44.9}
+      r: {max: 38.9}
+    meaningful_delta: 3
+    note: 3D RV systolic function
+
+  rv_fwls_pct:
+    label: RV FWLS
+    unit: "%"
+    direction: more_negative
+    severity:
+      g: {min_abs: 20}
+      y: {min_abs: 15, max_abs: 19.9}
+      r: {max_abs: 14.9}
+    meaningful_delta: 2
+    note: Strain absolute value
+
+  rv_gls_pct:
+    label: RV GLS
+    unit: "%"
+    direction: more_negative
+    severity:
+      g: {min_abs: 17}
+      y: {min_abs: 13, max_abs: 16.9}
+      r: {max_abs: 12.9}
+    meaningful_delta: 2
+    note: Strain absolute value
+
+  tapse_spap_ratio:
+    label: TAPSE/sPAP
+    unit: "mm/mmHg"
+    direction: higher
+    severity:
+      g: {min: 0.32}
+      y: {min: 0.19, max: 0.319}
+      r: {max: 0.189}
+    meaningful_delta: 0.03
+    note: RV PA coupling (ESC/ERS)
+
+  # Remodeling and congestion
+  ra_esa_cm2:
+    label: RA ESA
+    unit: "cm²"
+    direction: lower
+    severity:
+      g: {max: 18}
+      y: {min: 18.1, max: 26}
+      r: {min: 26.1}
+    meaningful_delta: 2
+    note: RA size (ESC/ERS)
+
+  rv_edd_mm:
+    label: RV EDD
+    unit: "mm"
+    direction: lower
+    severity:
+      g: {max: 40.9}
+      y: {min: 41, max: 44}
+      r: {min: 44.1}
+    meaningful_delta: 3
+    note: Basal RV diameter
+
+  rv_wall_thickness_mm:
+    label: RV Wanddicke
+    unit: "mm"
+    direction: lower
+    severity:
+      g: {max: 4.9}
+      y: {min: 5, max: 7}
+      r: {min: 7.1}
+    meaningful_delta: 1
+    note: RV hypertrophy surrogate
+
+  ivc_diam_mm:
+    label: VCI Durchmesser
+    unit: "mm"
+    direction: lower
+    severity:
+      g: {max: 21}
+      y: {min: 21.1, max: 23}
+      r: {min: 23.1}
+    meaningful_delta: 2
+    note: IVC size
+
+  ivc_collapse_index_pct:
+    label: VCI Kollaps Index
+    unit: "%"
+    direction: higher
+    severity:
+      g: {min: 50}
+      y: {min: 35, max: 49.9}
+      r: {max: 34.9}
+    meaningful_delta: 10
+    note: IVC collapse
+
+  # Binary markers (handled separately)
+  pericardial_effusion:
+    label: Perikarderguss
+    unit: ""
+    direction: binary
+    note: High risk marker if present
+
+  rvot_notch:
+    label: Mid systolic notch
+    unit: ""
+    direction: binary
+    note: PH sign if present
+
+  ivc_collapse:
+    label: VCI Kollaps >50%
+    unit: ""
+    direction: binary
+    note: Congestion marker

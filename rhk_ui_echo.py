@@ -14,9 +14,15 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+import os
+
 from rhk_base import gr  # type: ignore
 
 from rhk_echo_pdf_import import extract_echo_from_file, extract_echo_from_pdf
+from rhk_echo_guidelines import severity as guideline_severity, guidelines_sources
+
+IS_RENDER_NATIVE = bool(os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER"))
+_SUPPORTED_IMPORT_TYPES = [".pdf"] if IS_RENDER_NATIVE else [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"]
 
 
 # Order for preview/compare table (ui_key, label, unit)
@@ -78,7 +84,7 @@ _PREVIEW_ORDER: List[Tuple[str, str, str]] = [
 ]
 
 # Compact HTML table styles (inline)
-_TABLE_WRAP_STYLE = "max-height:560px;min-height:320px;overflow:auto;resize:vertical;border:1px solid rgba(0,0,0,.08);border-radius:10px;"
+_TABLE_WRAP_STYLE = "max-height:760px;min-height:420px;overflow:auto;resize:vertical;border:1px solid rgba(0,0,0,.08);border-radius:10px;"
 _TABLE_STYLE = "width:100%;table-layout:fixed;font-size:11px;line-height:1.25;border-collapse:collapse;"
 _TH_STYLE = "position:sticky;top:0;background:#fff;border-bottom:1px solid rgba(0,0,0,.08);padding:6px 8px;text-align:left;"
 _TD_STYLE = "border-bottom:1px solid rgba(0,0,0,.06);padding:6px 8px;vertical-align:top;"
@@ -156,140 +162,8 @@ def _sev_css(sev: str) -> str:
 
 
 def _severity(key: str, v: Any) -> str:
-    """Return g, y, r or empty.
-
-    Ampel = schnelle visuelle Orientierung (kein Ersatz fuer klinische Bewertung).
-    Mapping:
-      - g: normal
-      - y: mild / grenzwertig
-      - r: moderat / schwer oder klares Hochrisiko-Zeichen
-    Rechtsherz-Grenzen orientieren sich primaer an ASE Right Heart 2025 (Table 1).
-    PH-Risikomarker (z.B. TAPSE/sPAP) nach ESC/ERS 2022.
-    Linksherz (E/e', LAVI) nach ASE LV Diastolic Update (aktueller Konsens).
-    """
-    if v is None:
-        return ''
-
-    # Ja/Nein Felder: klarer Marker
-    if key in ('pericardial_effusion', 'rvot_notch'):
-        s = str(v).strip().lower()
-        if s in ('ja', 'true', '1'):
-            return 'r'
-        if s in ('nein', 'false', '0'):
-            return 'g'
-        return ''
-
-    if key == 'ivc_collapse':
-        s = str(v).strip().lower()
-        if s == 'ja':
-            return 'g'
-        if s == 'nein':
-            return 'r'
-        return ''
-
-    x = _as_float(v)
-    if x is None:
-        return ''
-
-    # ---------------- Linksherz ----------------
-    if key == 'lvef':
-        return 'g' if x >= 55 else ('y' if x >= 45 else 'r')
-
-    # ASE diastolic: E/e' <=14 und LAVI <=34 als Normalbereich (vereinfachte Ampel)
-    if key == 'ee_ratio':
-        return 'g' if x <= 14 else ('y' if x <= 19 else 'r')
-    if key == 'lavi_ml_m2':
-        return 'g' if x <= 34 else ('y' if x <= 48 else 'r')
-
-    # ---------------- Haemodynamik / PH Zeichen (ASE 2025 Table 1) ----------------
-    # TRV maximum (m/s): <2.8 normal; 2.8-3.1 mild; >=3.2 moderat/schwer
-    if key == 'trv_ms':
-        return 'g' if x < 2.8 else ('y' if x <= 3.1 else 'r')
-
-    # RVSP/sPAP (mmHg): <=34 normal; 35-49 mild; >=50 moderat/schwer
-    if key == 'pasp_echo':
-        return 'g' if x <= 34 else ('y' if x <= 49 else 'r')
-
-    # RVOT AccT / PAAT (ms): >105 normal; 80-105 mild; <80 moderat/schwer
-    if key == 'paat_ms':
-        return 'g' if x > 105 else ('y' if x >= 80 else 'r')
-
-    # PAAT/RVET: kein offizieller ASE-Grad in Table 1, aber als PH-Surrogat hilfreich (grob)
-    if key == 'paat_rvet_ratio':
-        return 'g' if x >= 0.34 else ('y' if x >= 0.28 else 'r')
-
-    # ---------------- RV Funktion (ASE 2025 Table 1) ----------------
-    # TAPSE (cm): >1.7 normal; 1.7-1.3 mild; <1.3 moderat/schwer  -> in UI mm
-    if key == 'tapse_mm':
-        return 'g' if x >= 17 else ('y' if x >= 13 else 'r')
-
-    # Tissue Doppler S' (cm/s): >9.5 normal; 9.5-7.2 mild; <7.2 moderat/schwer
-    if key == 's_prime_cm_s':
-        return 'g' if x > 9.5 else ('y' if x >= 7.2 else 'r')
-
-    # FAC (%): >35 normal; 35-29 mild; <29 moderat/schwer
-    if key == 'rvfac_pct':
-        return 'g' if x > 35 else ('y' if x >= 29 else 'r')
-
-    # 3D RVEF (%): >45 normal; 45-39 mild; <39 moderat/schwer
-    if key == 'rv_3d_ef_pct':
-        return 'g' if x > 45 else ('y' if x >= 39 else 'r')
-
-    # Strain: Werte sind typischerweise negativ; Table 1 gibt Absolutwerte an
-    # Free wall strain (3 Seg.): >20 normal; 20-15 mild; <15 moderat/schwer
-    if key == 'rv_fwls_pct':
-        ax = abs(x)
-        return 'g' if ax > 20 else ('y' if ax >= 15 else 'r')
-
-    # Global strain (6 Seg.): >17 normal; 17-13 mild; <13 moderat/schwer
-    if key == 'rv_gls_pct':
-        ax = abs(x)
-        return 'g' if ax > 17 else ('y' if ax >= 13 else 'r')
-
-    # ---------------- RV/RA Groesse (ASE 2025 Table 1) ----------------
-    # RV diameter basal (cm): <4.1 normal; 4.1-4.4 mild; >4.4 moderat/schwer -> UI mm
-    if key == 'rv_edd_mm':
-        cm = x / 10.0
-        return 'g' if cm < 4.1 else ('y' if cm <= 4.4 else 'r')
-
-    # RV wall thickness (cm): <0.5 normal; 0.5-0.7 mild; >0.7 moderat/schwer -> UI mm
-    if key == 'rv_wall_thickness_mm':
-        cm = x / 10.0
-        return 'g' if cm < 0.5 else ('y' if cm <= 0.7 else 'r')
-
-    # RV end-diastolic area (cm2): <25 normal; 25-28 mild; >28 moderat/schwer
-    if key == 'rv_eda_cm2':
-        return 'g' if x < 25 else ('y' if x <= 28 else 'r')
-
-    # RV end-systolic area (cm2): <14 normal; 14-16 mild; >16 moderat/schwer
-    if key == 'rv_esa_cm2':
-        return 'g' if x < 14 else ('y' if x <= 16 else 'r')
-
-    # 3D Volumina / Indizes (ASE 2025 Table 1)
-    if key == 'rv_3d_edv_ml':
-        return 'g' if x < 130 else ('y' if x <= 150 else 'r')
-    if key == 'rv_3d_esv_ml':
-        return 'g' if x < 66 else ('y' if x <= 77 else 'r')
-    if key == 'rv_3d_edvi_ml_m2':
-        return 'g' if x < 90 else ('y' if x <= 103 else 'r')
-    if key == 'rv_3d_esvi_ml_m2':
-        return 'g' if x < 41 else ('y' if x <= 48 else 'r')
-
-    # ---------------- PH Risk (ESC/ERS 2022) ----------------
-    if key == 'tapse_spap_ratio':
-        return 'g' if x >= 0.32 else ('y' if x >= 0.19 else 'r')
-
-    # RA Area (ESC/ERS 2022): <18 low, 18-26 intermediate, >26 high
-    if key == 'ra_esa_cm2':
-        return 'g' if x < 18 else ('y' if x <= 26 else 'r')
-
-    # ---------------- VCI ----------------
-    if key == 'ivc_collapse_index_pct':
-        return 'g' if x >= 50 else ('y' if x >= 35 else 'r')
-    if key == 'ivc_diam_mm':
-        return 'g' if x <= 21 else ('y' if x <= 23 else 'r')
-
-    return ''
+    """Ampel severity via central guideline rule library."""
+    return guideline_severity(key, v)
 
 
 def _normalize_radio_value(key: str, val: Any) -> Any:
@@ -488,7 +362,7 @@ def _render_compare_table(state_prev: Dict[str, Any], state_cur: Dict[str, Any])
         f"<div style='{_MUTED};margin:6px 0;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap'>"
         f"<b>Vergleich</b>: Vor Echo vs aktuelles Echo {legend}"
         f"</div>"
-        f"<div style='color:rgba(0,0,0,.55);font-size:12px;margin:0 0 8px 0'>Ampel-Klassifikation: Rechtsherz nach ASE 2025 (Table 1, 3-Stufen: normal/mild/moderat-schwer), TAPSE/sPAP und RA-Area als PH-Risikomarker nach ESC/ERS 2022. Linksherz (E/e', LAVI) nach aktuellem ASE-Diastole-Konsens. Hinweis: reine Orientierung, Kontext und Bildqualität beachten.</div>"
+        f"<div style='color:rgba(0,0,0,.55);font-size:12px;margin:0 0 8px 0'>Ampel-Klassifikation basiert auf: {', '.join(guidelines_sources())}. Hinweis: reine Orientierung, Kontext und Bildqualität beachten.</div>"
         f"<div style='{_TABLE_WRAP_STYLE}'>"
         f"<table style='{_TABLE_STYLE}'>"
         "<thead><tr>"
@@ -509,21 +383,26 @@ def build_echo_section(add) -> Dict[str, Any]:
     gr.Markdown("### Echokardiographie")
 
     # --- Import block ---------------------------------------------------------
-    with gr.Accordion("Echo Import (PDF oder Screenshot)", open=True):
-        gr.Markdown(
-            "Datei hochladen. Unterstützt werden Textlayer PDFs sowie Screenshots als Bilddatei (PNG, JPG, WEBP, BMP, TIF). Wenn kein Textlayer vorhanden ist oder ein Screenshot genutzt wird, erfolgt die Extraktion per OCR, sofern Tesseract verfügbar ist.\n\nHinweis: Für Screenshot OCR muss Tesseract installiert sein. Falls Tesseract nicht im PATH ist, setze TESSERACT_CMD auf den Pfad zur tesseract.exe.",
-        )
+    with gr.Accordion("Echo Import (PDF; Screenshot nur lokal)", open=True):
+        if IS_RENDER_NATIVE:
+            gr.Markdown(
+                "Online-Version (Render): Bitte ein PDF mit Textlayer hochladen. Screenshot und Scan OCR ist hier deaktiviert. Für Screenshots nutze die App lokal.",
+            )
+        else:
+            gr.Markdown(
+                "Datei hochladen. Unterstützt werden Textlayer PDFs sowie Screenshots als Bilddatei (PNG, JPG, WEBP, BMP, TIF). Wenn kein Textlayer vorhanden ist oder ein Screenshot genutzt wird, erfolgt die Extraktion per OCR, sofern Tesseract verfügbar ist.\n\nHinweis: Für Screenshot OCR muss Tesseract installiert sein. Falls Tesseract nicht im PATH ist, setze TESSERACT_CMD auf den Pfad zur tesseract.exe.",
+            )
 
         with gr.Row():
             import_pdf_cur = gr.File(
                 label="Echo Datei (aktuell)",
-                file_types=[".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"],
+                file_types=_SUPPORTED_IMPORT_TYPES,
                 type="filepath",
                 file_count="single",
             )
             import_pdf_prev = gr.File(
                 label="Vor Echo Datei (optional)",
-                file_types=[".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"],
+                file_types=_SUPPORTED_IMPORT_TYPES,
                 type="filepath",
                 file_count="single",
             )

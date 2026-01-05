@@ -37,7 +37,7 @@ except Exception:  # pragma: no cover
 # =============================================================================
 
 APP_NAME = "RHK Befundassistent"
-APP_VERSION = "v26.1.23"
+APP_VERSION = "v26.1.25"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 WHATS_NEW = (
     "Neu: DOCX Import für GE MacLab RHK Tabellen (Base 2 priorisiert, Fließtext ignoriert) · "
