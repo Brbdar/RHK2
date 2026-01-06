@@ -176,7 +176,11 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
         klinik_lines.append(_md_kv("WHO-FC", str(who_fc)))
     six = _safe_float(ui.get("six_mwd_m"))
     if six is not None:
-        klinik_lines.append(_md_kv("6MWD", f"{_fmt(six,0)} m"))
+        six_dt = (ui.get("six_mwd_date") or "").strip()
+        if six_dt:
+            klinik_lines.append(_md_kv("6MWD", f"{_fmt(six,0)} m (Datum: {six_dt})"))
+        else:
+            klinik_lines.append(_md_kv("6MWD", f"{_fmt(six,0)} m"))
 
 
 
@@ -316,6 +320,9 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
             img_lines.append(_md_kv("CT Thorax/Angio", ", ".join(findings)))
         else:
             img_lines.append(_md_kv("CT Thorax/Angio", "durchgeführt (keine pathologischen Befunde angegeben)"))
+        ct_desc = (ui.get("ct_desc") or "").strip()
+        if ct_desc:
+            img_lines.append(_md_kv("CT Thorax Kurzbefund", ct_desc))
     else:
         img_lines.append(_md_kv("CT Thorax/Angio", "nicht angegeben"))
 
@@ -415,30 +422,26 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
         if phen:
             lufu_items.append("Phänotyp: " + ", ".join(phen))
 
+        # NOTE: UI was migrated to % Soll. Keep the historic keys for backward compatibility.
         fev1 = _safe_float(ui.get("fev1_l"))
         fvc = _safe_float(ui.get("fvc_l"))
 
         if fev1 is not None:
-            lufu_items.append(f"FEV1: {_fmt(fev1,2)} l")
+            lufu_items.append(f"FEV1: {_fmt(fev1,0)} %")
         if fvc is not None:
-            lufu_items.append(f"FVC: {_fmt(fvc,2)} l")
-
-        # Tiffeneau-Index (FEV1/FVC)
-        if fev1 is not None and fvc is not None and fvc > 0:
-            tiff = fev1 / fvc
-            lufu_items.append(f"Tiffeneau (FEV1/FVC): {_fmt(tiff,2)}")
+            lufu_items.append(f"FVC: {_fmt(fvc,0)} %")
 
         dlco = _safe_float(ui.get("dlco_sb"))
         if dlco is not None:
-            lufu_items.append(f"DLCO: {_fmt(dlco,1)}")
+            lufu_items.append(f"DLCO: {_fmt(dlco,0)} %")
 
         dlco_va = _safe_float(ui.get("dlco_va"))
         if dlco_va is not None:
-            lufu_items.append(f"DLCO/VA: {_fmt(dlco_va,2)}")
+            lufu_items.append(f"DLCO/VA: {_fmt(dlco_va,0)} %")
 
         rv = _safe_float(ui.get("residual_volume_l"))
         if rv is not None:
-            lufu_items.append(f"Residualvolumen (RV): {_fmt(rv,2)} l")
+            lufu_items.append(f"Residualvolumen (RV): {_fmt(rv,0)} %")
 
         lufu_flow = "; ".join(lufu_items) if lufu_items else "Lungenfunktion durchgeführt (Details nicht angegeben)."
         lufu_section = "### Lungenfunktion\n" + lufu_flow
@@ -870,6 +873,87 @@ def _render_echo_patient_text(block_id: str, blocks: Dict[str, Any], ctx: Dict[s
     txt = re.sub(r"\n{3,}", "\n\n", txt)
     txt = re.sub(r"[ \t]{2,}", " ", txt)
     return txt.strip()
+
+
+# =============================================================================
+# Doctor report for Word/Clipboard (compact, ordered)
+# =============================================================================
+
+def build_doctor_report_for_copy(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> str:
+    """Build a Word-friendly doctor report (Markdown) used ONLY for clipboard copy.
+
+    - Keeps the in-app report unchanged (see build_doctor_report()).
+    - Formats headings as plain text with colon ("Beurteilung:") and minimizes blank lines.
+    - Adds a structured input overview (Klinik/Labor/Bildgebung/Lungenfunktion/...) so that
+      no captured information gets lost in the copied content.
+    """
+    import re
+
+    def _compact(s: str) -> str:
+        s = (s or "").strip()
+        # collapse excessive blank lines (Word tends to enlarge spacing)
+        s = re.sub(r"\n{3,}", "\n\n", s)
+        return s.strip()
+
+    # Build the canonical in-app report, then extract key sections
+    doc = build_doctor_report(case, blocks)
+
+    beur = extract_markdown_section(doc, "Beurteilung", "Empfehlung")
+    empf = extract_markdown_section(doc, "Empfehlung", "Procedere")
+    proc = extract_markdown_section(doc, "Procedere", None)
+
+    parts: List[str] = []
+    if beur.strip():
+        parts.append("Beurteilung:\n" + _compact(beur))
+    # Empfehlung & Procedere combined (so Word output follows the requested order)
+    ep_lines = []
+    if empf.strip():
+        ep_lines.append(_compact(empf))
+    if proc.strip():
+        ep_lines.append(_compact(proc))
+    if ep_lines:
+        parts.append("Empfehlung & Procedere:\n" + _compact("\n\n".join(ep_lines)))
+
+    # Structured raw input summary (contains CT Kurzbefund, 6MWD Datum, etc.)
+    summ = summarize_inputs(case)
+    if summ:
+        # Convert Markdown headings "### X" to "X:"
+        sections: Dict[str, str] = {}
+        cur_title = None
+        buf: List[str] = []
+        for line in summ.splitlines():
+            m = re.match(r"^###\s+(.*)\s*$", line.strip())
+            if m:
+                # flush previous
+                if cur_title is not None:
+                    sections[cur_title] = "\n".join(buf).strip()
+                cur_title = m.group(1).strip()
+                buf = []
+            else:
+                buf.append(line)
+        if cur_title is not None:
+            sections[cur_title] = "\n".join(buf).strip()
+
+        preferred_order = [
+            "Klinik",
+            "Labor",
+            "Bildgebung / Echo / CMR",
+            "6-Minuten-Gehtest",
+            "Lungenfunktion",
+        ]
+        for title in preferred_order:
+            body = sections.get(title, "")
+            if body.strip():
+                parts.append(f"{title}:\n" + _compact(body))
+
+        # append any remaining sections (future-proof)
+        for title, body in sections.items():
+            if title in preferred_order:
+                continue
+            if (body or "").strip():
+                parts.append(f"{title}:\n" + _compact(body))
+
+    return "\n\n".join([p for p in parts if p and p.strip()]).strip()
 
 
 def build_echo_patient_report(case: Dict[str, Any]) -> str:

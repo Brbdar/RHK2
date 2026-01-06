@@ -542,6 +542,40 @@ def build_echo_section(add) -> Dict[str, Any]:
     }
 
 
+
+
+def render_echo_import_views(state_prev: Dict[str, Any], state_cur: Dict[str, Any]):
+    """Render HTML blocks + apply-button state for persisted echo import states.
+
+    Used when loading a saved case: uploaded file objects cannot be restored,
+    but parsed/meta payloads can be, so we rebuild the preview/compare panels.
+    """
+    prev_state = state_prev or {"parsed": {}, "meta": {}, "has_file": False}
+    cur_state = state_cur or {"parsed": {}, "meta": {}, "has_file": False}
+
+    try:
+        cur_html = _render_import_table(cur_state, "Aktuell")
+    except Exception:
+        cur_html = "<div class='docx-muted'>Noch kein Echo-PDF importiert.</div>"
+    try:
+        prev_html = _render_import_table(prev_state, "Vor")
+    except Exception:
+        prev_html = "<div class='docx-muted'>Noch kein Vor-Echo importiert.</div>"
+    try:
+        cmp_html = _render_compare_table(prev_state, cur_state)
+    except Exception:
+        cmp_html = "<div class='docx-muted'>Kein Echo-Vergleich (Vor-Echo und/oder aktuelles Echo fehlt).</div>"
+
+    details_html = "<div style='display:grid;gap:10px'>"
+    details_html += "<div>" + cur_html + "</div>"
+    details_html += "<div>" + prev_html + "</div>"
+    details_html += "<div>" + cmp_html + "</div>"
+    details_html += "</div>"
+
+    enable = bool((cur_state.get("parsed") or {}) or (prev_state.get("parsed") or {}))
+    return cur_html, prev_html, cmp_html, details_html, gr.update(interactive=enable)
+
+
 def bind_echo_import(echo_ui: Dict[str, Any], *,
                     field_components: Dict[str, Any]) -> Dict[str, Any]:
     """Bind callbacks for echo PDF imports (current + previous).

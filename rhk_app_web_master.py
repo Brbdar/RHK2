@@ -12,6 +12,9 @@ Start:
 from __future__ import annotations
 
 import os
+
+# Disable Gradio analytics to avoid optional pandas/pyarrow imports (and NumPy ABI issues)
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 import socket
 import inspect
 

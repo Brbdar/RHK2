@@ -1,20 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""RHK UI helpers.
-
-Motivation
-- rhk_ui.py ist sehr groß geworden (viele Tabs, viele Felder).
-- Der komplette RHK-Tab ist umfangreich und wächst weiter (DOCX-Import, Vergleich, Plots, Zusatzblöcke).
-
-Dieses Modul kapselt ausschließlich den **RHK-Tab** (UI-Layout), damit:
-- rhk_ui.py schlanker bleibt
-- Änderungen am RHK-Tab isoliert vorgenommen werden können
-- die Binding-Logik in rhk_ui.py weiterhin zentral bleibt
-
-Wichtig
-- Nur UI-Aufbau (keine Parser-/Report-Logik).
-- Rückgabe enthält die Komponenten, die außerhalb des Tabs für Callbacks/Outputs benötigt werden.
-"""
+"""RHK-Tab UI (Layout only)."""
 
 from __future__ import annotations
 
@@ -26,11 +12,30 @@ from rhk_base import gr  # type: ignore
 def build_rhk_tab(add) -> Dict[str, Any]:
     """Build the RHK tab UI and return key components."""
 
+    # -------------------------------------------------------------
+    # Pre-Cath Safety Header (sticky bar just under global summary)
+    # -------------------------------------------------------------
+    pre_cath_html = gr.HTML(
+        value=(
+            "<div class='rhk-pre-cath-bar'>"
+            "<div class='muted'>Pre-Cath Safety: noch keine Angaben.</div>"
+            "</div>"
+        ),
+        elem_id="rhk_pre_cath_wrapper",
+    )
+    with gr.Row():
+        add("consent_done", gr.Checkbox(label="Aufklärung erfolgt (RHK)"))
+        add(
+            "access_route",
+            gr.Dropdown(
+                label="Zugangsweg",
+                choices=["", "V. jugularis rechts", "V. jugularis links", "unbekannt", "cave - schwierig"],
+                value="",
+            ),
+        )
 
     # =============================================================
     # DOCX Import Übersicht (Quelle der Wahrheit)
-    # - Muss standardmäßig aufgeklappt sein.
-    # - Zeigt kompakte Base-2-Kontrolle + alle extrahierten Tabellen (ohne Risikoklassen).
     # =============================================================
     with gr.Accordion("DOCX Import Übersicht (Quelle der Wahrheit)", open=True, elem_id="docx_overview_acc"):
         import_status_html = gr.HTML(
@@ -38,10 +43,13 @@ def build_rhk_tab(add) -> Dict[str, Any]:
             elem_id="import_status_html",
         )
 
-    # Plots bewusst als eigener, separater Block (nicht Teil der DOCX-Rohübersicht)
+    # Plots bewusst als eigener, separater Block
     with gr.Accordion("Plots & Verlauf", open=False, elem_id="rhk_plots_acc"):
         rhk_plots_html = gr.HTML(value="", elem_id="rhk_plots_html")
 
+    # -------------------------------------------------------------
+    # Ruhehämodynamik
+    # -------------------------------------------------------------
     gr.Markdown("### Ruhehämodynamik")
     with gr.Row():
         add("spap_rest", gr.Number(label="sPAP (mmHg)"))
@@ -54,9 +62,16 @@ def build_rhk_tab(add) -> Dict[str, Any]:
         add("co_rest", gr.Number(label="CO (l/min)"))
         add("ci_rest", gr.Number(label="CI (optional)"))
         add("pvr_rest", gr.Number(label="PVR (optional, WU)"))
-        add("co_method", gr.Dropdown(label="HZV Methode", choices=["keine Angabe", "Thermodilution", "Fick"], value="keine Angabe"))
+        add(
+            "co_method",
+            gr.Dropdown(
+                label="HZV Methode",
+                choices=["keine Angabe", "Thermodilution", "Fick"],
+                value="keine Angabe",
+            ),
+        )
 
-    gr.Markdown("#### Auto-Berechnung (wird nach „Befund erstellen“ gefüllt)")
+    gr.Markdown("#### Auto-Berechnung (wird nach \u201eBefund erstellen\u201c gefüllt)")
     with gr.Row():
         auto_mpap = gr.Number(label="mPAP (berechnet)", interactive=False)
         auto_ci = gr.Number(label="CI (berechnet)", interactive=False)
@@ -66,9 +81,19 @@ def build_rhk_tab(add) -> Dict[str, Any]:
         auto_tpg = gr.Number(label="TPG (berechnet)", interactive=False)
         auto_dpg = gr.Number(label="DPG (berechnet)", interactive=False)
 
+    # -------------------------------------------------------------
+    # Belastung / Volumen / Vaso / Oximetrie / Kurven
+    # -------------------------------------------------------------
     gr.Markdown("### Belastungshämodynamik (optional)")
     with gr.Row():
-        add("exercise_protocol", gr.Dropdown(choices=["", "WHO-Rampe", "Stufenprotokoll", "Laufband", "unbekannt"], value="", label="Belastungsprotokoll"))
+        add(
+            "exercise_protocol",
+            gr.Dropdown(
+                choices=["", "WHO-Rampe", "Stufenprotokoll", "Laufband", "unbekannt"],
+                value="",
+                label="Belastungsprotokoll",
+            ),
+        )
         add("exercise_peak_watts", gr.Number(label="Max. Last (W)"))
     with gr.Row():
         add("exercise_done", gr.Checkbox(label="Belastung durchgeführt"))
@@ -120,10 +145,18 @@ def build_rhk_tab(add) -> Dict[str, Any]:
         add("rv_pseudo_dip", gr.Checkbox(label="Pseudo-Dip (RV-Kurve)"))
         add("rv_dip_plateau", gr.Checkbox(label="Dip-Plateau (RV-Kurve)"))
 
+    # -------------------------------------------------------------
+    # Verlauf / Vergleich
+    # -------------------------------------------------------------
     gr.Markdown("### Verlauf / Vergleich (Vor-RHK, optional)")
 
     with gr.Row():
-        prev_docx_btn = gr.UploadButton("Vor-RHK import (.docx)", file_types=[".docx"], variant="secondary", elem_id="btn_docx_prev")
+        prev_docx_btn = gr.UploadButton(
+            "Vor-RHK import (.docx)",
+            file_types=[".docx"],
+            variant="secondary",
+            elem_id="btn_docx_prev",
+        )
 
     with gr.Row():
         add("rhk_date", gr.Textbox(label="Aktueller RHK (z.B. 12/25)", placeholder="MM/JJ oder TT.MM.JJJJ"))
@@ -131,42 +164,53 @@ def build_rhk_tab(add) -> Dict[str, Any]:
         add("prev_is_initial", gr.Checkbox(label="Vor-RHK war Initialkatheter"))
 
     with gr.Row():
-
         add("prev_mpap", gr.Number(label="mPAP vor (mmHg)"))
-
         add("prev_pawp", gr.Number(label="PAWP vor (mmHg)"))
-
         add("prev_rap", gr.Number(label="RAP vor (mmHg)"))
 
     with gr.Row():
-
         add("prev_ci", gr.Number(label="CI vor (l/min/m²)"))
-
         add("prev_pvr", gr.Number(label="PVR vor (WU)"))
-
         add("prev_label", gr.Textbox(label="Kommentar (optional)"))
 
-    # Split-Layout / Differenzdarstellung (Vorher vs Jetzt)
     compare_overview_html = gr.HTML(value="", elem_id="rhk_compare_overview")
-    # Plots & Verlauf werden im DOCX-Import-Accordion angezeigt (open=True).
 
-    gr.Markdown("**Therapie seit Vor-RHK (optional):** Nur relevant, wenn es sich um eine Verlaufskontrolle nach Therapieanpassung handelt.")
+    gr.Markdown(
+        "**Therapie seit Vor-RHK (optional):** Nur relevant, wenn es sich um eine Verlaufskontrolle nach Therapieanpassung handelt."
+    )
 
-    add("prev_tx_added", gr.CheckboxGroup(label="Therapie neu/eskaliert", choices=['ERA (Endothelin-Rezeptor-Antagonist)', 'PDE5-Hemmer', 'sGC-Stimulator (Riociguat)', 'Prostazyklin (inhalativ/IV/SC)', 'IP-Rezeptor-Agonist (Selexipag)', 'Kalziumantagonist (bei Vasoreaktivität)', 'Antikoagulation', 'Diuretika / Entwässerung', 'Sauerstofftherapie', 'Sonstiges'], value=[]))
+    add(
+        "prev_tx_added",
+        gr.CheckboxGroup(
+            label="Therapie neu/eskaliert",
+            choices=[
+                "ERA (Endothelin-Rezeptor-Antagonist)",
+                "PDE5-Hemmer",
+                "sGC-Stimulator (Riociguat)",
+                "Prostazyklin (inhalativ/IV/SC)",
+                "IP-Rezeptor-Agonist (Selexipag)",
+                "Kalziumantagonist (bei Vasoreaktivität)",
+                "Antikoagulation",
+                "Diuretika / Entwässerung",
+                "Sauerstofftherapie",
+                "Sonstiges",
+            ],
+            value=[],
+        ),
+    )
 
     add("prev_tx_free", gr.Textbox(label="Therapie – Freitext (optional)", lines=2))
 
-
-    # Return key handles used in callbacks / outputs outside this module
     return {
-        'import_status_html': import_status_html,
-        'rhk_plots_html': rhk_plots_html,
-        'compare_overview_html': compare_overview_html,
-        'prev_docx_btn': prev_docx_btn,
-        'auto_mpap': auto_mpap,
-        'auto_ci': auto_ci,
-        'auto_pvr': auto_pvr,
-        'auto_pvri': auto_pvri,
-        'auto_tpg': auto_tpg,
-        'auto_dpg': auto_dpg,
+        "import_status_html": import_status_html,
+        "rhk_plots_html": rhk_plots_html,
+        "compare_overview_html": compare_overview_html,
+        "prev_docx_btn": prev_docx_btn,
+        "auto_mpap": auto_mpap,
+        "auto_ci": auto_ci,
+        "auto_pvr": auto_pvr,
+        "auto_pvri": auto_pvri,
+        "auto_tpg": auto_tpg,
+        "auto_dpg": auto_dpg,
+        "pre_cath_html": pre_cath_html,
     }
