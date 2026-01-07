@@ -451,6 +451,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 with gr.TabItem("RHK", id=3):
                     rhk_ui = build_rhk_tab(add)
                     import_status_html = rhk_ui["import_status_html"]
+                    btn_wipe_docx_current = rhk_ui.get("btn_wipe_docx_current")
+                    btn_wipe_docx_prev = rhk_ui.get("btn_wipe_docx_prev")
                     rhk_plots_html = rhk_ui["rhk_plots_html"]
                     pre_cath_html = rhk_ui["pre_cath_html"]
                     compare_overview_html = rhk_ui["compare_overview_html"]
@@ -2169,38 +2171,89 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         FILL_FROM_PREV_IF_MISSING = ["age", "sex", "height_cm", "weight_kg", "hb_g_dl"]
 
-        def _docx_import_current(file, *vals):
-            # HARD-RESET: prevent stale values from previous cases from leaking into the report.
-            # This is essential to avoid 'Phantasiebefunde' after importing a new DOCX.
-            import copy
-            ui_dict = copy.deepcopy(DEFAULT_UI)
-            # Avoid Gradio choice-errors during stage-1 load: keep module UI checkbox values empty.
-            ui_dict["modules"] = []
-            ui_dict["modules_lvl1"] = []
-            ui_dict["modules_lvl2"] = []
-            ui_dict["modules_lvl3"] = []
+        def _docx_import_current(file, prev_payload, *vals):
+            """Import current DOCX without deleting manual entries.
+
+            Policy:
+            - Only fields that were previously imported and remain unchanged are eligible for overwrite/clear.
+            - Empty fields are eligible for auto-fill.
+            - Manual edits are preserved.
+            """
+            ui_dict = ui_get_raw(*vals)
+
+            prev_payload = prev_payload if isinstance(prev_payload, dict) else {}
+            prev_keys = prev_payload.get("_ui_applied_keys_current") or []
+            prev_vals = prev_payload.get("_ui_applied_values_current") or {}
 
             payload = parse_maclab_docx(file.name if hasattr(file, "name") else str(file))
             updates = map_payload_to_ui(payload, target="current")
-            ui_dict.update(updates)
+
+            # 1) Clear stale imported fields that are NOT present in the new import
+            #    but only if the user has not modified them.
+            for k in list(prev_keys):
+                if k in updates:
+                    continue
+                if k in DOCX_WIPE_CURRENT:
+                    if ui_dict.get(k) == prev_vals.get(k):
+                        ui_dict[k] = DOCX_WIPE_CURRENT.get(k)
+
+            # 2) Apply new updates conservatively.
+            applied_vals: Dict[str, Any] = {}
+            for k, v in (updates or {}).items():
+                cur = ui_dict.get(k)
+                prev_v = prev_vals.get(k)
+                if (cur in (None, "", 0)) or (cur == prev_v):
+                    ui_dict[k] = v
+                    applied_vals[k] = v
+
+            # Persist provenance (does not break status/overview renderers)
+            try:
+                payload["_ui_applied_keys_current"] = sorted(list(applied_vals.keys()))
+                payload["_ui_applied_values_current"] = applied_vals
+            except Exception:
+                pass
 
             vals_out = apply_ui_to_components(ui_dict)
             return (*vals_out, payload)
 
-        def _docx_import_prev(file, *vals):
+        def _docx_import_prev(file, prev_payload, *vals):
             ui_dict = ui_get_raw(*vals)
-            for k, v in DOCX_WIPE_PREV.items():
-                ui_dict[k] = v
+
+            prev_payload = prev_payload if isinstance(prev_payload, dict) else {}
+            prev_keys = prev_payload.get("_ui_applied_keys_prev") or []
+            prev_vals = prev_payload.get("_ui_applied_values_prev") or {}
 
             payload = parse_maclab_docx(file.name if hasattr(file, "name") else str(file))
             updates_prev = map_payload_to_ui(payload, target="prev")
-            ui_dict.update(updates_prev)
+
+            # Clear stale prev-imported fields not present in new import (only if unchanged)
+            for k in list(prev_keys):
+                if k in updates_prev:
+                    continue
+                if k in DOCX_WIPE_PREV:
+                    if ui_dict.get(k) == prev_vals.get(k):
+                        ui_dict[k] = DOCX_WIPE_PREV.get(k)
+
+            applied_vals_prev: Dict[str, Any] = {}
+            for k, v in (updates_prev or {}).items():
+                cur = ui_dict.get(k)
+                prev_v = prev_vals.get(k)
+                if (cur in (None, "", 0)) or (cur == prev_v):
+                    ui_dict[k] = v
+                    applied_vals_prev[k] = v
 
             # Option: aus Vor-RHK fehlende Demografie/Laborwerte ergänzen (nur wenn aktuell leer)
             updates_cur = map_payload_to_ui(payload, target="current")
             for k in FILL_FROM_PREV_IF_MISSING:
                 if (ui_dict.get(k) in (None, "", 0)) and (updates_cur.get(k) is not None):
                     ui_dict[k] = updates_cur.get(k)
+
+            # Persist provenance
+            try:
+                payload["_ui_applied_keys_prev"] = sorted(list(applied_vals_prev.keys()))
+                payload["_ui_applied_values_prev"] = applied_vals_prev
+            except Exception:
+                pass
 
             vals_out = apply_ui_to_components(ui_dict)
             return (*vals_out, payload)
@@ -2210,7 +2263,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             # Reset pending module selection to avoid stale templates influencing a new import.
             return {"lvl1": [], "lvl2": [], "lvl3": []}
 
-        docx_btn_top.upload(_docx_import_current, inputs=[docx_btn_top] + input_components, outputs=input_components + [state_docx_cur])\
+        docx_btn_top.upload(_docx_import_current, inputs=[docx_btn_top, state_docx_cur] + input_components, outputs=input_components + [state_docx_cur])\
             .then(_reset_pmods_after_import, inputs=[], outputs=[state_pmods_selected])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"]])\
@@ -2219,7 +2272,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
 
-        docx_btn_bottom.upload(_docx_import_current, inputs=[docx_btn_bottom] + input_components, outputs=input_components + [state_docx_cur])\
+        docx_btn_bottom.upload(_docx_import_current, inputs=[docx_btn_bottom, state_docx_cur] + input_components, outputs=input_components + [state_docx_cur])\
             .then(_reset_pmods_after_import, inputs=[], outputs=[state_pmods_selected])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"]])\
@@ -2228,13 +2281,58 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
 
-        prev_docx_btn.upload(_docx_import_prev, inputs=[prev_docx_btn] + input_components, outputs=input_components + [state_docx_prev])\
+        prev_docx_btn.upload(_docx_import_prev, inputs=[prev_docx_btn, state_docx_prev] + input_components, outputs=input_components + [state_docx_prev])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"]])\
             .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
             .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
+
+        # -------------------------
+        # DOCX Import entfernen (Undo)
+        # -------------------------
+        def _wipe_docx_current(prev_payload, *vals):
+            ui_dict = ui_get_raw(*vals)
+            prev_payload = prev_payload if isinstance(prev_payload, dict) else {}
+            prev_keys = prev_payload.get("_ui_applied_keys_current") or []
+            prev_vals = prev_payload.get("_ui_applied_values_current") or {}
+            for k in prev_keys:
+                if k in DOCX_WIPE_CURRENT and ui_dict.get(k) == prev_vals.get(k):
+                    ui_dict[k] = DOCX_WIPE_CURRENT.get(k)
+            return (*apply_ui_to_components(ui_dict), None)
+
+        def _wipe_docx_prev(prev_payload, *vals):
+            ui_dict = ui_get_raw(*vals)
+            prev_payload = prev_payload if isinstance(prev_payload, dict) else {}
+            prev_keys = prev_payload.get("_ui_applied_keys_prev") or []
+            prev_vals = prev_payload.get("_ui_applied_values_prev") or {}
+            for k in prev_keys:
+                if k in DOCX_WIPE_PREV and ui_dict.get(k) == prev_vals.get(k):
+                    ui_dict[k] = DOCX_WIPE_PREV.get(k)
+            return (*apply_ui_to_components(ui_dict), None)
+
+        if btn_wipe_docx_current is not None:
+            btn_wipe_docx_current.click(
+                _wipe_docx_current,
+                inputs=[state_docx_cur] + input_components,
+                outputs=input_components + [state_docx_cur],
+            ).then(
+                _generate,
+                inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                outputs=generate_outputs,
+            )
+
+        if btn_wipe_docx_prev is not None:
+            btn_wipe_docx_prev.click(
+                _wipe_docx_prev,
+                inputs=[state_docx_prev] + input_components,
+                outputs=input_components + [state_docx_prev],
+            ).then(
+                _generate,
+                inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                outputs=generate_outputs,
+            )
 
         load_btn_top.upload(
             _load_case_ui,

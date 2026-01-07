@@ -1,4 +1,10 @@
-# RHK Befundassistent – v27.0.2 (split)
+# RHK Befundassistent – v27.0.3 (split)
+
+## Neu in v27.0.3
+
+- Echo Import: Button "Echo Werte entfernen" (Undo). Entfernt die Import-Payloads und setzt nur die automatisch uebernommenen Felder zurueck (wenn unveraendert).
+- DOCX Import (RHK): Undo-Buttons in der DOCX-Import-Uebersicht (aktueller RHK Import / Vor-RHK Import).
+- DOCX Import (RHK): Import ueberschreibt keine manuellen Eingaben mehr. Nur leere Felder oder zuvor importierte, unveraenderte Felder werden aktualisiert.
 
 ## Neu in v27.0.2
 

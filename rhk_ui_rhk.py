@@ -42,6 +42,20 @@ def build_rhk_tab(add) -> Dict[str, Any]:
             elem_id="import_status_html",
         )
 
+        # Rückwirkend entfernen: nur Import-gebundene Felder werden bereinigt.
+        # Manuell eingegebene Werte bleiben erhalten.
+        with gr.Row():
+            btn_wipe_docx_current = gr.Button(
+                "Aktuellen RHK Import entfernen",
+                variant="secondary",
+                elem_id="btn_wipe_docx_current",
+            )
+            btn_wipe_docx_prev = gr.Button(
+                "Vor RHK Import entfernen",
+                variant="secondary",
+                elem_id="btn_wipe_docx_prev",
+            )
+
     # Plots bewusst als eigener, separater Block
     with gr.Accordion("Plots & Verlauf", open=False, elem_id="rhk_plots_acc"):
         rhk_plots_html = gr.HTML(value="", elem_id="rhk_plots_html")
@@ -202,6 +216,8 @@ def build_rhk_tab(add) -> Dict[str, Any]:
 
     return {
         "import_status_html": import_status_html,
+        "btn_wipe_docx_current": btn_wipe_docx_current,
+        "btn_wipe_docx_prev": btn_wipe_docx_prev,
         "rhk_plots_html": rhk_plots_html,
         "compare_overview_html": compare_overview_html,
         "prev_docx_btn": prev_docx_btn,

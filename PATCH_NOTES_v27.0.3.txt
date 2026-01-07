@@ -1,0 +1,13 @@
+v27.0.3 (2026-01-07)
+
+Änderungen
+- DOCX Import (RHK): Import überschreibt keine manuellen Eingaben mehr. Nur leere Felder oder zuvor importierte, unveränderte Felder werden aktualisiert.
+- DOCX Import (RHK): Undo-Buttons in der DOCX-Import-Übersicht (aktueller RHK Import / Vor-RHK Import).
+- Echo Import: Button "Echo Werte entfernen" (Undo). Entfernt Import-Payloads und setzt nur automatisch übernommene Felder zurück (wenn unverändert).
+
+Fixes
+- Verhindert Datenverlust durch harte UI-Resets bei erneutem DOCX Import.
+- Rückwirkendes Entfernen von irrtümlich importierten Echo-/RHK-Befunden möglich.
+
+Breaking Changes
+- Keine.

@@ -411,6 +411,7 @@ def build_echo_section(add) -> Dict[str, Any]:
             btn_apply = gr.Button("Werte übernehmen (nur leere Felder)", variant="primary")
             btn_clear_cur = gr.Button("Import löschen", variant="secondary")
             btn_clear_prev = gr.Button("Vor-Echo löschen", variant="secondary")
+            btn_wipe_echo_fields = gr.Button("Echo Werte entfernen", variant="secondary")
 
         # state
         state_echo_cur = gr.State(value={"parsed": {}, "meta": {}, "has_file": False})
@@ -539,6 +540,7 @@ def build_echo_section(add) -> Dict[str, Any]:
         "btn_apply": btn_apply,
         "btn_clear_cur": btn_clear_cur,
         "btn_clear_prev": btn_clear_prev,
+        "btn_wipe_echo_fields": btn_wipe_echo_fields,
     }
 
 
@@ -596,6 +598,7 @@ def bind_echo_import(echo_ui: Dict[str, Any], *,
     btn_apply = echo_ui["btn_apply"]
     btn_clear_cur = echo_ui["btn_clear_cur"]
     btn_clear_prev = echo_ui["btn_clear_prev"]
+    btn_wipe_echo_fields = echo_ui.get("btn_wipe_echo_fields")
 
     prev_json_comp = field_components.get("echo_prev_json")
     prev_meta_comp = field_components.get("echo_prev_meta_json")
@@ -714,7 +717,60 @@ def bind_echo_import(echo_ui: Dict[str, Any], *,
         except Exception:
             updated_vals = list(current_vals)
 
+        # Track what was auto-filled so we can "undo" imports without deleting manual edits.
+        try:
+            applied: Dict[str, Any] = {}
+            for k, old_v, new_v in zip(apply_keys, current_vals, updated_vals):
+                if old_v != new_v:
+                    applied[k] = new_v
+            if applied:
+                cur_state["_ui_autofill_values"] = applied
+                cur_state["_ui_autofill_keys"] = sorted(list(applied.keys()))
+        except Exception:
+            pass
+
         return (cur_state, cur_html, cmp_html, d, btnu, *updated_vals)
+
+    def _default_value(cur: Any) -> Any:
+        if isinstance(cur, bool):
+            return False
+        if isinstance(cur, (int, float)):
+            return None
+        if isinstance(cur, str):
+            return "keine Angabe" if cur.strip().lower() not in ("", "-") else ""
+        return None
+
+    def _wipe_echo_all(state_cur_in, state_prev_in, *current_vals):
+        """Remove imported echo payloads and revert auto-filled manual fields (only if unchanged)."""
+        stc = state_cur_in or {"parsed": {}, "meta": {}, "has_file": False}
+        stp = state_prev_in or {"parsed": {}, "meta": {}, "has_file": False}
+
+        applied_vals = (stc.get("_ui_autofill_values") or {}) if isinstance(stc, dict) else {}
+        cur_map = {k: v for k, v in zip(apply_keys, current_vals)}
+
+        out_updates: List[Any] = []
+        for k in apply_keys:
+            cur = cur_map.get(k)
+            if k in applied_vals and cur == applied_vals.get(k):
+                out_updates.append(_default_value(cur))
+            else:
+                out_updates.append(cur)
+
+        # Reset import states
+        new_cur = {"parsed": {}, "meta": {}, "has_file": False}
+        new_prev = {"parsed": {}, "meta": {}, "has_file": False}
+
+        cur_html = "<div class='docx-muted'>Noch kein Echo-PDF importiert.</div>"
+        prev_html = "<div class='docx-muted'>Noch kein Vor-Echo importiert.</div>"
+        cmp_html = "<div class='docx-muted'>Kein Echo-Vergleich (Vor-Echo und/oder aktuelles Echo fehlt).</div>"
+        d = "<div class='docx-muted'>Kein Echo-Vergleich (Vor-Echo und/oder aktuelles Echo fehlt).</div>"
+        btnu = gr.update(interactive=False)
+
+        import json
+        prev_json = json.dumps({}, ensure_ascii=False)
+        prev_meta_json = json.dumps({}, ensure_ascii=False)
+
+        return (new_cur, new_prev, cur_html, prev_html, cmp_html, d, btnu, prev_json, prev_meta_json, *out_updates)
 
     def _parse_prev(file_obj, cur_state):
         import json
@@ -757,6 +813,18 @@ def bind_echo_import(echo_ui: Dict[str, Any], *,
         )
     except Exception:
         pass
+
+    # Remove imported echo payloads + revert auto-filled values
+    if btn_wipe_echo_fields is not None:
+        try:
+            btn_wipe_echo_fields.click(
+                _wipe_echo_all,
+                inputs=[state_cur, state_prev] + apply_components,
+                outputs=[state_cur, state_prev, preview_cur, preview_prev, compare_html, details_html, btn_apply, prev_json_comp, prev_meta_comp] + apply_components,
+                queue=False,
+            )
+        except Exception:
+            pass
 
     # Wire apply button: outputs are all echo fields that are present
     btn_apply.click(
