@@ -1,0 +1,5 @@
+Version v26.1.28 Patch
+
+- Added new P modules P26-P30 (fluid restriction, CV risk factors, weight reduction, LTOT adherence, CT conference feedback).
+- Updated P module policy to prioritize these modules based on case context.
+- Version bump and documentation updated.

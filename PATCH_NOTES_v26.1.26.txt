@@ -1,0 +1,17 @@
+Version v26.1.26 Patch
+
+Scope: UI
+1) Neues Klinik Freitextfeld "Relevante Vorerkrankungen" direkt nach "Story / Kurz-Anamnese"
+
+Changes
+- UPDATED rhk_ui.py
+  - Added field: comorbidities (Textbox) in Tab "Klinik & Labor" directly under "Story / Kurz-Anamnese".
+
+- UPDATED rhk_reports.py
+  - Input summary (Klinik) now includes "Relevante Vorerkrankungen" when provided.
+
+- UPDATED rhk_base.py
+  - Version bump to v26.1.26
+
+- UPDATED README.md
+  - Release notes entry for v26.1.26

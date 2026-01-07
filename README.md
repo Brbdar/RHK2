@@ -1,4 +1,33 @@
-# RHK Befundassistent – v25.8.9 (split)
+# RHK Befundassistent – v27.0.2 (split)
+
+## Neu in v27.0.2
+
+- Echo Patientenbefund komplett neu gegliedert und deutlich erweitert: Kernaussage, Übersicht, erklärende Abschnitte, Verlauf, nächste Schritte, Safety Net und Messwerte Appendix.
+- Echo Guideline Engine: min_abs und max_abs Cutoffs werden korrekt ausgewertet (wichtig für Strain Ampel und Trendlogik).
+
+## Neu in v26.1.31
+
+- Spiroergometrie / CPET unterhalb des Lungenfunktionsreiters integriert (inkl. Live-Risiko und Speicherung im Case).
+- CPET Parameter in ESC/ERS Comprehensive Risk (wenn vorhanden) berücksichtigt.
+- CPET Ausgabe in der Inputs-Zusammenfassung (Berichte) ergänzt.
+
+## Neu in v26.1.30
+- Pre-Cath Sticky Header: Kreatinin (Krea) mit Farbcodierung (primär eGFR, Fallback Kreatinin)
+- Hämodynamik Sticky Header: Krea Chip entfernt (bleibt rein hämodynamisch)
+
+## Neu in v26.1.28
+- Erweiterung P Module: P26 Trinkmengenrestriktion, P27 kardiovaskuläre Risikofaktoren, P28 Gewichtsreduktion, P29 LTOT konsequent, P30 CT Befunde Konferenz mit Rückmeldung an PH Ambulanz
+- P Modul Policy: automatische Priorisierung von P26 bei Stauung, P28 bei erhöhter BMI, P29 bei LTOT, P30 bei CT durchgeführt aber Kurzbefund ausstehend
+
+
+
+## Neu in v26.1.27
+- Fix: eGFR wird automatisch berechnet und im UI gesetzt (auch nach DOCX Import und Load)
+- UX: Sticky Header Pre-Cath und Hämodynamik sehen identisch aus (gemeinsame CSS Basis)
+
+## Neu in v26.1.26
+- Neues UI Feld **Relevante Vorerkrankungen** direkt unter **Story / Kurz-Anamnese** (Klinik & Labor)
+- Wird im Case gespeichert und in der Input Übersicht (Befund) mit ausgegeben
 
 ## Neu in v25.8.9
 - Plausibilitätschecks mit Warnsystem (blockiert Befund nicht)
@@ -204,6 +233,9 @@ Wenn du dieses Repo als LLM weiterentwickelst:
 ---
 
 ## Changelog
+
+- **v26.1.29 (2026-01-07)**
+  - Hämodynamik Sticky Header zeigt jetzt Kreatinin (Krea) mit Farbcodierung (eGFR-basiert, Fallback Kreatinin)
 
 - **v23.2**
   - Desktop-only Enforcement (Overlay + Mobile-Viewport-Tag)

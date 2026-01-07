@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RHK Befundassistent (Web) – v26.0.7
+RHK Befundassistent (Web) – v26.1.27
 
 - Ultra-interaktiver Gradio-Assistenzbogen für RHK-/PH-Befunde
 - Deklaratives Regelwerk (YAML) zur Guideline-nahen Klassifikation, Modulen & Empfehlungen
@@ -37,14 +37,19 @@ except Exception:  # pragma: no cover
 # =============================================================================
 
 APP_NAME = "RHK Befundassistent"
-APP_VERSION = "v26.1.25"
+APP_VERSION = "v27.0.2"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 WHATS_NEW = (
+    "Fix: eGFR wird automatisch berechnet (auch nach DOCX Import/Laden) · "
+    "UX: Sticky Header Pre-Cath ist identisch zum Hämodynamik Header · "
+    "Neu: P Module P26–P30 (Trinkmenge, Risikofaktoren, Gewicht, LTOT, CT Konferenz) · "
+    "Neu: Klinik Feld Relevante Vorerkrankungen direkt unter Kurz-Anamnese · "
     "Neu: DOCX Import für GE MacLab RHK Tabellen (Base 2 priorisiert, Fließtext ignoriert) · "
     "Neu: Vor RHK DOCX Import für Verlauf Vergleich · "
     "Neu: Visualisierung (mPAP und PAWP gegen CO, Volumenchallenge, Verlauf Delta) · "
     "Sicherheit: Plausibilitätschecks und Import Ampel"
 )
+
 
 
 # =============================================================================
@@ -838,6 +843,42 @@ def calc_esc_ers_comprehensive_3_strata(ui: Dict[str, Any], derived: Dict[str, A
     else:
         missing.append("CMR-RVEF")
 
+    # CPET: Peak VO2 + VE/VCO2 slope (ESC/ERS 2022 Table 16 – PAH)
+    # Peak VO2: either absolute (ml/min/kg) or %pred. We apply a conservative worst-of rule.
+    peak_vo2 = _safe_float(ui.get("cpet_peak_vo2_ml_kg_min"))
+    peak_vo2_pct = _safe_float(ui.get("cpet_peak_vo2_pct_pred"))
+    peak_grade = None
+    if isinstance(peak_vo2, (int, float)) and peak_vo2 > 0:
+        if peak_vo2 > 15:
+            peak_grade = 1
+        elif peak_vo2 >= 11:
+            peak_grade = 2
+        else:
+            peak_grade = 3
+    if isinstance(peak_vo2_pct, (int, float)) and peak_vo2_pct > 0:
+        if peak_vo2_pct > 65:
+            g = 1
+        elif peak_vo2_pct >= 35:
+            g = 2
+        else:
+            g = 3
+        peak_grade = g if peak_grade is None else max(peak_grade, g)
+    if peak_grade is not None:
+        grades["CPET Peak VO2"] = peak_grade
+    else:
+        missing.append("CPET Peak VO2")
+
+    vevco2 = _safe_float(ui.get("cpet_ve_vco2_slope"))
+    if isinstance(vevco2, (int, float)) and vevco2 > 0:
+        if vevco2 < 36:
+            grades["CPET VE/VCO2 slope"] = 1
+        elif vevco2 <= 44:
+            grades["CPET VE/VCO2 slope"] = 2
+        else:
+            grades["CPET VE/VCO2 slope"] = 3
+    else:
+        missing.append("CPET VE/VCO2 slope")
+
     if not grades:
         return None
 
@@ -983,6 +1024,167 @@ def calc_reveal_lite2(ui: Dict[str, Any]) -> Optional[RevealLite2Result]:
         cat = "hoch"
 
     return RevealLite2Result(points=points, category=cat, details=details, missing=[])
+
+
+# ---------------------------------------------------------------------------
+# CPET (Spiroergometrie) – PH-relevante Parameter + Risikostratifizierung
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class CpetScoresResult:
+    esc_ers_3_strata: Optional[str]
+    grades: Dict[str, int]
+    mean_grade: Optional[float]
+    cpet_score_4_strata: Optional[str]
+    effort_ok: Optional[bool]
+    notes: List[str]
+
+
+def _cpet_grade_peak_vo2(peak_vo2_ml_kg_min: Optional[float], peak_vo2_pct_pred: Optional[float]) -> Optional[int]:
+    """ESC/ERS 2022 PAH CPET cutoffs (3 strata) – worst-of rule across absolute + %pred."""
+    g_abs: Optional[int] = None
+    if isinstance(peak_vo2_ml_kg_min, (int, float)) and peak_vo2_ml_kg_min > 0:
+        if peak_vo2_ml_kg_min > 15:
+            g_abs = 1
+        elif peak_vo2_ml_kg_min >= 11:
+            g_abs = 2
+        else:
+            g_abs = 3
+    g_pct: Optional[int] = None
+    if isinstance(peak_vo2_pct_pred, (int, float)) and peak_vo2_pct_pred > 0:
+        if peak_vo2_pct_pred > 65:
+            g_pct = 1
+        elif peak_vo2_pct_pred >= 35:
+            g_pct = 2
+        else:
+            g_pct = 3
+    if g_abs is None and g_pct is None:
+        return None
+    if g_abs is None:
+        return g_pct
+    if g_pct is None:
+        return g_abs
+    return max(g_abs, g_pct)
+
+
+def _cpet_grade_vevco2_slope(ve_vco2_slope: Optional[float]) -> Optional[int]:
+    if not isinstance(ve_vco2_slope, (int, float)) or ve_vco2_slope <= 0:
+        return None
+    if ve_vco2_slope < 36:
+        return 1
+    if ve_vco2_slope <= 44:
+        return 2
+    return 3
+
+
+def _cpet_grade_o2_pulse_pct_pred(o2_pulse_pct_pred: Optional[float]) -> Optional[int]:
+    """Baccelli 2025 CPET score component: Peak O2-pulse (%pred)."""
+    if not isinstance(o2_pulse_pct_pred, (int, float)) or o2_pulse_pct_pred <= 0:
+        return None
+    if o2_pulse_pct_pred > 65:
+        return 1
+    if o2_pulse_pct_pred >= 40:
+        return 2
+    return 3
+
+
+def _cpet_score_4_strata_from_mean(mean_grade: Optional[float]) -> Optional[str]:
+    """4-strata CPET score mapping (Baccelli 2025): 1–1.49 low; 1.5–1.99 int-low; 2–2.49 int-high; 2.5–3 high."""
+    if not isinstance(mean_grade, (int, float)):
+        return None
+    if mean_grade < 1.5:
+        return "low"
+    if mean_grade < 2.0:
+        return "intermediate-low"
+    if mean_grade < 2.5:
+        return "intermediate-high"
+    return "high"
+
+
+def calc_cpet_scores(ui: Dict[str, Any]) -> Optional[CpetScoresResult]:
+    """Compute PH-oriented CPET risk classification + modern 4-strata CPET score.
+
+    Inputs (UI keys):
+      - cpet_peak_vo2_ml_kg_min
+      - cpet_peak_vo2_pct_pred
+      - cpet_ve_vco2_slope
+      - cpet_petco2_vt1_mmhg
+      - cpet_ve_vco2_vt1
+      - cpet_peak_o2_pulse_pct_pred
+      - cpet_rer_peak
+
+    Returns:
+      - ESC/ERS 3-strata CPET category (low/intermediate/high) based on peak VO2 + VE/VCO2 slope
+      - 4-strata CPET score (Baccelli 2025) based on peak VO2 + VE/VCO2 slope + peak O2-pulse (%pred)
+      - Notes for pattern recognition (e.g., low PETCO2@VT1)
+    """
+    if not bool(ui.get("cpet_done")):
+        return None
+
+    peak_vo2 = _safe_float(ui.get("cpet_peak_vo2_ml_kg_min"))
+    peak_vo2_pct = _safe_float(ui.get("cpet_peak_vo2_pct_pred"))
+    vevco2_slope = _safe_float(ui.get("cpet_ve_vco2_slope"))
+    petco2_vt1 = _safe_float(ui.get("cpet_petco2_vt1_mmhg"))
+    vevco2_vt1 = _safe_float(ui.get("cpet_ve_vco2_vt1"))
+    o2pulse_pct = _safe_float(ui.get("cpet_peak_o2_pulse_pct_pred"))
+    rer_peak = _safe_float(ui.get("cpet_rer_peak"))
+
+    grades: Dict[str, int] = {}
+    notes: List[str] = []
+
+    g_peak = _cpet_grade_peak_vo2(peak_vo2, peak_vo2_pct)
+    if g_peak is not None:
+        grades["Peak VO2"] = g_peak
+
+    g_ve = _cpet_grade_vevco2_slope(vevco2_slope)
+    if g_ve is not None:
+        grades["VE/VCO2 slope"] = g_ve
+
+    # ESC/ERS 3-strata CPET (peak VO2 + VE/VCO2 slope)
+    esc_cat = None
+    if g_peak is not None or g_ve is not None:
+        mean = sum([g for g in [g_peak, g_ve] if g is not None]) / max(len([g for g in [g_peak, g_ve] if g is not None]), 1)
+        if mean <= 1.5:
+            esc_cat = "low"
+        elif mean <= 2.5:
+            esc_cat = "intermediate"
+        else:
+            esc_cat = "high"
+
+    # Modern 4-strata CPET score (Baccelli 2025): peak VO2 + VE/VCO2 slope + peak O2-pulse (%pred)
+    g_o2p = _cpet_grade_o2_pulse_pct_pred(o2pulse_pct)
+    if g_o2p is not None:
+        grades["Peak O2-Puls (% Soll)"] = g_o2p
+
+    score_components = [g for g in [g_peak, g_ve, g_o2p] if g is not None]
+    mean_grade: Optional[float] = None
+    if score_components:
+        mean_grade = sum(score_components) / len(score_components)
+    score4 = _cpet_score_4_strata_from_mean(mean_grade)
+
+    # Pattern notes (PH-typical markers; not a diagnosis):
+    if isinstance(petco2_vt1, (int, float)) and petco2_vt1 > 0:
+        if petco2_vt1 <= 34:
+            notes.append("PETCO2@VT1 niedrig (≤34 mmHg), vereinbar mit ventilatorischer Ineffizienz/Totraum")
+    if isinstance(vevco2_vt1, (int, float)) and vevco2_vt1 > 0:
+        if vevco2_vt1 >= 30:
+            notes.append("VE/VCO2@VT1 erhöht (≥30), vereinbar mit ventilatorischer Ineffizienz")
+
+    # Effort marker
+    effort_ok: Optional[bool] = None
+    if isinstance(rer_peak, (int, float)) and rer_peak > 0:
+        effort_ok = rer_peak >= 1.05
+        if not effort_ok:
+            notes.append("Belastungsgrad ggf. eingeschränkt (RER < 1.05) – Interpretation mit Vorsicht")
+
+    return CpetScoresResult(
+        esc_ers_3_strata=esc_cat,
+        grades=grades,
+        mean_grade=mean_grade,
+        cpet_score_4_strata=score4,
+        effort_ok=effort_ok,
+        notes=notes,
+    )
 
 def classify_exercise_pattern(mpap_co_slope: Optional[float], pawp_co_slope: Optional[float]) -> Optional[str]:
     """
@@ -1626,7 +1828,7 @@ def _hemo_category(mpap: Optional[float], pawp: Optional[float], pvr: Optional[f
 
 
 def _normalize_module_ids(selected: Any) -> List[str]:
-    """Normalisiert UI-Auswahl der Zusatzmodule auf reine IDs (P01–P25).
+    """Normalisiert UI-Auswahl der Zusatzmodule auf reine IDs (P01–P30).
 
     Robust gegenüber:
     - reinen IDs ("P03")
@@ -1662,7 +1864,7 @@ def _normalize_module_ids(selected: Any) -> List[str]:
 # P-Module: Fallbasierte Priorisierung + Nicht-Anwählbar-Logik
 # =============================================================================
 
-_ALL_P_MODULE_IDS: List[str] = [f"P{i:02d}" for i in range(1, 26)]
+_ALL_P_MODULE_IDS: List[str] = [f"P{i:02d}" for i in range(1, 31)]
 
 
 def compute_p_module_policy(ui: Dict[str, Any],
@@ -1846,6 +2048,10 @@ def compute_p_module_policy(ui: Dict[str, Any],
     # Heuristiken
     if bool(derived.get("congestion_likely")) and "P02" not in disabled:
         levels["P02"] = 1
+    # Trinkmengenrestriktion / Volumenmanagement (neu: P26)
+    # Priorität hoch bei Stauung oder erhöhtem RAP
+    if (bool(derived.get("congestion_likely")) or (rap_val is not None and rap_val >= 10.0)) and "P26" not in disabled:
+        levels["P26"] = 1
 
     if bool(derived.get("anemia")) and "P13" not in disabled:
         levels["P13"] = 1
@@ -1872,6 +2078,36 @@ def compute_p_module_policy(ui: Dict[str, Any],
             levels["P09"] = 1
         if "P02" not in disabled:
             levels["P02"] = min(levels.get("P02", 3), 2)
+    # Kardiovaskuläre Risikofaktoren (neu: P27) – grundsätzlich sinnvoll, höher priorisieren bei Atherosklerose-Hinweisen
+    if "P27" in levels and "P27" not in disabled:
+        levels["P27"] = min(levels.get("P27", 3), 2)
+        if bool(ui.get("ct_koronarkalk")):
+            levels["P27"] = 1
+
+    # Gewichtsreduktion (neu: P28) – priorisieren bei Adipositas
+    bmi_val = _safe_float(derived.get("bmi"))
+    if bmi_val is not None and "P28" in levels and "P28" not in disabled:
+        if bmi_val >= 30.0:
+            levels["P28"] = 1
+        elif bmi_val >= 27.0:
+            levels["P28"] = min(levels.get("P28", 3), 2)
+
+    # LTOT konsequent anwenden (neu: P29)
+    ltot_flag = bool(ui.get("ltot"))
+    ltot_flow = _safe_float(ui.get("ltot_flow_l_min"))
+    if (ltot_flag or (ltot_flow is not None and ltot_flow > 0)) and "P29" in levels and "P29" not in disabled:
+        levels["P29"] = 1
+
+    # CT-Befunde interdisziplinär besprechen (neu: P30)
+    # Priorität hoch, wenn CT als durchgeführt markiert ist, aber Kurzbefund fehlt bzw. als ausstehend dokumentiert ist.
+    ct_done = bool(ui.get("ct_done"))
+    ct_desc = str(ui.get("ct_desc") or "").strip()
+    ct_desc_l = ct_desc.lower()
+    if ct_done and "P30" in levels and "P30" not in disabled:
+        if (not ct_desc) or any(w in ct_desc_l for w in ("ausstehend", "pending", "noch nicht", "befund folgt")):
+            levels["P30"] = 1
+        else:
+            levels["P30"] = min(levels.get("P30", 3), 2)
 
     # RV/RA-Marker auffällig → Verlauf/Stratifizierung strukturieren
     if bool(derived.get("tapse_spap_reduced")) or bool(derived.get("s_prime_raai_low")):
@@ -1899,7 +2135,7 @@ def compute_p_module_policy(ui: Dict[str, Any],
         levels["P01"] = min(levels.get("P01", 3), 1)
 
     # Generell sinnvolle Basismodule (wenn nicht anders priorisiert)
-    for mid in ("P11", "P23"):
+    for mid in ("P11", "P23", "P27"):
         if mid in levels and mid not in disabled:
             levels[mid] = min(levels[mid], 2)
 
@@ -1935,7 +2171,7 @@ def build_p_module_choices(blocks: Dict[str, "TextBlock"],
                            policy: Optional[Dict[str, Any]]) -> List[Tuple[str, str]]:
     """Erstellt Checkbox-Choices (Label, Value=ID) aus Policy."""
     if not policy:
-        # Fallback: einfach P01..P25
+        # Fallback: einfach P01..P30
         out: List[Tuple[str, str]] = []
         for mid in _ALL_P_MODULE_IDS:
             if mid in blocks:

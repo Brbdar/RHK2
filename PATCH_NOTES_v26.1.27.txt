@@ -1,0 +1,25 @@
+Version v26.1.27 Patch
+
+Scope: UI
+1) eGFR Automatik zuverlässig
+2) Sticky Header visuell vereinheitlicht (Pre-Cath = Hämodynamik)
+
+Changes
+- UPDATED rhk_ui.py
+  - eGFR wird bei Befunderstellung robust berechnet und als egfr_ml_min_1_73 plus Legacy-Alias egfr in den Case geschrieben.
+  - DOCX Import Chains triggern zusätzlich _sync_post_load, damit eGFR sowie CT/VQ Sichtbarkeit nach Import sofort korrekt sind.
+
+- UPDATED rhk_ui_rhk.py
+  - Pre-Cath Sticky Header startet bereits mit dem finalen Renderer (kein abweichender Placeholder).
+
+- UPDATED rhk_ui_assets.py
+  - Gemeinsame CSS Basis für .rhk-summarybar und .rhk-pre-cath-bar, damit beide Sticky Header identisch aussehen.
+
+- UPDATED rhk_base.py
+  - Version bump to v26.1.27 und WHATS_NEW aktualisiert.
+
+- UPDATED README.md
+  - Release notes entry für v26.1.27.
+
+- UPDATED PATCH_NOTES.md
+  - Neuer Patch-Abschnitt für 26.1.27.

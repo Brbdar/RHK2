@@ -757,6 +757,69 @@ P_BLOCKS: Dict[str, TextBlock] = {
         ),
         category="P",
     ),
+    "P26": TextBlock(
+        id="P26",
+        title="Trinkmengenrestriktion und konsequentes Volumenmanagement",
+        applies_to="Stauungszeichen, kardiorenale Dynamik oder Volumenüberladung",
+        template=(
+            "Bei Zeichen der Volumenüberladung: individuelle Trinkmengenrestriktion und konsequentes Volumenmanagement.\n"
+            "• Tägliche Gewichtskontrolle (Verlauf dokumentieren).\n"
+            "• Ziel: Vermeidung rascher Gewichtszunahme und peripherer Ödeme.\n"
+            "• Anpassung der Trinkmenge und diuretischen Therapie nach Klinik, Nierenfunktion und Elektrolyten im Verlauf.\n"
+            "• Patient:innenschulung zu Warnzeichen (z.B. rasche Gewichtszunahme, zunehmende Dyspnoe, Beinödeme)."
+        ),
+        category="P",
+    ),
+    "P27": TextBlock(
+        id="P27",
+        title="Kardiovaskuläre Risikofaktoren konsequent minimieren",
+        applies_to="PH mit Begleiterkrankungen oder erhöhtem kardiovaskulärem Risikoprofil",
+        template=(
+            "Konsequente Minimierung kardiovaskulärer Risikofaktoren im Rahmen der Gesamttherapie:\n"
+            "• Blutdruckkontrolle, Optimierung der Herzfrequenz und Rhythmusstrategie nach Kontext.\n"
+            "• Lipidmanagement und Diabeteskontrolle gemäß Leitlinien.\n"
+            "• Nikotinkarenz, strukturierte Bewegung im geeigneten Setting und Ernährungsberatung.\n"
+            "• Behandlung begleitender kardiovaskulärer Erkrankungen nach Standard (z.B. KHK, HFpEF) im interdisziplinären Setting."
+        ),
+        category="P",
+    ),
+    "P28": TextBlock(
+        id="P28",
+        title="Gewichtsreduktion und metabolische Optimierung",
+        applies_to="Adipositas oder Übergewicht mit Einfluss auf Belastbarkeit, Schlaf, HFpEF Wahrscheinlichkeitsprofil",
+        template=(
+            "Bei Übergewicht/Adipositas: strukturierte Gewichtsreduktion und metabolische Optimierung (interdisziplinär) empfohlen.\n"
+            "• Ernährungsmedizinische Beratung und realistische Zieldefinition.\n"
+            "• Angepasstes, überwacht angeleitetes Training je nach klinischer Stabilität.\n"
+            "• Schlafbezogene Atmungsstörungen und HFpEF Komponente im Verlauf mit berücksichtigen."
+        ),
+        category="P",
+    ),
+    "P29": TextBlock(
+        id="P29",
+        title="LTOT konsequent anwenden und Verlauf kontrollieren",
+        applies_to="Hypoxämie oder verordnete Langzeitsauerstofftherapie",
+        template=(
+            "Konsequente Anwendung der verordneten Langzeitsauerstofftherapie (LTOT) mit Verlaufskontrollen.\n"
+            "• Nutzung gemäß Verordnung, Anpassung des Flow nach Ruhe, Belastung und ggf. Nachtmessung.\n"
+            "• Ziel: ausreichende Oxygenierung und Reduktion hypoxiegetriggerter pulmonaler Vasokonstriktion.\n"
+            "• Reevaluation bei Persistenz von Dyspnoe, Hyperkapnieverdacht oder Therapielimitierungen."
+        ),
+        category="P",
+    ),
+    "P30": TextBlock(
+        id="P30",
+        title="CT Befunde interdisziplinär vorstellen und Rückmeldung an PH Ambulanz",
+        applies_to="CT Thorax Befund ausstehend oder unklare Bildgebung mit Relevanz für Ätiologiezuordnung",
+        template=(
+            "Ausstehende oder unklare computertomographische Befunde sollten in der radiologisch pneumologischen Konferenz vorgestellt werden.\n"
+            "• Interdisziplinäre Einordnung (Radiologie, Pneumologie, ggf. PH Team) zur Ätiologiezuordnung.\n"
+            "• Ergebnis und Konsequenzen (Diagnostik, Therapie, Follow up) dokumentieren.\n"
+            "• Rückmeldung an die PH Ambulanz zur weiteren Steuerung des Procedere."
+        ),
+        category="P",
+    ),
+
 }
 
 # -------------------------

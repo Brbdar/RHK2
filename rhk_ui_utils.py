@@ -170,7 +170,6 @@ def build_sticky_summary_html(case: Optional[Dict[str, Any]], flags: Optional[Di
     rap = der.get("rap_rest")
     pvr = der.get("pvr_rest")
     ci = der.get("ci_rest")
-
     # Risk badge: prioritize ESC/ERS 4-strata if present, else REVEAL Lite 2
     esc4 = scores.get("esc_ers_4s")
     rl2 = scores.get("reveal_lite2")
@@ -970,9 +969,10 @@ def build_pre_cath_header_html(ui: dict | None) -> str:
         except Exception:
             return None
 
-    def _chip(text: str, cls: str = "") -> str:
+    def _chip(text: str, cls: str = "", title: str = "") -> str:
         c = "rhk-schip" + (f" {cls}" if cls else "")
-        return f"<span class='{c}'>" + html_escape(text) + "</span>"
+        tattr = f" title='{html_escape(title)}'" if title else ""
+        return f"<span class='{c}'{tattr}>" + html_escape(text) + "</span>"
 
     # 1) Aufklärung
     consent_done = bool(ui.get("consent_done") is True)
@@ -1040,6 +1040,37 @@ def build_pre_cath_header_html(ui: dict | None) -> str:
         # e.g. "keine Angabe"
         antico_chip = _chip("Antikoagulation: " + (anticoag_status_raw or "keine Angabe"), "rhk-schip--info")
 
+    # 4) Nierenfunktion (Kreatinin / eGFR)
+    crea = _safe_float(ui.get("creatinine_mg_dl"))
+    egfr_v = _safe_float(ui.get("egfr_ml_min_1_73"))
+    if egfr_v is None:
+        egfr_v = _safe_float(ui.get("egfr"))
+
+    renal_tone = "rhk-schip--info"
+    if egfr_v is not None:
+        if egfr_v >= 60:
+            renal_tone = "rhk-schip--good"
+        elif egfr_v >= 30:
+            renal_tone = "rhk-schip--warn"
+        else:
+            renal_tone = "rhk-schip--bad"
+    elif crea is not None:
+        if crea < 1.3:
+            renal_tone = "rhk-schip--good"
+        elif crea <= 1.8:
+            renal_tone = "rhk-schip--warn"
+        else:
+            renal_tone = "rhk-schip--bad"
+
+    renal_tip = ""
+    try:
+        if egfr_v is not None:
+            renal_tip = f"eGFR {_fmt_or_dash(egfr_v,0)} ml/min/1.73m²"
+    except Exception:
+        renal_tip = ""
+
+    renal_chip = _chip(f"Krea: {_fmt_or_dash(crea,2)}", renal_tone, renal_tip)
+
     # 4)
 
     # 4) Infekt (CRP)
@@ -1058,5 +1089,6 @@ def build_pre_cath_header_html(ui: dict | None) -> str:
         + coag_chip
         + antico_chip
         + infect_chip
+        + renal_chip
         + "</div>"
     )

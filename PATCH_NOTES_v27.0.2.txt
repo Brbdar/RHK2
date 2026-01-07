@@ -1,0 +1,3 @@
+v27.0.2 (2026-01-07)
+- Echo Patientenbericht deutlich erweitert und neu strukturiert (Kernaussage, Übersicht, Verlauf, Safety Net, Messwerte Appendix).
+- Echo Guideline Engine: min_abs/max_abs Cutoffs (z.B. Strain) werden korrekt ausgewertet.

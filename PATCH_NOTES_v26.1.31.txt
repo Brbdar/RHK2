@@ -1,0 +1,14 @@
+Patch v26.1.31 (2026-01-07)
+
+Änderungen
+
+1) Spiroergometrie / CPET
+- Neuer CPET Abschnitt unterhalb des Lungenfunktionsreiters.
+- Live-Zusammenfassung mit ESC/ERS CPET 3-Strata (Peak VO2 + VE/VCO2 slope) und 4-Strata CPET Score (Peak VO2 + VE/VCO2 slope + Peak O2-Puls % Soll).
+- CPET Felder werden vollständig im Case gespeichert.
+
+2) Risikostratifizierung
+- CPET Parameter werden in der ESC/ERS Comprehensive Risk Berechnung berücksichtigt, sofern vorhanden.
+
+3) Bericht
+- Inputs-Zusammenfassung ergänzt um Abschnitt Spiroergometrie / CPET.

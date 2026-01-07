@@ -1,0 +1,7 @@
+Patch 26.1.29 (2026-01-07)
+
+Änderungen
+
+1) RHK Sticky Header
+- Kreatinin (Krea) wird im Hämodynamik Sticky Header angezeigt
+- Farbcodierung primär anhand eGFR (>= 60 grün, 30 bis 59 orange, < 30 rot), Fallback anhand Kreatinin

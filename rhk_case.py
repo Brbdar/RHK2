@@ -437,13 +437,25 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
     esc4 = calc_esc_ers_4_strata(who_fc, sixmwd, bnp_pg_ml, ntprobnp_pg_ml)
     esc3 = calc_esc_ers_3_strata(who_fc, sixmwd, bnp_pg_ml, ntprobnp_pg_ml)
     reveal_lite2 = calc_reveal_lite2(ui)
+    esc_comp = calc_esc_ers_comprehensive_3_strata(ui, derived)
+    cpet = calc_cpet_scores(ui)
 
     scores: Dict[str, Any] = {
         "esc_ers_4s": esc4,
         "esc_ers_3s": esc3,
+        "esc_ers_comprehensive": esc_comp.category if esc_comp else None,
+        "esc_ers_comprehensive_mean": round(esc_comp.mean_grade, 2) if (esc_comp and esc_comp.mean_grade is not None) else None,
+        "esc_ers_comprehensive_n": esc_comp.n_params if esc_comp else None,
+        "esc_ers_comprehensive_grades": esc_comp.grades if esc_comp else None,
+        "esc_ers_comprehensive_missing": esc_comp.missing if esc_comp else None,
         "reveal_lite2": reveal_lite2.category if reveal_lite2 else None,
         "reveal_lite2_points": reveal_lite2.points if reveal_lite2 else None,
             "reveal_lite2_missing": reveal_lite2.missing if reveal_lite2 else None,
+        "cpet_esc_ers_3s": cpet.esc_ers_3_strata if cpet else None,
+        "cpet_score_4s": cpet.cpet_score_4_strata if cpet else None,
+        "cpet_score_mean": round(cpet.mean_grade, 2) if (cpet and cpet.mean_grade is not None) else None,
+        "cpet_effort_ok": cpet.effort_ok if cpet else None,
+        "cpet_notes": cpet.notes if cpet else None,
         "hfpef": hfpef_res.category if hfpef_res else None,
         "hfpef_prob": round(hfpef_res.percent, 1) if (hfpef_res and hfpef_res.percent is not None) else None,
     }
@@ -469,6 +481,12 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
         esc3s = scores.get("esc_ers_3s")
         if isinstance(esc3s, str) and esc3s in ("low", "intermediate", "high"):
             risk_category = esc3s
+
+    # 3) CPET (falls vorhanden) als Ergänzung / Fallback
+    if risk_category is None:
+        cpet3 = scores.get("cpet_esc_ers_3s")
+        if isinstance(cpet3, str) and cpet3 in ("low", "intermediate", "high"):
+            risk_category = cpet3
 
     derived["risk_category"] = risk_category
 # ---- Env for rules ----

@@ -13,6 +13,8 @@ Heavy inline assets and helper functions were split into:
 
 from __future__ import annotations
 
+import html
+
 from rhk_base import *  # noqa: F401,F403
 
 from rhk_case import build_case, build_dashboard_html  # noqa: F401
@@ -147,6 +149,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                         add("bp_dia", gr.Number(label="RR diast (mmHg)"))
                         add("hr", gr.Number(label="Herzfrequenz (/min)"))
                     add("story", gr.Textbox(label="Story / Kurz-Anamnese", lines=3))
+                    add("comorbidities", gr.Textbox(
+                        label="Relevante Vorerkrankungen",
+                        lines=2,
+                        placeholder="z.B. KHK, COPD, Z. n. LAE, CKD …",
+                    ))
                     with gr.Row():
                         add("chd_pos", gr.Checkbox(label="Angeborener Herzfehler/Shunt bekannt oder V. a."))
                     with gr.Column(visible=False) as chd_details:
@@ -410,6 +417,35 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                         add("dlco_va", gr.Number(label="DLCO/VA (% Soll, optional)"))
                         add("residual_volume_l", gr.Number(label="Residualvolumen RV (% Soll, optional)"))
                     add("lufu_summary", gr.Textbox(label="Lufu Summary (Freitext)", lines=3))
+
+                    gr.Markdown("### Spiroergometrie / CPET")
+                    with gr.Row():
+                        add("cpet_done", gr.Checkbox(label="CPET durchgeführt"))
+                        add("cpet_protocol", gr.Dropdown(label="Protokoll (optional)", choices=["Rampe", "Stufenprotokoll", "Semi supine", "Laufband", "Sonstiges"], value="Rampe"))
+                        add("cpet_site", gr.Textbox(label="Ort/Setup (optional)"))
+
+                    cpet_risk_html = gr.HTML(value="<div class='docx-muted'>Keine CPET Daten erfasst.</div>")
+
+                    with gr.Column(visible=False) as cpet_details:
+                        with gr.Row():
+                            add("cpet_peak_vo2_ml_kg_min", gr.Number(label="Peak VO2 (ml/min/kg)"))
+                            add("cpet_peak_vo2_pct_pred", gr.Number(label="Peak VO2 (% Soll)"))
+                        with gr.Row():
+                            add("cpet_ve_vco2_slope", gr.Number(label="VE/VCO2 slope"))
+                            add("cpet_petco2_vt1_mmhg", gr.Number(label="PETCO2 @ VT1 (mmHg)"))
+                        with gr.Row():
+                            add("cpet_ve_vco2_vt1", gr.Number(label="VE/VCO2 @ VT1"))
+                            add("cpet_peak_o2_pulse_pct_pred", gr.Number(label="Peak O2 Puls (% Soll)"))
+                        with gr.Row():
+                            add("cpet_vo2_wr_slope_ml_min_w", gr.Number(label="ΔVO2/ΔWR (ml/min/W, optional)"))
+                            add("cpet_vo2_vt1_ml_kg_min", gr.Number(label="VO2 @ VT1 (ml/min/kg, optional)"))
+                        with gr.Row():
+                            add("cpet_spo2_nadir_pct", gr.Number(label="SpO2 Nadir (%), optional"))
+                            add("cpet_rer_peak", gr.Number(label="RER peak (Qualität)"))
+                            add("cpet_hr_peak_bpm", gr.Number(label="HF peak (/min, optional)"))
+                        with gr.Row():
+                            add("cpet_o2_pulse_pattern", gr.Dropdown(label="O2 Puls Verlauf (optional)", choices=["normal", "plateau", "fallend", "unbekannt"], value="unbekannt"))
+                        add("cpet_summary", gr.Textbox(label="CPET Summary (Freitext)", lines=3))
 
                 # ---- Tab 4: RHK ----
                 with gr.TabItem("RHK", id=3):
@@ -692,16 +728,23 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             except Exception:
                 return gr.update(value=None)
 
-        def _update_pre_cath(consent_done, access_route, inr, ptt_s, platelets, anticoag_status, anticoag_paused, crp):
+        def _update_pre_cath(consent_done, access_route, inr, ptt_s, platelets, anticoag_status, anticoag_paused, crp, creatinine, age, sex):
+            egfr_val = compute_egfr(creatinine, age, sex)
+            try:
+                egfr_val = float(egfr_val) if egfr_val is not None else None
+            except Exception:
+                egfr_val = None
             ui = {
-                "consent_done": bool(consent_done),
-                "access_route": access_route,
-                "inr": inr,
-                "ptt_s": ptt_s,
-                "platelets_g_l": platelets,
-                "anticoag_status": anticoag_status,
-                "anticoag_paused": bool(anticoag_paused),
-                "crp_mg_l": crp,
+                'consent_done': bool(consent_done),
+                'access_route': access_route,
+                'inr': inr,
+                'ptt_s': ptt_s,
+                'platelets_g_l': platelets,
+                'anticoag_status': anticoag_status,
+                'anticoag_paused': bool(anticoag_paused),
+                'crp_mg_l': crp,
+                'creatinine_mg_dl': creatinine,
+                'egfr_ml_min_1_73': egfr_val,
             }
             return build_pre_cath_header_html(ui)
 
@@ -745,6 +788,90 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 _update_egfr(creatinine, age, sex),
             )
 
+        def _render_cpet_risk_html(cpet_done_v,
+                                  peak_vo2, peak_vo2_pct,
+                                  vevco2_slope, petco2_vt1, vevco2_vt1,
+                                  o2pulse_pct, vo2_wr_slope, vo2_vt1,
+                                  spo2_nadir, rer_peak, hr_peak,
+                                  o2_pulse_pattern):
+            if not bool(cpet_done_v):
+                return "<div class='docx-muted'>Keine CPET Daten erfasst.</div>"
+
+            ui_tmp = {
+                "cpet_done": True,
+                "cpet_peak_vo2_ml_kg_min": peak_vo2,
+                "cpet_peak_vo2_pct_pred": peak_vo2_pct,
+                "cpet_ve_vco2_slope": vevco2_slope,
+                "cpet_petco2_vt1_mmhg": petco2_vt1,
+                "cpet_ve_vco2_vt1": vevco2_vt1,
+                "cpet_peak_o2_pulse_pct_pred": o2pulse_pct,
+                "cpet_vo2_wr_slope_ml_min_w": vo2_wr_slope,
+                "cpet_vo2_vt1_ml_kg_min": vo2_vt1,
+                "cpet_spo2_nadir_pct": spo2_nadir,
+                "cpet_rer_peak": rer_peak,
+                "cpet_hr_peak_bpm": hr_peak,
+                "cpet_o2_pulse_pattern": o2_pulse_pattern,
+            }
+
+            res = calc_cpet_scores(ui_tmp)
+
+            # chips
+            chips: List[str] = []
+
+            def _chip(label: str, value: str, level: Optional[str] = None) -> str:
+                cls = "rhk-schip"
+                if level == "good":
+                    cls += " rhk-schip--good"
+                elif level == "warn":
+                    cls += " rhk-schip--warn"
+                elif level == "bad":
+                    cls += " rhk-schip--bad"
+                else:
+                    cls += " rhk-schip--info"
+                return f"<span class='{cls}'><b>{label}</b>: {value}</span>"
+
+            # Primary risk (ESC/ERS 3-strata)
+            if res and res.esc_ers_3_strata:
+                lev = "good" if res.esc_ers_3_strata == "low" else "warn" if res.esc_ers_3_strata == "intermediate" else "bad"
+                chips.append(_chip("ESC/ERS CPET Risiko", res.esc_ers_3_strata, lev))
+            else:
+                chips.append(_chip("ESC/ERS CPET Risiko", "nicht berechenbar", "warn"))
+
+            # CPET score (4 strata)
+            if res and res.cpet_score_4_strata:
+                lev = "good" if res.cpet_score_4_strata == "low" else "warn" if res.cpet_score_4_strata in ("intermediate-low", "intermediate-high") else "bad"
+                chips.append(_chip("CPET Score", res.cpet_score_4_strata, lev))
+
+            # Effort
+            if res and res.effort_ok is not None:
+                chips.append(_chip("Effort", "ausreichend" if res.effort_ok else "limitiert", "good" if res.effort_ok else "warn"))
+
+            # Key values quick view
+            if _safe_float(peak_vo2) is not None:
+                chips.append(_chip("Peak VO2", f"{_safe_float(peak_vo2):.1f} ml/min/kg", "info"))
+            if _safe_float(vevco2_slope) is not None:
+                chips.append(_chip("VE/VCO2 slope", f"{_safe_float(vevco2_slope):.1f}", "info"))
+            if _safe_float(petco2_vt1) is not None:
+                chips.append(_chip("PETCO2@VT1", f"{_safe_float(petco2_vt1):.0f} mmHg", "info"))
+
+            notes_html = ""
+            if res and res.notes:
+                notes = " ".join([f"• {html.escape(str(n))}" for n in res.notes])
+                notes_html = f"<span class='rhk-schip rhk-schip--hint'>{notes}</span>"
+
+            return "<div class='rhk-summarybar'>" + "".join(chips) + notes_html + "</div>"
+
+        def _sync_post_load_cpet(cpet_done_v,
+                                 peak_vo2, peak_vo2_pct,
+                                 vevco2_slope, petco2_vt1, vevco2_vt1,
+                                 o2pulse_pct, vo2_wr_slope, vo2_vt1,
+                                 spo2_nadir, rer_peak, hr_peak,
+                                 o2_pulse_pattern):
+            return (
+                gr.update(visible=bool(cpet_done_v)),
+                _render_cpet_risk_html(cpet_done_v, peak_vo2, peak_vo2_pct, vevco2_slope, petco2_vt1, vevco2_vt1, o2pulse_pct, vo2_wr_slope, vo2_vt1, spo2_nadir, rer_peak, hr_peak, o2_pulse_pattern),
+            )
+
         _bind_change(field_components["virology_pos"], lambda x: (gr.update(visible=bool(x)), gr.update(visible=bool(x))), inputs=[field_components["virology_pos"]], outputs=[viro_items, viro_desc])
         _bind_change(field_components["immunology_pos"], lambda x: (gr.update(visible=bool(x)), gr.update(visible=bool(x))), inputs=[field_components["immunology_pos"]], outputs=[immun_items, immun_desc])
         _bind_change(field_components["mutation_pos"], lambda x: (gr.update(visible=bool(x)), gr.update(visible=bool(x))), inputs=[field_components["mutation_pos"]], outputs=[mut_items, mut_desc])
@@ -767,6 +894,35 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         _bind_change(field_components["age"], _update_egfr, inputs=[field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[field_components["egfr_ml_min_1_73"]])
         _bind_change(field_components["sex"], _update_egfr, inputs=[field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[field_components["egfr_ml_min_1_73"]])
 
+        # CPET (Spiroergometrie): Sichtbarkeit + Live-Risiko
+        try:
+            _cpet_inputs = [
+                field_components["cpet_done"],
+                field_components["cpet_peak_vo2_ml_kg_min"],
+                field_components["cpet_peak_vo2_pct_pred"],
+                field_components["cpet_ve_vco2_slope"],
+                field_components["cpet_petco2_vt1_mmhg"],
+                field_components["cpet_ve_vco2_vt1"],
+                field_components["cpet_peak_o2_pulse_pct_pred"],
+                field_components["cpet_vo2_wr_slope_ml_min_w"],
+                field_components["cpet_vo2_vt1_ml_kg_min"],
+                field_components["cpet_spo2_nadir_pct"],
+                field_components["cpet_rer_peak"],
+                field_components["cpet_hr_peak_bpm"],
+                field_components["cpet_o2_pulse_pattern"],
+            ]
+            for _k in (
+                "cpet_done",
+                "cpet_peak_vo2_ml_kg_min", "cpet_peak_vo2_pct_pred",
+                "cpet_ve_vco2_slope", "cpet_petco2_vt1_mmhg", "cpet_ve_vco2_vt1",
+                "cpet_peak_o2_pulse_pct_pred", "cpet_vo2_wr_slope_ml_min_w", "cpet_vo2_vt1_ml_kg_min",
+                "cpet_spo2_nadir_pct", "cpet_rer_peak", "cpet_hr_peak_bpm",
+                "cpet_o2_pulse_pattern",
+            ):
+                _bind_change(field_components[_k], _sync_post_load_cpet, inputs=_cpet_inputs, outputs=[cpet_details, cpet_risk_html])
+        except Exception:
+            pass
+
         # Pre-Cath Safety Header – update on relevant field changes
         try:
             _pre_cath_inputs = [
@@ -778,9 +934,16 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 field_components["anticoag_status"],
                 field_components["anticoag_paused"],
                 field_components["crp_mg_l"],
+                field_components["creatinine_mg_dl"],
+                field_components["age"],
+                field_components["sex"],
             ]
-            # access_route must also trigger updates (user may switch left/right)
-            for _k in ("consent_done", "access_route", "inr", "ptt_s", "platelets_g_l", "anticoag_status", "anticoag_paused", "crp_mg_l"):
+            # Update on any of these changes
+            for _k in (
+                "consent_done", "access_route", "inr", "ptt_s", "platelets_g_l",
+                "anticoag_status", "anticoag_paused", "crp_mg_l",
+                "creatinine_mg_dl", "age", "sex",
+            ):
                 _bind_change(field_components[_k], _update_pre_cath_both, inputs=_pre_cath_inputs, outputs=[pre_cath_html, pre_cath_home_html])
         except Exception:
             pass
@@ -1121,6 +1284,27 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 remembered_name = remembered_name + '.json'
 
             raw = ui_get_raw(*vals)
+
+            # --- eGFR: compute reliably (also after programmatic imports) ---
+            # The UI field is non-interactive, and Gradio does not fire `.change` callbacks
+            # for programmatic updates (e.g., DOCX import). We therefore ensure that eGFR is
+            # always computed for case/report generation whenever inputs are available.
+            try:
+                _egfr_val = compute_egfr(raw.get("creatinine_mg_dl"), raw.get("age"), raw.get("sex"))
+            except Exception:
+                _egfr_val = None
+            if _egfr_val is not None:
+                try:
+                    _egfr_store = int(round(float(_egfr_val)))
+                except Exception:
+                    _egfr_store = _egfr_val
+                raw["egfr_ml_min_1_73"] = _egfr_store
+                # Backwards-compatible alias used in some report/export code paths
+                raw["egfr"] = _egfr_store
+            else:
+                # If present from older cases/imports, propagate to legacy key for reports.
+                if raw.get("egfr") in (None, "") and raw.get("egfr_ml_min_1_73") not in (None, ""):
+                    raw["egfr"] = raw.get("egfr_ml_min_1_73")
             # Module kommen aus der UI als IDs (Choices liefern Value=Pxx); zusätzlich robust normalisieren.
             # Module kommen aus der UI als IDs (Choices liefern Value=Pxx).
             # Beim Laden von Beispielen/JSON-Fällen halten wir die CheckboxGroup in Stage-1 absichtlich leer,
@@ -1639,7 +1823,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         btn_example_top.click(_load_example_ui, inputs=[], outputs=input_components + [state_pmods_selected, state_case_filename])\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"]])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_reset_docx_states, inputs=[], outputs=[state_docx_cur, state_docx_prev])\
             .then(_reset_echo_import_states, inputs=[], outputs=[import_pdf_cur, import_preview_cur_html, state_echo_cur, import_pdf_prev, import_preview_prev_html, state_echo_prev, compare_echo_html, details_echo_html, btn_echo_apply, state_case_filename])\
@@ -1647,7 +1832,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
         btn_example_bottom.click(_load_example_ui, inputs=[], outputs=input_components + [state_pmods_selected, state_case_filename])\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"]])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_reset_docx_states, inputs=[], outputs=[state_docx_cur, state_docx_prev])\
             .then(_reset_echo_import_states, inputs=[], outputs=[import_pdf_cur, import_preview_cur_html, state_echo_cur, import_pdf_prev, import_preview_prev_html, state_echo_prev, compare_echo_html, details_echo_html, btn_echo_apply, state_case_filename])\
@@ -1732,15 +1918,15 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         try:
             btn_clear_top.click(_clear_all, inputs=[], outputs=load_outputs, queue=False)\
-                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"]], outputs=[pre_cath_html, pre_cath_home_html])
+                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])
             btn_clear_bottom.click(_clear_all, inputs=[], outputs=load_outputs, queue=False)\
-                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"]], outputs=[pre_cath_html, pre_cath_home_html])
+                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])
         except TypeError:
             # Older Gradio builds may not support queue=...
             btn_clear_top.click(_clear_all, inputs=[], outputs=load_outputs)\
-                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"]], outputs=[pre_cath_html, pre_cath_home_html])
+                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])
             btn_clear_bottom.click(_clear_all, inputs=[], outputs=load_outputs)\
-                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"]], outputs=[pre_cath_html, pre_cath_home_html])
+                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])
 
 
         # --- Clear / reset ---
@@ -2027,20 +2213,26 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         docx_btn_top.upload(_docx_import_current, inputs=[docx_btn_top] + input_components, outputs=input_components + [state_docx_cur])\
             .then(_reset_pmods_after_import, inputs=[], outputs=[state_pmods_selected])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"]])\
+            .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
 
         docx_btn_bottom.upload(_docx_import_current, inputs=[docx_btn_bottom] + input_components, outputs=input_components + [state_docx_cur])\
             .then(_reset_pmods_after_import, inputs=[], outputs=[state_pmods_selected])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"]])\
+            .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
 
         prev_docx_btn.upload(_docx_import_prev, inputs=[prev_docx_btn] + input_components, outputs=input_components + [state_docx_prev])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"]])\
+            .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
 
@@ -2057,7 +2249,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             ],
         )\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"]])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
@@ -2075,7 +2268,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             ],
         )\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"]])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])

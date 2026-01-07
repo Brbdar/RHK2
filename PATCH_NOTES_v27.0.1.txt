@@ -1,0 +1,13 @@
+Patch 27.0.1 (2026-01-07)
+
+1) Echo Patientenbefund
+- Deutlich erweitert: Kernaussagen, Bedeutung im Alltag, Safety Net, Verlauf (wenn Vorwerte dokumentiert)
+- PH Fokus: Druck/Nachlast Surrogate, Rechtsherz Funktion, Stauungszeichen, Linksherz Kontext
+
+2) Echo Arztbefund (erweitert)
+- Deutlich erweitert: Technik und Limitationen, Linksherz Kontext inkl. HFpEF Heuristik, PH Surrogate,
+  RV Remodeling/Funktion/Kopplung, Stauung, Korrelation mit invasiver Hämodynamik, Verlauf
+
+3) Fix Echo Guideline Engine
+- Unterstützung für min_abs/max_abs Severity Bänder (z. B. Strain)
+  Dadurch sind Ampel, Trends und Narrative für Strain Parameter korrekt.

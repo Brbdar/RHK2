@@ -167,10 +167,14 @@ def severity(key: str, value: Any) -> str:
     sev = r.get("severity") or {}
 
     # g/y/r checks (order matters, g then y then r)
+    # Some rules use min_abs/max_abs (e.g. strain expressed as negative values). In those cases we compare |x|.
+    xabs = abs(x)
     for code in ("g", "y", "r"):
         band = sev.get(code) or {}
         mn = band.get("min")
         mx = band.get("max")
+        mn_abs = band.get("min_abs")
+        mx_abs = band.get("max_abs")
         ok = True
         if mn is not None:
             try:
@@ -180,6 +184,16 @@ def severity(key: str, value: Any) -> str:
         if mx is not None:
             try:
                 ok = ok and x <= float(mx)
+            except Exception:
+                ok = False
+        if mn_abs is not None:
+            try:
+                ok = ok and xabs >= float(mn_abs)
+            except Exception:
+                ok = False
+        if mx_abs is not None:
+            try:
+                ok = ok and xabs <= float(mx_abs)
             except Exception:
                 ok = False
         if ok and band:

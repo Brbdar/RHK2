@@ -355,6 +355,11 @@ PATIENT_MODULE_SUMMARY: Dict[str, str] = {
     "P23": "**Impfstatus/Infektprophylaxe:** Atemwegsinfekte können Beschwerden verschlechtern – Schutzmaßnahmen werden geprüft.",
     "P24": "**Sauerstoffversorgung messen:** In Ruhe, bei Belastung und ggf. nachts – damit Therapie (z. B. Sauerstoff) gezielt eingestellt werden kann.",
     "P25": "**Advanced Therapies / Transplant‑Optionen früh prüfen:** Bei schwerer Erkrankung ist es hilfreich, frühzeitig Optionen in einem Zentrum zu besprechen.",
+"P26": "**Trinkmengenrestriktion & Volumenmanagement:** Wenn der Körper Wasser einlagert, helfen klare Trinkmengen, tägliches Wiegen und ein konsequenter Plan, um Luftnot und Schwellungen zu vermeiden.",
+"P27": "**Kardiovaskuläre Risikofaktoren reduzieren:** Blutdruck, Blutzucker und Blutfette werden optimiert, Nikotinkarenz unterstützt und Begleiterkrankungen behandelt, damit Herz und Gefäße langfristig entlastet werden.",
+"P28": "**Gewichtsreduktion:** Eine strukturierte Gewichtsreduktion kann Belastbarkeit, Atmung und den Kreislauf entlasten, besonders wenn Übergewicht die Symptome verstärkt.",
+"P29": "**LTOT konsequent anwenden:** Wenn Langzeitsauerstoff verordnet ist, ist die regelmäßige Anwendung wichtig, damit die Sauerstoffversorgung stabil bleibt, auch bei Belastung oder nachts.",
+"P30": "**CT Befunde interdisziplinär besprechen:** Ausstehende oder unklare CT Befunde werden in einer gemeinsamen Konferenz (Radiologie und Pneumologie) eingeordnet, damit das weitere Vorgehen gezielt geplant werden kann.",
 }
 
 

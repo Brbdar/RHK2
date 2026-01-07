@@ -8,6 +8,9 @@ from typing import Any, Dict
 
 from rhk_base import gr  # type: ignore
 
+# Reuse the exact same renderer as the global Hämodynamik sticky header
+from rhk_ui_utils import build_pre_cath_header_html
+
 
 def build_rhk_tab(add) -> Dict[str, Any]:
     """Build the RHK tab UI and return key components."""
@@ -16,11 +19,7 @@ def build_rhk_tab(add) -> Dict[str, Any]:
     # Pre-Cath Safety Header (sticky bar just under global summary)
     # -------------------------------------------------------------
     pre_cath_html = gr.HTML(
-        value=(
-            "<div class='rhk-pre-cath-bar'>"
-            "<div class='muted'>Pre-Cath Safety: noch keine Angaben.</div>"
-            "</div>"
-        ),
+        value=build_pre_cath_header_html({}),
         elem_id="rhk_pre_cath_wrapper",
     )
     with gr.Row():

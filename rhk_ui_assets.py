@@ -654,20 +654,9 @@ button[title*="Dark"] {
   margin: 0 auto 10px;
   padding: 0 24px;
 }
-#rhk_pre_cath_wrapper .rhk-pre-cath-bar{
-  display:flex;
-  flex-wrap:wrap;
-  align-items:center;
-  gap:8px;
-  padding:10px 12px;
-  background: rgba(255,255,255,0.78);
-  backdrop-filter: blur(14px) saturate(160%%);
-  -webkit-backdrop-filter: blur(14px) saturate(160%%);
-  border: 1px solid rgba(0,0,0,0.06);
-  border-radius: 18px;
-  box-shadow: 0 10px 26px rgba(0,0,0,0.08);
-}
-#rhk_summarybar_wrapper .rhk-summarybar{
+/* Shared sticky-bar look: summary + pre-cath must be identical */
+.rhk-summarybar,
+.rhk-pre-cath-bar{
   display:flex;
   flex-wrap:wrap;
   align-items:center;

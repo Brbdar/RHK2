@@ -1,0 +1,11 @@
+Patch 26.1.30 (2026-01-07)
+
+Änderungen
+
+1) Pre-Cath Sticky Header
+- Kreatinin (Krea) wird im Pre-Cath Safety Sticky Header angezeigt (nicht im Hämodynamik Sticky Header)
+- Farbcodierung primär anhand eGFR (>= 60 grün, 30 bis 59 orange, < 30 rot), Fallback anhand Kreatinin
+- Tooltip zeigt eGFR, sofern berechenbar
+
+2) Hämodynamik Sticky Header
+- Entfernt: Krea Chip
