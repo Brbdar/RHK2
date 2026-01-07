@@ -217,18 +217,22 @@ HEAD_HTML = "".join(
   // Gradio re-renders buttons; binding to the concrete <button> is brittle.
   // Use ONE delegated click handler (capture) that survives any re-render.
   function installCopyDelegation(){
-    if(window.__rhkCopyDelegationInstalled) return;
-    window.__rhkCopyDelegationInstalled = true;
-    document.addEventListener('click', function(ev){
+    // Gradio can hot-replace DOM nodes; keep the handler robust across rerenders.
+    try{
+      if(window.__rhkCopyClickHandler){
+        document.removeEventListener('click', window.__rhkCopyClickHandler, true);
+      }
+    }catch(e){}
+    window.__rhkCopyClickHandler = function(ev){
       try {
         var t0 = ev && ev.target;
         if(!t0 || !t0.closest) return;
-        var isDoc = !!t0.closest('#btn_copy_doc');
-        var isPat = !!t0.closest('#btn_copy_pat');
-        var isRhk = !!t0.closest('#btn_copy_rhk');
-        if(!(isDoc || isPat || isRhk)) return;
+        var host = t0.closest('#btn_copy_doc, #btn_copy_pat, #btn_copy_rhk');
+        if(!host) return;
         ev.preventDefault();
-        ev.stopPropagation();
+        // Do not stopPropagation: allow Gradio's internal UI bookkeeping to proceed.
+        var isDoc = host.id === 'btn_copy_doc';
+        var isPat = host.id === 'btn_copy_pat';
         var htmlId = isDoc ? 'copy_doc_html' : (isPat ? 'copy_pat_html' : 'copy_rhk_html');
         var plainId = isDoc ? 'copy_doc_plain' : (isPat ? 'copy_pat_plain' : 'copy_rhk_plain');
         var h = getTextboxValue(htmlId);
@@ -237,7 +241,34 @@ HEAD_HTML = "".join(
       } catch(e) {
         setFeedback('⚠️ Konnte nicht automatisch kopieren.');
       }
-    }, true);
+    };
+    document.addEventListener('click', window.__rhkCopyClickHandler, true);
+  }
+
+  function installCopyObserver(){
+    if(window.__rhkCopyObserverInstalled) return;
+    window.__rhkCopyObserverInstalled = true;
+    try{
+      var obs = new MutationObserver(function(){
+        // Re-install handler in case Gradio replaced parts of the DOM.
+        installCopyDelegation();
+    installCopyObserver();
+      });
+      obs.observe(document.documentElement || document.body, {childList:true, subtree:true});
+    }catch(e){}
+  }
+
+  function installCopyObserver(){
+    if(window.__rhkCopyObserverInstalled) return;
+    window.__rhkCopyObserverInstalled = true;
+    try{
+      var obs = new MutationObserver(function(){
+        // Re-install handler in case Gradio replaced parts of the DOM.
+        installCopyDelegation();
+    installCopyObserver();
+      });
+      obs.observe(document.documentElement || document.body, {childList:true, subtree:true});
+    }catch(e){}
   }
 
   function enforceLight(){
@@ -250,6 +281,7 @@ HEAD_HTML = "".join(
   function boot(){
     enforceLight();
     installCopyDelegation();
+    installCopyObserver();
   }
 
   // Gradio may re-render; bind on load and after short delays.
@@ -1458,6 +1490,7 @@ JS_LIGHT_COPY_FALLBACK = r"""
   function boot(){
     enforceLight();
     installCopyDelegation();
+    installCopyObserver();
   }
 
   if(document.readyState === 'loading'){

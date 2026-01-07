@@ -116,13 +116,16 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
 
     exercise_done = bool(ui.get("exercise_done")) or (co_peak is not None or mpap_peak is not None or pawp_peak is not None)
 
+    # Slopes: robust against tiny numerical differences
     mpap_co_slope = None
     pawp_co_slope = None
-    if exercise_done and co is not None and co_peak is not None and co_peak != co:
-        if mpap is not None and mpap_peak is not None:
-            mpap_co_slope = (mpap_peak - mpap) / (co_peak - co)
-        if pawp is not None and pawp_peak is not None:
-            pawp_co_slope = (pawp_peak - pawp) / (co_peak - co)
+    if exercise_done and co is not None and co_peak is not None:
+        dco = co_peak - co
+        if abs(dco) >= 0.05:  # avoid division by ~0 due to rounding / partial documentation
+            if mpap is not None and mpap_peak is not None:
+                mpap_co_slope = (mpap_peak - mpap) / dco
+            if pawp is not None and pawp_peak is not None:
+                pawp_co_slope = (pawp_peak - pawp) / dco
 
     exercise_pattern = classify_exercise_pattern(mpap_co_slope, pawp_co_slope) if exercise_done else None
 

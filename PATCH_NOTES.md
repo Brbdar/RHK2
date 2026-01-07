@@ -1,3 +1,16 @@
+# Patch 27.0.4 (2026-01-07)
+
+Änderungen
+
+1) Belastungshämodynamik (RHK)
+- Regression behoben: mPAP/CO Slope und PAWP/CO Slope werden wieder robust berechnet (auch bei kleinen Rundungsdifferenzen) und im Arztbefund sowie in der strukturierten RHK Sektion angezeigt.
+- Korrektur der dynamischen Befundzeilen: ΔsPAP und peak CI greifen wieder auf die richtigen Derived Keys zu.
+
+2) Patientenbericht (RHK)
+- Bei durchgeführter Belastung wird die Belastungseinordnung jetzt auch patientengerecht im Kurzfazit erläutert (inklusive Slopes und Belastungsmuster, sofern vorhanden).
+
+---
+
 # Patch 27.0.2 (2026-01-07)
 
 Änderungen
@@ -120,3 +133,8 @@ Hinweis OCR
 - pytesseract benötigt eine lokale Tesseract Installation.
   Windows: tesseract.exe installieren und ggf. in PATH aufnehmen oder den Pfad in der App setzen.
 
+
+
+## v27.0.5 (2026-01-07)
+- FIX: Arztbericht kopieren funktioniert auch nach erneutem Render/State-Update zuverlässig (robuster JS-Handler).
+- IMPROVE: Copy/Word-Export Struktur und Reihenfolge wie gewünscht (inkl. CPET Abschnitt).

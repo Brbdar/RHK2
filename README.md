@@ -1,4 +1,9 @@
-# RHK Befundassistent – v27.0.3 (split)
+# RHK Befundassistent – v27.0.4 (split)
+
+## Neu in v27.0.4
+
+- Regressionfix Belastungshämodynamik: mPAP/CO Slope und PAWP/CO Slope werden wieder automatisch berechnet und erscheinen im Arztbefund.
+- Patientenbericht ergänzt um patientengerechte Einordnung der Belastung (falls durchgeführt).
 
 ## Neu in v27.0.3
 
@@ -253,3 +258,8 @@ Wenn du dieses Repo als LLM weiterentwickelst:
   - Labor/Lungenfunktion in der Befundübersicht als Fließtext; BNP/NT-proBNP separat dargestellt
   - Adaptionstyp-Logik angepasst: ΔsPAP < 30 mmHg → Hinweis auf heterometrischen Adaptionstyp
   - Zusatzmodule erweitert: P14–P25
+
+
+## v27.0.5 (2026-01-07)
+- Copy-Export: Reihenfolge/Format an Screenshot-Stil angepasst (Klinik/Labor/Bildgebung/Lufu/CPET → Beurteilung → Empfehlung/Procedere).
+- Clipboard Copy: robust gegen Gradio-Rerenders (Handler wird neu installiert via MutationObserver).

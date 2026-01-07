@@ -1,0 +1,4 @@
+v27.0.5 (2026-01-07)
+
+- FIX: Arztbericht kopieren funktioniert auch nach erneutem Render/State-Update zuverlässig (robuster JS-Handler mit Observer).
+- IMPROVE: Copy/Word-Export Struktur und Reihenfolge an gewünschte exemplarische Formatierung angepasst (Klinik/Labor/Bildgebung/Lungenfunktion/CPET, danach Beurteilung, dann Empfehlung/Procedere).

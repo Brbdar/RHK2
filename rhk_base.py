@@ -37,7 +37,7 @@ except Exception:  # pragma: no cover
 # =============================================================================
 
 APP_NAME = "RHK Befundassistent"
-APP_VERSION = "v27.0.3"
+APP_VERSION = "v27.0.5"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 WHATS_NEW = (
     "Fix: eGFR wird automatisch berechnet (auch nach DOCX Import/Laden) · "

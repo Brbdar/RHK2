@@ -564,13 +564,13 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
         pawp_s = der.get("pawp_co_slope")
         if mpap_s is not None or pawp_s is not None:
             s_bits = []
-            if mpap_s is not None: s_bits.append(f"mPAP/CO-Slope {fmt_float(mpap_s, 2)} mmHg/(L/min)")
-            if pawp_s is not None: s_bits.append(f"PAWP/CO-Slope {fmt_float(pawp_s, 2)} mmHg/(L/min)")
+            if mpap_s is not None: s_bits.append(f"mPAP/CO-Slope {fmt_float(mpap_s, 2)} WU")
+            if pawp_s is not None: s_bits.append(f"PAWP/CO-Slope {fmt_float(pawp_s, 2)} WU")
             extra_lines.append("Belastungshämodynamik: " + " / ".join(s_bits) + ".")
-        d_spap = der.get("delta_spap_peak_rest")
+        d_spap = der.get("delta_spap")
         if d_spap is not None:
             extra_lines.append(f"ΔsPAP (Peak–Ruhe): {fmt_int(d_spap)} mmHg.")
-        peak_ci = der.get("peak_ci")
+        peak_ci = der.get("ci_peak")
         if peak_ci is not None:
             extra_lines.append(f"Peak CI: {fmt_float(peak_ci, 2)} l/min/m².")
         patt_desc = ctx.get("exercise_pattern_desc") or ""
@@ -937,76 +937,85 @@ def _render_echo_patient_text(block_id: str, blocks: Dict[str, Any], ctx: Dict[s
 def build_doctor_report_for_copy(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> str:
     """Build a Word-friendly doctor report (Markdown) used ONLY for clipboard copy.
 
-    - Keeps the in-app report unchanged (see build_doctor_report()).
-    - Formats headings as plain text with colon ("Beurteilung:") and minimizes blank lines.
-    - Adds a structured input overview (Klinik/Labor/Bildgebung/Lungenfunktion/...) so that
-      no captured information gets lost in the copied content.
+    Design goals (Copy/Word only; in-app report remains unchanged):
+    - Professional, compact, and highly readable in Word.
+    - Stable order: Kurz-Anamnese/Klinik -> Vorerkrankungen -> Labor -> Bildgebung/Echo -> Lungenfunktion -> CPET -> Beurteilung -> Empfehlung/Procedere.
+    - Uses bullets where appropriate and avoids oversized Markdown headings (Word tends to inflate them).
+    - Ensures no captured information is lost (adds structured input overview).
     """
     import re
 
     def _compact(s: str) -> str:
         s = (s or "").strip()
-        # collapse excessive blank lines (Word tends to enlarge spacing)
         s = re.sub(r"\n{3,}", "\n\n", s)
         return s.strip()
 
-    # Build the canonical in-app report, then extract key sections
+    # Canonical in-app report provides the final medical logic
     doc = build_doctor_report(case, blocks)
-
     beur = extract_markdown_section(doc, "Beurteilung", "Empfehlung")
     empf = extract_markdown_section(doc, "Empfehlung", "Procedere")
     proc = extract_markdown_section(doc, "Procedere", None)
 
+    # Structured raw input summary (contains CT Kurzbefund, 6MWD Datum, CPET, etc.)
+    summ = summarize_inputs(case) or ""
+
+    # Split summary by ### headings into sections
+    sections: Dict[str, str] = {}
+    cur_title = None
+    buf: List[str] = []
+    for line in summ.splitlines():
+        m = re.match(r"^###\s+(.*)\s*$", line.strip())
+        if m:
+            if cur_title is not None:
+                sections[cur_title] = "\n".join(buf).strip()
+            cur_title = m.group(1).strip()
+            buf = []
+        else:
+            buf.append(line)
+    if cur_title is not None:
+        sections[cur_title] = "\n".join(buf).strip()
+
+    # Prefered order (matches your screenshot style)
+    preferred_order = [
+        "Klinik",
+        "Labor",
+        "Bildgebung / Echo / CMR",
+        "6-Minuten-Gehtest",
+        "Lungenfunktion",
+        "Spiroergometrie / CPET",
+    ]
+
     parts: List[str] = []
+
+    # Helper to render a section with compact bold header (Word-friendly)
+    def _render_section(title: str, body: str) -> None:
+        body = _compact(body)
+        if not body:
+            return
+        # Avoid giant headings in Word: use bold header line instead of Markdown headings.
+        parts.append(f"**{title}:**\n{body}")
+
+    # Render preferred sections first
+    for title in preferred_order:
+        _render_section(title, sections.get(title, ""))
+
+    # Render any remaining sections (future-proof)
+    for title, body in sections.items():
+        if title in preferred_order:
+            continue
+        _render_section(title, body)
+
+    # Medical interpretation (Beurteilung first, then Empfehlung/Procedere)
     if beur.strip():
-        parts.append("Beurteilung:\n" + _compact(beur))
-    # Empfehlung & Procedere combined (so Word output follows the requested order)
-    ep_lines = []
+        parts.append(f"**Beurteilung:**\n{_compact(beur)}")
+
+    ep_lines: List[str] = []
     if empf.strip():
         ep_lines.append(_compact(empf))
     if proc.strip():
         ep_lines.append(_compact(proc))
     if ep_lines:
-        parts.append("Empfehlung & Procedere:\n" + _compact("\n\n".join(ep_lines)))
-
-    # Structured raw input summary (contains CT Kurzbefund, 6MWD Datum, etc.)
-    summ = summarize_inputs(case)
-    if summ:
-        # Convert Markdown headings "### X" to "X:"
-        sections: Dict[str, str] = {}
-        cur_title = None
-        buf: List[str] = []
-        for line in summ.splitlines():
-            m = re.match(r"^###\s+(.*)\s*$", line.strip())
-            if m:
-                # flush previous
-                if cur_title is not None:
-                    sections[cur_title] = "\n".join(buf).strip()
-                cur_title = m.group(1).strip()
-                buf = []
-            else:
-                buf.append(line)
-        if cur_title is not None:
-            sections[cur_title] = "\n".join(buf).strip()
-
-        preferred_order = [
-            "Klinik",
-            "Labor",
-            "Bildgebung / Echo / CMR",
-            "6-Minuten-Gehtest",
-            "Lungenfunktion",
-        ]
-        for title in preferred_order:
-            body = sections.get(title, "")
-            if body.strip():
-                parts.append(f"{title}:\n" + _compact(body))
-
-        # append any remaining sections (future-proof)
-        for title, body in sections.items():
-            if title in preferred_order:
-                continue
-            if (body or "").strip():
-                parts.append(f"{title}:\n" + _compact(body))
+        parts.append(f"**Empfehlung & Procedere:**\n{_compact("\n\n".join(ep_lines))}")
 
     return "\n\n".join([p for p in parts if p and p.strip()]).strip()
 
@@ -1625,6 +1634,29 @@ def build_patient_report(case: Dict[str, Any]) -> str:
         lines.append("- Zusätzlich gibt es Hinweise auf **Wasser-/Stauungsneigung** (das kann z. B. Schwellungen oder Gewichtszunahme erklären).")
     if risk_txt:
         lines.append(f"- {risk_txt}")
+
+    # Belastung (falls durchgeführt) – patientengerecht, ohne Jargon
+    if der.get("exercise_done"):
+        mpap_s = _safe_float(der.get("mpap_co_slope"))
+        pawp_s = _safe_float(der.get("pawp_co_slope"))
+        patt = (der.get("exercise_pattern") or "")
+
+        # Nur dann prominent erwähnen, wenn wir wirklich etwas aussagen können.
+        ex_bits: List[str] = []
+        if mpap_s is not None:
+            ex_bits.append(f"mPAP/CO‑Slope {fmt_float(mpap_s, 1)}")
+        if pawp_s is not None:
+            ex_bits.append(f"PAWP/CO‑Slope {fmt_float(pawp_s, 1)}")
+
+        if ex_bits or patt:
+            msg = "Unter Belastung wurden zusätzliche Messwerte erhoben. "
+            if ex_bits:
+                msg += "Dabei zeigen die Druckanstiege im Verhältnis zur Kreislaufsteigerung: " + " und ".join(ex_bits) + " (je höher, desto eher spricht das für eine Belastungsreaktion im Lungenkreislauf bzw. eine Mitbeteiligung der linken Herzhälfte)."
+            if patt:
+                p_desc = describe_exercise_pattern(patt)
+                if p_desc:
+                    msg += f" Einordnung: {p_desc}."
+            lines.append(f"- {msg}")
     lines.append("")
 
     # 2) Einordnung / Erklärung
