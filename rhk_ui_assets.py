@@ -250,25 +250,109 @@ HEAD_HTML = "".join(
     window.__rhkCopyObserverInstalled = true;
     try{
       var obs = new MutationObserver(function(){
-        // Re-install handler in case Gradio replaced parts of the DOM.
+        // Gradio may replace DOM nodes; ensure our delegated handler exists.
         installCopyDelegation();
-    installCopyObserver();
       });
       obs.observe(document.documentElement || document.body, {childList:true, subtree:true});
     }catch(e){}
   }
 
-  function installCopyObserver(){
-    if(window.__rhkCopyObserverInstalled) return;
-    window.__rhkCopyObserverInstalled = true;
-    try{
+  // ------------------------------------------------------------------
+  // Tab UX helpers
+  // - Subtitle below main tabs for orientation
+  // - Small completion dots on tabs (filled vs empty)
+  // ------------------------------------------------------------------
+  var __rhkTabSubtitleMap = {
+    'Klinik & Labor': 'Anamnese, Vorerkrankungen, Labor und Basisdaten',
+    'Bildgebung & Echo/CMR': 'CT, V/Q, Echo und CMR Befunde strukturiert erfassen',
+    'Lungenfunktion': 'Spirometrie, Bodyplethysmographie, Diffusion',
+    'RHK': 'Invasive Hämodynamik in Ruhe und unter Belastung',
+    'Weitere Befunde': '6MWD, NYHA, Scores und ergänzende klinische Parameter',
+    'Procedere & Module': 'Empfehlungen, Module, Follow up und Dokumentation'
+  };
+
+  function _tabLabel(btn){
+    try {
+      var t = (btn.textContent || '').trim();
+      return t;
+    } catch(e) { return ''; }
+  }
+
+  function _panelHasAnyValue(panel){
+    try {
+      if(!panel) return false;
+      var els = panel.querySelectorAll('input, textarea, select');
+      for(var i=0;i<els.length;i++){
+        var el = els[i];
+        if(!el) continue;
+        // Ignore file pickers and hidden payloads
+        if(el.type === 'file') continue;
+        if(el.closest && el.closest('.rhk-hidden-payload')) continue;
+        var v = (typeof el.value === 'string') ? el.value.trim() : '';
+        if(v && v !== '0' && v !== '0.0') return true;
+      }
+    } catch(e) {}
+    return false;
+  }
+
+  function _ensureDot(btn){
+    try {
+      if(!btn) return null;
+      var dot = btn.querySelector('.rhk-tab-dot');
+      if(dot) return dot;
+      dot = document.createElement('span');
+      dot.className = 'rhk-tab-dot';
+      btn.appendChild(dot);
+      return dot;
+    } catch(e) { return null; }
+  }
+
+  function updateTabUx(){
+    try {
+      var nav = document.querySelector('.gradio-container .tab-nav, .gradio-container .tabs > .tab-nav');
+      if(!nav) return;
+      var buttons = nav.querySelectorAll('button');
+      if(!buttons || !buttons.length) return;
+
+      // Subtitle
+      var sub = byId('rhk_tab_subtitle');
+      var activeLabel = '';
+      for(var i=0;i<buttons.length;i++){
+        if(buttons[i].getAttribute('aria-selected') === 'true'){
+          activeLabel = _tabLabel(buttons[i]);
+          break;
+        }
+      }
+      if(sub){
+        var txt = __rhkTabSubtitleMap[activeLabel] || __rhkTabSubtitleMap[_tabLabel(buttons[0])] || '';
+        sub.textContent = txt;
+      }
+
+      // Dots
+      for(var j=0;j<buttons.length;j++){
+        var btn = buttons[j];
+        var dot = _ensureDot(btn);
+        if(!dot) continue;
+        var panelId = btn.getAttribute('aria-controls');
+        var panel = panelId ? document.getElementById(panelId) : null;
+        var filled = _panelHasAnyValue(panel);
+        dot.classList.toggle('is-filled', !!filled);
+        dot.classList.toggle('is-active', btn.getAttribute('aria-selected') === 'true');
+      }
+    } catch(e) {}
+  }
+
+  function installTabUxObserver(){
+    if(window.__rhkTabUxObserverInstalled) return;
+    window.__rhkTabUxObserverInstalled = true;
+    try {
       var obs = new MutationObserver(function(){
-        // Re-install handler in case Gradio replaced parts of the DOM.
-        installCopyDelegation();
-    installCopyObserver();
+        // debounce
+        if(window.__rhkTabUxT) clearTimeout(window.__rhkTabUxT);
+        window.__rhkTabUxT = setTimeout(updateTabUx, 60);
       });
-      obs.observe(document.documentElement || document.body, {childList:true, subtree:true});
-    }catch(e){}
+      obs.observe(document.documentElement || document.body, {childList:true, subtree:true, attributes:true});
+    } catch(e) {}
   }
 
   function enforceLight(){
@@ -282,6 +366,8 @@ HEAD_HTML = "".join(
     enforceLight();
     installCopyDelegation();
     installCopyObserver();
+    installTabUxObserver();
+    updateTabUx();
   }
 
   // Gradio may re-render; bind on load and after short delays.
@@ -329,15 +415,97 @@ CSS = ("""
   filter: brightness(0.98);
 }
 
-/* Copy buttons: match the same style (avoid heavy dark blocks) */
-#btn_copy_doc button, #btn_copy_pat button, #btn_copy_rhk button {
+/* Copy + download buttons: match the same style (avoid heavy dark blocks) */
+#btn_copy_doc button, #btn_download_doc button, #btn_copy_pat button, #btn_copy_rhk button {
   background: #ffffff !important;
   color: #0f172a !important;
   border: 1px solid rgba(148, 163, 184, 0.9) !important;
   box-shadow: none !important;
 }
-#btn_copy_doc button:hover, #btn_copy_pat button:hover, #btn_copy_rhk button:hover {
+#btn_copy_doc button:hover, #btn_download_doc button:hover, #btn_copy_pat button:hover, #btn_copy_rhk button:hover {
   filter: brightness(0.98);
+}
+
+/* Make the copy/download button row more compact */
+#rhk_copy_row button {
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+  line-height: 1.1 !important;
+  min-height: 32px !important;
+}
+
+
+
+/*
+  Input tabs: the *tab page* itself should NOT look like a giant grey/boxed block.
+  The scanability must come from the inner .rhk-card sections.
+  This avoids the "graue Balken" effect and makes each area feel like a clean card.
+*/
+#rhk_input_tabs .tabitem {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  margin-bottom: 16px !important;
+}
+
+/* Make section headings within tabs feel like card headers */
+#rhk_input_tabs .tabitem h3,
+#rhk_input_tabs .tabitem h4 {
+  margin-top: 0px !important;
+  margin-bottom: 8px !important;
+}
+
+/* Section headers inside tab-cards: clear, compact, "card header" feel */
+/*
+  Tab-Section Headings (außerhalb von Cards)
+  Wichtig: In .rhk-card sollen Überschriften wie ein Card-Header wirken –
+  ohne die grauen Balken/Boxen aus den globalen h3/h4-Styles.
+  Daher: Styling nur für direkte Children der TabItem-Root.
+*/
+#rhk_input_tabs .tabitem > h3 {
+  /* No "header bar" – keep it clean and let the following card carry the structure */
+  font-size: 16px !important;
+  font-weight: 850 !important;
+  letter-spacing: 0.1px !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  margin: 10px 0 10px 0 !important;
+}
+
+#rhk_input_tabs .tabitem > h4 {
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  margin: 8px 0 8px 0 !important;
+}
+
+/* Reduce vertical noise between form rows */
+#rhk_input_tabs .tabitem .gr-row {
+  gap: 10px !important;
+  margin-bottom: 10px !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+/*
+  Remove unwanted "grey separator bars" coming from Gradio row/block backgrounds.
+  We want floating white cards on a soft page background – like your reference.
+*/
+#rhk_input_tabs .tabitem .gr-row > div,
+#rhk_input_tabs .tabitem .gr-row > span,
+#rhk_input_tabs .tabitem .gr-row .gr-block,
+#rhk_input_tabs .tabitem .gr-row .gr-form,
+#rhk_input_tabs .tabitem .gr-row .gr-box {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
 }
 
 /* Hidden clipboard payloads must remain in DOM for robust JS copy binding */
@@ -367,6 +535,134 @@ CSS = ("""
 html, body { color-scheme: light !important; background: #f6f7fb !important; }
 
 .gradio-container { max-width: 1700px !important; margin: 0 auto !important; padding-left: 8px; padding-right: 8px; }
+
+/* ------------------------------------------------------------------
+   Modern light card-based dashboard
+   ------------------------------------------------------------------ */
+
+/* Reusable card wrapper for grouping related parameters */
+.rhk-card{
+  background: rgba(255,255,255,0.98) !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  border-radius: 16px !important;
+  padding: 14px 14px 10px 14px !important;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04) !important;
+  margin: 8px 0 !important;
+}
+
+/* Slightly tighter variant */
+.rhk-card.rhk-card-tight{
+  padding: 12px 12px 8px 12px !important;
+}
+
+/* Make headings inside cards look like card headers (no huge markdown spacing) */
+.rhk-card h1, .rhk-card h2, .rhk-card h3{
+  margin: 2px 0 10px 0 !important;
+  padding: 0 !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  color: #0f172a !important;
+}
+.rhk-card h4{
+  margin: 2px 0 8px 0 !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
+  opacity: 0.95;
+}
+
+/* Reduce noisy whitespace between inputs */
+.rhk-card .gr-form, .rhk-card .gr-box, .rhk-card .gr-block{
+  box-shadow: none !important;
+}
+.rhk-card .gr-row{
+  gap: 10px !important;
+  /* Prevent the full-width grey bars between rows (Gradio background-fill on rows) */
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 0 10px 0 !important;
+}
+
+/* Gradio can paint container backgrounds for Markdown/prose blocks – remove inside cards */
+.rhk-card .gr-markdown,
+.rhk-card .prose,
+.rhk-card .markdown,
+.rhk-card .md,
+.rhk-card .wrap,
+.rhk-card .gr-form,
+.rhk-card .gr-box,
+.rhk-card .gr-block,
+.rhk-card .block,
+.rhk-card .form,
+.rhk-card .container{
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Also neutralize the immediate row children wrappers */
+.rhk-card .gr-row > div,
+.rhk-card .gr-row > span{
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Verlauf table (Dashboard) */
+.rhk-trend-table{
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 12px;
+  background: #ffffff;
+}
+.rhk-trend-table th,
+.rhk-trend-table td{
+  padding: 8px 10px;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+.rhk-trend-table th{
+  background: rgba(246, 247, 251, 0.95);
+  font-weight: 800;
+  color: #0f172a;
+}
+.rhk-trend-table tr:last-child td{ border-bottom: none; }
+
+/* Inputs: subtle border and consistent radius */
+.rhk-card input, .rhk-card textarea, .rhk-card select{
+  border-radius: 12px !important;
+  border: 1px solid rgba(15, 23, 42, 0.14) !important;
+}
+
+/* Accordions should also look like cards */
+.gradio-container details{
+  border-radius: 16px !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  background: rgba(255,255,255,0.98) !important;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04) !important;
+}
+.gradio-container details > summary{
+  padding: 10px 12px !important;
+  font-weight: 800 !important;
+  color: #0f172a !important;
+}
+
+/* Tabs: keep crisp, dashboard-like */
+[role="tablist"] > button{
+  border-radius: 999px !important;
+  border: 1px solid rgba(15, 23, 42, 0.10) !important;
+  background: rgba(255,255,255,0.9) !important;
+}
+[role="tablist"] > button[aria-selected="true"]{
+  border-color: rgba(37, 99, 235, 0.35) !important;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.10) !important;
+}
 
 /* Force light cards/panels even if Gradio or browser applies dark-ish block fills */
 .gradio-container .gr-box,
@@ -416,6 +712,9 @@ button[title*="Dark"] {
   overflow: visible !important;
   white-space: normal !important;
   gap: 4px 6px !important;
+  border-bottom: none !important;
+  box-shadow: none !important;
+  padding-bottom: 8px !important;
 }
 /* volle Tab-Titel (kein Ellipsis) */
 [role="tablist"] > button{
@@ -438,6 +737,87 @@ button[title*="Dark"] {
 .gradio-container .tabs .tab-nav__button--more,
 .gradio-container .tabs .tab-nav__button-more{
   display: none !important;
+}
+
+/* ------------------------------------------------------------------
+   v27.2 Tabs: sticky + segmented control + subtitle + completion dots
+   ------------------------------------------------------------------ */
+
+/* Make the MAIN tab bar visually dominant and keep it visible while scrolling */
+.gradio-container .tabs > .tab-nav,
+.gradio-container .tab-nav{
+  position: sticky !important;
+  top: 74px !important; /* below topbar */
+  z-index: 9500 !important;
+  background: rgba(246, 247, 251, 0.92) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  /* Give the pill tabs more room so the divider never "cuts" through them */
+  padding: 10px 6px 12px 6px !important;
+  margin: 0 0 10px 0 !important;
+  border-bottom: none !important;
+}
+
+/* Draw the divider BELOW the pills (avoid the "feine Linie schneidet Tabs" issue) */
+.gradio-container .tabs > .tab-nav::after,
+.gradio-container .tab-nav::after{
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Push the divider a bit lower so it never visually intersects the pills */
+  bottom: -6px;
+  height: 1px;
+  background: rgba(15, 23, 42, 0.08);
+  pointer-events: none;
+}
+
+/* Some Gradio builds add their own tablist underline. Remove it. */
+.gradio-container [role="tablist"]{
+  border-bottom: none !important;
+  box-shadow: none !important;
+  padding-bottom: 6px !important;
+}
+
+/* Segmented control look for tab buttons */
+[role="tablist"] > button[role="tab"]{
+  border: 1px solid rgba(15, 23, 42, 0.14) !important;
+  background: rgba(255,255,255,0.88) !important;
+  border-radius: 999px !important;
+  padding: 8px 12px !important;
+  font-weight: 650 !important;
+  color: rgba(15,23,42,0.78) !important;
+  box-shadow: 0 1px 0 rgba(15,23,42,0.02) !important;
+}
+[role="tablist"] > button[role="tab"][aria-selected="true"]{
+  background: #ffffff !important;
+  border-color: rgba(37, 99, 235, 0.35) !important;
+  color: #0f172a !important;
+  font-weight: 800 !important;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* Small completion dot appended to each tab */
+.rhk-tab-dot{
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  margin-left: 8px;
+  background: rgba(15,23,42,0.16);
+  vertical-align: middle;
+}
+.rhk-tab-dot.is-filled{ background: rgba(16, 185, 129, 0.95); }
+.rhk-tab-dot.is-active{ box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+
+/* Subtitle line below tabs (orientation) */
+#rhk_tab_subtitle{
+  display: block;
+  margin: 0 0 8px 0;
+  padding: 0 4px;
+  font-size: 13px;
+  color: rgba(15, 23, 42, 0.65);
+  font-weight: 600;
 }
 
 
@@ -564,6 +944,86 @@ button[title*="Dark"] {
 .gradio-container .tab-nav__overflowButton {
   display: none !important;
 }
+
+/* ------------------------------------------------------------------
+   v27.2: Main tabs must stay visible and feel like a segmented control
+   ------------------------------------------------------------------ */
+.gradio-container .tabs > .tab-nav,
+.gradio-container .tab-nav{
+  position: sticky !important;
+  top: 86px !important; /* below the glass topbar */
+  z-index: 9500 !important;
+  background: rgba(246,247,251,0.92) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 10px 6px 24px 6px !important; /* more bottom space so divider never "cuts" the pills */
+  margin: 0 0 6px 0 !important;
+  border-bottom: none !important;
+}
+
+/* Divider below the pill tabs (kept away from the pills) */
+.gradio-container .tabs > .tab-nav::after,
+.gradio-container .tab-nav::after{
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  height: 1px;
+  background: rgba(15,23,42,0.08);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.gradio-container .tab-nav button{
+  position: relative;
+  z-index: 2;
+  border-radius: 999px !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  border: 1px solid rgba(15,23,42,0.10) !important;
+  background: rgba(255,255,255,0.75) !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 6px rgba(15,23,42,0.05) !important;
+  margin: 4px 6px 4px 0 !important;
+}
+.gradio-container .tab-nav button:hover{
+  filter: brightness(0.985);
+}
+.gradio-container .tab-nav button[aria-selected="true"]{
+  background: #ffffff !important;
+  border: 1px solid rgba(15,23,42,0.18) !important;
+  box-shadow: 0 2px 12px rgba(15,23,42,0.10) !important;
+  font-weight: 800 !important;
+}
+
+/* Subtitle line directly under the tabs */
+#rhk_tab_subtitle{
+  position: sticky;
+  top: 138px; /* tabs + spacing */
+  z-index: 9400;
+  max-width: 1200px;
+  margin: 0 auto 10px auto;
+  padding: 0 16px;
+  font-size: 12.5px;
+  color: rgba(15,23,42,0.65);
+  font-weight: 600;
+}
+
+/* Completion dot on each tab */
+.rhk-tab-dot{
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  margin-left: 8px;
+  border: 1px solid rgba(15,23,42,0.18);
+  background: rgba(148,163,184,0.35);
+  vertical-align: middle;
+}
+.rhk-tab-dot.is-filled{ background: rgba(34,197,94,0.55); border-color: rgba(34,197,94,0.75); }
+.rhk-tab-dot.is-active{ box-shadow: 0 0 0 3px rgba(59,130,246,0.12); }
 
 /* ------------------------------------------------------------------
    RHK Glass Topbar (sticky)

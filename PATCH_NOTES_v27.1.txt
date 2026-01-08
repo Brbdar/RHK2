@@ -1,0 +1,9 @@
+RHK Befundassistent – Patch Notes v27.1 (2026-01-07)
+
+Änderungen
+- UI Redesign: Modernes, helles Card-based Dashboard Layout.
+- Visuelle Gruppierung von Parametern über wiederverwendbare Card-Container.
+- Accordions wirken nun wie Cards (Radius, Border, Schatten), Eingabefelder konsistent (reduzierte visuelle Unruhe).
+
+Hinweis
+- Funktionale Logik und Keys unverändert, es handelt sich ausschließlich um eine UI/UX Verbesserung.

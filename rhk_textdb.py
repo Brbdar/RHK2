@@ -481,13 +481,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="PH-Basisdiagnostik komplettieren (universell)",
         applies_to="unklare PH-Ätiologie, Erstdiagnose oder Reevaluation",
         template=(
-            "Strukturierte Komplettierung/Überprüfung der PH-Basisdiagnostik:\n"
-            "• Echokardiographie inkl. RV-Funktion, TR-Grad, Klappenvitien, ggf. Belastungsecho.\n"
-            "• Lungenfunktion inkl. Bodyplethysmographie und Diffusionskapazität (DLCO) sowie BGA (Ruhe/Belastung nach Verfügbarkeit).\n"
-            "• Bildgebung je nach Fragestellung: HR-CT/CT-Thorax, ggf. Beurteilung in radiologisch-pneumologischer Konferenz.\n"
-            "• V/Q-Szintigraphie (CTEPD/CTEPH-Ausschluss).\n"
-            "• Labor je nach Kontext: Autoimmunserologie (ANA/ENA etc.), Infektiologie (z.B. HIV/Hepatitis nach SOP), "
-            "Blutbild/Eisenstatus, Schilddrüse, Leber/Niere, BNP/NT-proBNP."
+            "Bitte PH-Basisdiagnostik vollständig abschließen bzw. aktualisieren: Echokardiographie inkl. RV-Funktion, Lungenfunktion inkl. DLCO sowie CTEPH-Ausschluss (V/Q-Szintigraphie und/oder PA-Angiographie/CT nach Fragestellung)."
         ),
         category="P",
     ),
@@ -496,9 +490,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Diuretische Therapie intensivieren (bei zentralvenöser Stauung/RV-Versagen)",
         applies_to="ausgeprägte ZVD/Ödeme/kardiorenale Dynamik",
         template=(
-            "Bei führender zentralvenöser Stauung: Intensivierung der diuretischen Therapie, "
-            "idealerweise initial intravenös im stationären Setting mit anschließender Anpassung der Erhaltungsmedikation. "
-            "Engmaschige Kontrolle von Nierenfunktion/Retentionsparametern sowie Elektrolyten empfohlen."
+            "Bei klinischer Stauung bitte diuretische Therapie einleiten bzw. intensivieren (ggf. initial i.v.) und Nierenfunktion/Elektrolyte engmaschig kontrollieren."
         ),
         category="P",
     ),
@@ -507,7 +499,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="PH-spezifische Therapie beginnen: PDE5-Inhibitor (SOP-neutral)",
         applies_to="Indikation gestellt, keine Kontraindikationen",
         template=(
-            "{therapy_plan_sentence}"
+            "Aufgrund der aktuellen Druck- und Widerstandserhöhung empfehlen wir den Beginn einer PH-spezifischen Therapie mit PDE5-Inhibitor gemäß SOP und Re-Evaluation im kurzen Intervall (z.B. 6–8 Wochen) mit ggf. Erweiterung."
         ),
         category="P",
         notes="Medikamenten-/Dosisdetails sollen aus planned_actions kommen; sonst Platzhalter leer lassen.",
@@ -549,7 +541,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Prostacyclin-Therapie/Parenteraloption ansprechen",
         applies_to="intermediär/hoch, RV-Versagen, Eskalationsindikation",
         template=(
-            "{therapy_escalation_sentence}"
+            "Bei intermediär/hohem Risiko bzw. Zeichen der RV-Dekompensation bitte frühzeitige Evaluation einer Prostazyklin-Eskalation im PH-Zentrum (inkl. parenteraler Option)."
         ),
         category="P",
         variants={
@@ -564,7 +556,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Studienevaluation (neutral)",
         applies_to="wenn lokal verfügbar",
         template=(
-            "Prüfung einer Studieneinschluss-Option im spezialisierten Zentrum gemäß aktueller Verfügbarkeit und Ein-/Ausschlusskriterien."
+            "Bitte prüfen, ob aktuell ein Studieneinschluss möglich ist. Falls derzeit nicht möglich, bitte entsprechend dokumentieren."
         ),
         category="P",
     ),
@@ -573,8 +565,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Radiologisch-pneumologische Konferenz / Fibrose-Ambulanz",
         applies_to="ILD-Hinweis, CT-Befund ausstehend oder progredient",
         template=(
-            "Nach Vorliegen des CT-Thorax: Vorstellung/Beurteilung in der radiologisch-pneumologischen Konferenz empfohlen. "
-            "Bei Hinweis auf ILD/Progredienz: Konsultation der Fibrose-Sprechstunde und Therapieplanung im interdisziplinären Setting."
+            "Weitere Behandlung einer ILD in Rücksprache mit der Fibroseambulanz; relevante CT-Befunde bitte interdisziplinär vorstellen und rückkoppeln."
         ),
         category="P",
     ),
@@ -583,8 +574,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Kardiologische Mitbeurteilung (Klappen/Rhythmus/Ischämie)",
         applies_to="V-Welle/MI-Verdacht, Rhythmusauffälligkeiten, TI etc.",
         template=(
-            "Kardiologische Vorstellung/Verlaufskontrolle empfohlen (inkl. Echokardiographie zur Beurteilung von {valve_focus_desc} sowie ggf. Rhythmusdiagnostik). "
-            "Bei Arrhythmiezeichen: EKG/Monitoring erwägen. Koronardiagnostik gemäß Klinik/Risikoprofil."
+            "Kardiologische Anbindung empfohlen (postkapilläre/HFpEF-Komponente unter Belastung, Klappen, Rhythmus) mit ggf. Beginn/Optimierung der HF-Therapie."
         ),
         category="P",
     ),
@@ -593,7 +583,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Antikoagulation & Gerinnungsambulanz",
         applies_to="VTE/Perfusionsdefekt/APS-Verdacht/Rezidiv unter DOAK",
         template=(
-            "{anticoagulation_plan_sentence}"
+            "Bitte Genese einer (V)TE/LAE klären (provoziert vs. unprovoziert) und Gerinnungsdiagnostik erwägen; ggf. Rücksprache mit der Gerinnungsambulanz bzgl. Umstellung (z.B. VKA) nach Indikation."
         ),
         category="P",
         variants={
@@ -608,9 +598,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Verlaufskontrolle (Standard-Timing)",
         applies_to="Erstdiagnose/Änderung/instabile Lage",
         template=(
-            "Verlaufskontrolle im spezialisierten Setting in {followup_timing_desc} sowie Reevaluation der Risikokonstellation "
-            "(Klinik, BNP/NT-proBNP, Echo, Belastbarkeit). "
-            "Invasive Verlaufskontrolle (RHK) bei Therapieentscheidungen oder unklarem Verlauf in {invasive_followup_desc} erwägen."
+            "Ambulante Wiedervorstellung in der PH-Ambulanz im leitliniengerechten Intervall bzw. früher bei Befundverschlechterung (Klinik, Echo, BNP)."
         ),
         category="P",
     ),
@@ -619,8 +607,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Lungenfunktionelle Abklärung Restriktion/DLCO",
         applies_to="Restriktion/DLCO reduziert/hohe Atemarbeit",
         template=(
-            "Weitere Abklärung der {pulm_workup_focus_desc} inkl. Komplettierung der pneumologischen Diagnostik "
-            "und Korrelation mit Bildgebung (z.B. HR-CT) sowie ggf. Belastungsuntersuchungen."
+            "Bitte Lungenfunktion (Bodyplethysmographie, DLCO, ggf. BGA) nachholen/aktualisieren; bei Auffälligkeiten weitere pneumologische Abklärung."
         ),
         category="P",
     ),
@@ -629,7 +616,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Eisenmangel/Anämie-Baustein",
         applies_to="Anämie/Eisenmangelverdacht",
         template=(
-            "Bei {anemia_context_desc}: Bestimmung von Eisenstatus (Ferritin, TSAT) und ggf. Substitution gemäß hausinternem Standard erwägen."
+            "Bitte Eisenstatus/Anämie abklären und nach Standard behandeln; Verlaufskontrolle."
         ),
         category="P",
     ),
@@ -640,9 +627,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="RV-Prognosemarker (TAPSE/sPAP, S'/RAAI) – Konsequenzen",
         applies_to="auffällige RV-/RA-Marker oder unklare Diskrepanz zwischen Symptomen und Hämodynamik",
         template=(
-            "Bei auffälligen Echo-Prognosemarkern der Rechtsherzfunktion (z.B. TAPSE/sPAP, S'/RAAI) wird eine strukturierte "
-            "Verlaufskontrolle empfohlen (Klinik/Belastbarkeit, BNP/NT-proBNP, Echo inkl. RV-Größe/Funktion und TR-Grad). "
-            "Therapieentscheidungen sollten im Kontext des gesamten Risikoprofils (Leitlinien-Risikostratifizierung) erfolgen."
+            "Auffällige RV/RA-Prognosemarker bitte in der Risikostratifizierung priorisieren; Kontrollintervall und Therapieintensität daran ausrichten."
         ),
         category="P",
     ),
@@ -651,9 +636,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Belastungsdiagnostik (CPET/Belastungsecho) – wenn Diskrepanz",
         applies_to="Dyspnoe unklar/disproportional oder zur Objektivierung der Leistungsfähigkeit",
         template=(
-            "Bei unklarer oder disproportionaler Belastungsdyspnoe: ergänzende Belastungsdiagnostik erwägen (z.B. Spiroergometrie/CPET, "
-            "Belastungsechokardiographie, ggf. Belastungs-RHK je nach Fragestellung und Verfügbarkeit), "
-            "um ventilatorische Limitationen, Gasaustauschstörung und hämodynamische Komponente besser abzugrenzen."
+            "Bei Diskrepanz zwischen Symptomen und Ruhehämodynamik bzw. De-Maskierung unter Belastung CPET und/oder Belastungsecho erwägen; Ergebnis zur Therapieentscheidung nutzen."
         ),
         category="P",
     ),
@@ -662,8 +645,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Schlafmedizin (OSAS/Hypoventilation) – Screening",
         applies_to="Hinweis auf nächtliche Hypoxie, Adipositas, Tagesmüdigkeit oder unklare Hypoxämie",
         template=(
-            "Abklärung schlafbezogener Atmungsstörungen (z.B. OSAS, Hypoventilation) gemäß klinischem Kontext erwägen "
-            "(Screening, Polygraphie/Polysomnographie). Optimierung der nächtlichen Oxygenierung kann die Belastbarkeit beeinflussen."
+            "Bei klinischem Verdacht schlafmedizinische Abklärung (OSAS/Hypoventilation) veranlassen; Therapie nach Befund."
         ),
         category="P",
     ),
@@ -672,8 +654,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Autoimmun-/CTD-Screening (PAH-DD) – nach Kontext",
         applies_to="DD Gruppe 1 (CTD-PAH) oder klinische Hinweise auf Autoimmunität",
         template=(
-            "Bei Verdacht auf CTD-assoziierte PH/PAH: Autoimmunserologie nach Standard (z.B. ANA/ENA, ggf. weitere Marker je nach Klinik) "
-            "und rheumatologische Mitbeurteilung erwägen."
+            "Bei Dekompensation bitte stationäre Rekompensation (Monitoring, i.v. Diurese) und Therapieoptimierung."
         ),
         category="P",
     ),
@@ -682,8 +663,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Infektiologisches Screening (z.B. HIV/Hepatitis) – nach SOP",
         applies_to="DD Gruppe 1 (assoziierte PAH) oder unklare präkapilläre PH",
         template=(
-            "Je nach Konstellation: infektiologisches Screening (z.B. HIV, Hepatitis) gemäß lokaler SOP/Anamnese durchführen "
-            "und Befunde in die Ätiologiezuordnung integrieren."
+            "Bei AV-Block/Arrhythmie oder LV-Dysfunktion bitte elektrophysiologische/kardiologische Abklärung (SM/ICD/CRT) gemäß Indikation."
         ),
         category="P",
     ),
@@ -692,8 +672,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Leber/Portale Hypertonie (PoPH) – Abklärung",
         applies_to="klinische/laborchemische Hinweise auf Lebererkrankung/Portalhypertonie oder unklare präkapilläre PH",
         template=(
-            "Bei Verdacht auf portopulmonale Hypertension: lebermedizinische Mitbeurteilung, Sonographie/Elastographie nach Kontext "
-            "und Bewertung portaler Hypertonie/Leberfunktion."
+            "Bei Verdacht auf portopulmonale Konstellation bitte Abdomensonographie (Leber/Milz/Aszites) und ggf. hepatologische Mitbeurteilung."
         ),
         category="P",
     ),
@@ -702,8 +681,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Genetik/Familienanamnese (hereditäre PAH) – Erwägung",
         applies_to="jüngere Patient:innen, familiäre Belastung oder idiopathische/unklare PAH-Konstellation",
         template=(
-            "Bei entsprechender Konstellation: genetische Beratung/Testung gemäß Leitlinien/Zentrumspraxis erwägen "
-            "und Familienanamnese gezielt erheben."
+            "Bei Verdacht auf hereditäre PAH oder relevante Mutation genetische Beratung/Testung erwägen und Zentrumseinbindung veranlassen."
         ),
         category="P",
     ),
@@ -712,8 +690,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Schwangerschaft/Verhütung – Beratung bei PH/PAH",
         applies_to="PH/PAH im gebärfähigen Alter",
         template=(
-            "Bei PH/PAH im gebärfähigen Alter: strukturierte Beratung zu Schwangerschaftsrisiko und sicherer Kontrazeption "
-            "im spezialisierten Setting."
+            "Bei stabiler klinischer Situation strukturierte Reha bzw. Bewegungstherapie unter Aufsicht empfehlen."
         ),
         category="P",
     ),
@@ -722,8 +699,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Reha/Training (supervised) – Alltagsfunktion verbessern",
         applies_to="stabile Situation, nach Einordnung/Optimierung",
         template=(
-            "Bei stabiler klinischer Konstellation: strukturiertes, überwacht angeleitetes Training/Rehabilitation im geeigneten Setting "
-            "kann Belastbarkeit und Lebensqualität verbessern (Kontraindikationen beachten)."
+            "Bei relevanter Symptomüberlagerung/Angst psychosomatische Mitbetreuung ergänzend anbieten."
         ),
         category="P",
     ),
@@ -732,8 +708,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Impfstatus/Infektprophylaxe – Basismaßnahmen",
         applies_to="chronische kardio-pulmonale Erkrankung",
         template=(
-            "Überprüfung und Aktualisierung des Impfstatus gemäß Empfehlungen (z.B. Influenza, Pneumokokken) sowie allgemeine "
-            "Infektprophylaxe (Frühkontakt bei Infektzeichen, Therapieplan) nach Kontext."
+            "Bitte Impfstatus prüfen und aktualisieren (Influenza, Pneumokokken, COVID) gemäß Empfehlung."
         ),
         category="P",
     ),
@@ -742,8 +717,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Oxygenierung/SpO₂ (Ruhe/Belastung/Nacht) – Verlauf",
         applies_to="Hypoxämie-Verdacht oder Dyspnoe",
         template=(
-            "Objektivierung der Oxygenierung (SpO₂/BGA) in Ruhe, unter Belastung und ggf. nachts erwägen; "
-            "Sauerstoff-/Ventilationstherapie nach Befund und Leitlinie prüfen."
+            "Vor Reise oder Höhenexposition reise- und höhenmedizinische Beratung inkl. Hypoxie-Risiko/O2-Bedarf nach Situation; Notfallplan festlegen."
         ),
         category="P",
     ),
@@ -752,8 +726,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Advanced Therapies / Transplantation – frühzeitig denken",
         applies_to="hochrisikokonstellation oder progrediente RV-Dysfunktion trotz Therapie",
         template=(
-            "Bei hoher Risikokonstellation oder Progress trotz Therapie: frühzeitige Evaluation in einem spezialisierten Zentrum "
-            "für Eskalationsstrategien (inkl. parenteraler Therapieoptionen und ggf. Transplantationsabklärung) erwägen."
+            "Bei gebärfähigem Alter Verhütungs-/Schwangerschaftsberatung dokumentieren; bei PAH ausdrückliche Risikoaufklärung und teratogene Medikation beachten."
         ),
         category="P",
     ),
@@ -762,11 +735,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Trinkmengenrestriktion und konsequentes Volumenmanagement",
         applies_to="Stauungszeichen, kardiorenale Dynamik oder Volumenüberladung",
         template=(
-            "Bei Zeichen der Volumenüberladung: individuelle Trinkmengenrestriktion und konsequentes Volumenmanagement.\n"
-            "• Tägliche Gewichtskontrolle (Verlauf dokumentieren).\n"
-            "• Ziel: Vermeidung rascher Gewichtszunahme und peripherer Ödeme.\n"
-            "• Anpassung der Trinkmenge und diuretischen Therapie nach Klinik, Nierenfunktion und Elektrolyten im Verlauf.\n"
-            "• Patient:innenschulung zu Warnzeichen (z.B. rasche Gewichtszunahme, zunehmende Dyspnoe, Beinödeme)."
+            "Bitte konsequentes Volumenmanagement (Gewichtstagebuch, Trinkmenge/Salz individuell, Diureseplan) und Kontrollen von Kreatinin/Elektrolyten."
         ),
         category="P",
     ),
@@ -775,11 +744,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Kardiovaskuläre Risikofaktoren konsequent minimieren",
         applies_to="PH mit Begleiterkrankungen oder erhöhtem kardiovaskulärem Risikoprofil",
         template=(
-            "Konsequente Minimierung kardiovaskulärer Risikofaktoren im Rahmen der Gesamttherapie:\n"
-            "• Blutdruckkontrolle, Optimierung der Herzfrequenz und Rhythmusstrategie nach Kontext.\n"
-            "• Lipidmanagement und Diabeteskontrolle gemäß Leitlinien.\n"
-            "• Nikotinkarenz, strukturierte Bewegung im geeigneten Setting und Ernährungsberatung.\n"
-            "• Behandlung begleitender kardiovaskulärer Erkrankungen nach Standard (z.B. KHK, HFpEF) im interdisziplinären Setting."
+            "Bitte kardiovaskuläre Risikofaktoren konsequent optimieren (RR, Lipide, Glukose, Nikotin)."
         ),
         category="P",
     ),
@@ -788,10 +753,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="Gewichtsreduktion und metabolische Optimierung",
         applies_to="Adipositas oder Übergewicht mit Einfluss auf Belastbarkeit, Schlaf, HFpEF Wahrscheinlichkeitsprofil",
         template=(
-            "Bei Übergewicht/Adipositas: strukturierte Gewichtsreduktion und metabolische Optimierung (interdisziplinär) empfohlen.\n"
-            "• Ernährungsmedizinische Beratung und realistische Zieldefinition.\n"
-            "• Angepasstes, überwacht angeleitetes Training je nach klinischer Stabilität.\n"
-            "• Schlafbezogene Atmungsstörungen und HFpEF Komponente im Verlauf mit berücksichtigen."
+            "Unbedingte Gewichtsreduktion bei Adipositas empfohlen; metabolische Optimierung nach Standard."
         ),
         category="P",
     ),
@@ -800,10 +762,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="LTOT konsequent anwenden und Verlauf kontrollieren",
         applies_to="Hypoxämie oder verordnete Langzeitsauerstofftherapie",
         template=(
-            "Konsequente Anwendung der verordneten Langzeitsauerstofftherapie (LTOT) mit Verlaufskontrollen.\n"
-            "• Nutzung gemäß Verordnung, Anpassung des Flow nach Ruhe, Belastung und ggf. Nachtmessung.\n"
-            "• Ziel: ausreichende Oxygenierung und Reduktion hypoxiegetriggerter pulmonaler Vasokonstriktion.\n"
-            "• Reevaluation bei Persistenz von Dyspnoe, Hyperkapnieverdacht oder Therapielimitierungen."
+            "Bei Hypoxämie bitte LTOT-Konzept prüfen/optimieren und Verlaufskontrolle (Ruhe/Belastung) planen."
         ),
         category="P",
     ),
@@ -812,10 +771,7 @@ P_BLOCKS: Dict[str, TextBlock] = {
         title="CT Befunde interdisziplinär vorstellen und Rückmeldung an PH Ambulanz",
         applies_to="CT Thorax Befund ausstehend oder unklare Bildgebung mit Relevanz für Ätiologiezuordnung",
         template=(
-            "Ausstehende oder unklare computertomographische Befunde sollten in der radiologisch pneumologischen Konferenz vorgestellt werden.\n"
-            "• Interdisziplinäre Einordnung (Radiologie, Pneumologie, ggf. PH Team) zur Ätiologiezuordnung.\n"
-            "• Ergebnis und Konsequenzen (Diagnostik, Therapie, Follow up) dokumentieren.\n"
-            "• Rückmeldung an die PH Ambulanz zur weiteren Steuerung des Procedere."
+            "Bitte (PA-)Angiographie/CT-Befunde strukturiert rückkoppeln und Vorstellung in der CTEPH-Konferenz nach lokalem Pfad planen; Patient*in über das Ergebnis informieren."
         ),
         category="P",
     ),

@@ -1069,6 +1069,51 @@ def build_dashboard_html(case: Optional[Dict[str, Any]]) -> str:
         warns_summary = '<span class="muted">keine</span>'
 
 
+    # Verlauf (RHK) – kompakt, aber klinisch hilfreich
+    trend_html = ""
+    try:
+        t = _compare_rhk_trend(case.get("ui") or {}, case.get("derived") or {})
+        if isinstance(t, dict) and t.get("has_prev"):
+            # Convert the markdown table to a compact HTML table
+            def _md_table_to_html(md: str) -> str:
+                lines = [ln.strip() for ln in (md or "").splitlines() if ln.strip()]
+                rows = [ln for ln in lines if ln.startswith("|") and ln.endswith("|")]
+                if len(rows) < 3:
+                    return ""
+                body = rows[2:]
+                tr = []
+                for r in body:
+                    parts = [p.strip() for p in r.strip("|").split("|")]
+                    if len(parts) < 4:
+                        continue
+                    tr.append(
+                        "<tr>" +
+                        f"<td><b>{html_escape(parts[0])}</b></td>" +
+                        f"<td style='text-align:right'>{html_escape(parts[1])}</td>" +
+                        f"<td style='text-align:right'>{html_escape(parts[2])}</td>" +
+                        f"<td style='text-align:center'>{html_escape(parts[3])}</td>" +
+                        "</tr>"
+                    )
+                if not tr:
+                    return ""
+                return (
+                    "<table class='rhk-trend-table'>"
+                    "<thead><tr><th>Parameter</th><th>Vorher</th><th>Jetzt</th><th>Trend</th></tr></thead>"
+                    "<tbody>" + "".join(tr) + "</tbody></table>"
+                )
+
+            tbl = _md_table_to_html(t.get("table_md") or "")
+            if tbl:
+                trend_html = (
+                    "<div class='card' style='margin-top:10px'>"
+                    "<div class='card-title'>Verlauf – RHK (Ruhe)</div>"
+                    f"<div class='muted' style='margin-bottom:8px'>{html_escape(str(t.get('sentence_doc') or '').replace('**',''))}</div>"
+                    f"{tbl}"
+                    "</div>"
+                )
+    except Exception:
+        trend_html = ""
+
     return f"""
     <div class="card">
       <div class="card-title">{APP_TITLE}</div>
@@ -1087,6 +1132,7 @@ def build_dashboard_html(case: Optional[Dict[str, Any]]) -> str:
         <div><b>Plausibilitätswarnungen:</b> {warns_summary}</div>
       </div>
     </div>
+    {trend_html}
     """
 
 

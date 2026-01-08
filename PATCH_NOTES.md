@@ -1,3 +1,115 @@
+# Patch 27.2.9 (2026-01-08)
+
+Änderungen
+
+1) Cards Mode – graue Balken wirklich entfernt
+- Innerhalb von .rhk-card werden nun auch Gradio-Container (Row, Block, Markdown/Prose Wrapper) konsequent auf transparent gesetzt.
+- Zusätzlich: .gr-row selbst wird innerhalb von Cards neutralisiert (kein Background-Fill, keine Padding-Balken).
+
+2) Tabs – Reiter-Buttons werden nicht mehr durch eine Linie „geschnitten“
+- Entfernt: mögliche Border/Shadow am [role=tablist] Container.
+- Divider unterhalb der Tab-Pills weiter nach unten verschoben (mit zusätzlichem Abstand).
+
+---
+
+# Patch 27.2.8 (2026-01-08)
+
+Änderungen
+
+1) Cards Mode – graue Zwischenbalken vollständig entfernt
+- Die Tab-Seite selbst ist jetzt „transparent“ (keine große Box). Die Gliederung erfolgt ausschließlich über die inneren .rhk-card Sektionen.
+- Row- und Block-Hintergründe innerhalb der Tab-Seiten werden auf transparent gesetzt, sodass keine grauen Trennbalken mehr erscheinen.
+
+2) Tabs – Reiterlinie schneidet nicht mehr durch die Buttons
+- Mehr Abstand unter den Pill-Tabs und Divider-Line weiter nach unten versetzt.
+- Z-Index-Fix: Buttons liegen immer vor der Divider-Line.
+
+---
+
+# Patch 27.2.7 (2026-01-08)
+
+Änderungen
+
+1) Arztbericht – manuell ausgewählte P-Module werden nicht mehr „verschluckt“
+- Wenn ein P-Modul explizit ausgewählt wurde, erscheint es im Procedere auch dann, wenn alle Bullet-Points als „bereits erfolgt“ herausgefiltert wurden.
+- In diesem Fall wird eine kurze, professionelle Zeile ausgegeben: „Derzeit keine zusätzliche Maßnahme ableitbar.“
+
+2) Cards Mode – graue Balken innerhalb von Cards entfernt
+- Die globalen Tab-Überschriften-Styles (h3/h4) wirken jetzt nur noch auf direkte Tab-Section-Header, nicht innerhalb von .rhk-card.
+- Ergebnis: Card-Header wirken sauber und „card-like“, ohne graue Zwischenbalken.
+
+---
+
+# Patch 27.2.4 (2026-01-08)
+
+Änderungen
+
+1) Tabs – „angeschnittene“ Reiterlinie behoben
+- Die optische Trennlinie unter den Pill-Tabs liegt jetzt bewusst unterhalb der Tabs und schneidet die Reiter nicht mehr an.
+
+2) Cards Mode – echte Card-Sektionen in den Input-Reitern
+- Klinik & Labor: aufgeteilt in vier Cards (Allgemeines/Anamnese/Vorerkrankungen, Funktion/Symptome, Labor, Medikation & Zusatzangaben).
+- Bildgebung & Echo/CMR: getrennte Cards für Thorax-Bildgebung und MRT/CMR.
+- Lungenfunktion: getrennte Cards für Lungenfunktion und CPET.
+
+---
+
+# Patch 27.2.3 (2026-01-08)
+
+Änderungen
+
+1) Klinik & Labor – bessere Orientierung
+- Neue Abschnittsüberschrift „Allgemeines, Anamnese, Vorerkrankungen“ am Anfang des Tabs.
+- Abschnitt „Symptome / Funktion“ umbenannt zu „Funktion / Symptome“ für konsistentere Navigation.
+
+2) Cards Mode – professionellere Section Header
+- Abschnittsüberschriften innerhalb der Tab-Cards sind jetzt klarer und „card header“-ähnlich gestylt (bessere Scanbarkeit, weniger Verlorenheitsgefühl).
+
+---
+
+# Patch 27.2.2 (2026-01-08)
+
+Änderungen
+
+1) Allergien (Klinik & Labor)
+- Neues Allergien-Workflow direkt unter „Relevante Vorerkrankungen“: Checkbox „Allergien“ aktiviert Mehrfachauswahl (Pflaster, Heparin, Lidocain, sonstiges).
+- Bei Auswahl „sonstiges“ erscheint ein zusätzliches Freitextfeld „Allergien – Sonstiges“.
+
+2) Pre-Cath Sticky Header
+- Neuer Allergien-Chip ist **immer sichtbar** (bei fehlenden Angaben: „Allergien: –“) und wird neben der Nierenfunktion angezeigt.
+
+3) Bugfix Antikoagulation
+- „Antikoagulation pausiert“ wird nicht mehr beim Laden/Speichern still zurückgesetzt (Status „ja“ erhält den gespeicherten Checkbox-Wert).
+
+---
+
+# Patch 27.2 (2026-01-07)
+
+Änderungen
+
+1) Anwenderfreundlichkeit – Orientierung
+- Hauptreiter als sticky segmented control (hell, klar, deutlich sichtbar) inklusive dynamischer Unterzeile je Tab.
+- Kleine Statuspunkte pro Tab: gefüllt, sobald in dem Tab mindestens ein Feld belegt ist.
+
+2) Verlauf – RHK (Dashboard)
+- Neue Verlaufskarte im Dashboard: Vergleich Vorbefund vs aktuell für die wichtigsten Ruheparameter (mPAP, PAWP, PVR, CI, RAP) inkl. Trendpfeilen.
+- Anzeige nur wenn ein Vor RHK mit Datum und mindestens einem Vorwert hinterlegt ist.
+
+---
+
+# Patch 27.0.8 (2026-01-07)
+
+Änderungen
+
+1) DOCX Download (Arztbericht)
+- Der DOCX Export enthält nun zusätzlich den Patientenbericht Rechtsherzkatheter sowie den Patientenbericht Echokardiographie (jeweils mit Seitenumbruch).
+- Überschriftenstruktur (Arztbericht, Patientenberichte) für eine Word kompatible, professionellere Gliederung.
+
+2) DOCX Layout Engine
+- Unterstützt nun Überschriften (##/###) sowie explizite Seitenumbrüche ([[PAGEBREAK]]).
+
+---
+
 # Patch 27.0.4 (2026-01-07)
 
 Änderungen
@@ -138,3 +250,29 @@ Hinweis OCR
 ## v27.0.5 (2026-01-07)
 - FIX: Arztbericht kopieren funktioniert auch nach erneutem Render/State-Update zuverlässig (robuster JS-Handler).
 - IMPROVE: Copy/Word-Export Struktur und Reihenfolge wie gewünscht (inkl. CPET Abschnitt).
+
+
+## v27.0.6 (2026-01-07)
+- FIX: Copy-Buttons wieder funktionsfähig: JS Copy-Observer/Handler Fehler (rekursive/duplizierte installCopyObserver Definition) behoben.
+
+
+## v27.0.7 (2026-01-07)
+- FEATURE: Arztbericht zusätzlich als DOCX herunterladen (fertig formatiert; Copy Layout; in-app Bericht unverändert).
+- UI: Copy/Download Button Row kompakter (kleinere Buttons).
+
+
+## v27.0.8 (2026-01-07)
+- FEATURE: DOCX Download enthält zusätzlich angehängt: Patientenbericht RHK und Patientenbericht Echo (jeweils mit Seitenumbruch).
+
+
+## v27.1 (2026-01-07)
+- UI Redesign: Modernes, helles Card-based Dashboard Layout für bessere Orientierung (Cards/Accordions im einheitlichen Card Look, reduzierte visuelle Unruhe).
+
+## v27.2.1 (2026-01-08)
+- Clinic/Labor, Imaging, Lufu/CPET sections are now card-grouped for better scanability.
+- DOCX export uses DownloadButton; removed large empty file widget.
+
+
+## v27.2.6 (2026-01-08)
+- FIX: P-Module titles restored in UI and selection works again (TextBlock structure preserved).
+- IMPROVE: P-Module texts shortened and styled as concise Arztbrief-Procedere.

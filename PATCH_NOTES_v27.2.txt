@@ -1,0 +1,11 @@
+Patch v27.2 (2026-01-07)
+
+Änderungen
+
+1) Anwenderfreundlichkeit – Orientierung
+- Hauptreiter als sticky segmented control (hell, klar, deutlich sichtbar) inklusive dynamischer Unterzeile je Tab.
+- Kleine Statuspunkte pro Tab: gefüllt, sobald in dem Tab mindestens ein Feld belegt ist.
+
+2) Verlauf – RHK (Dashboard)
+- Neue Verlaufskarte im Dashboard: Vergleich Vorbefund vs aktuell für mPAP, PAWP, PVR, CI und RAP inkl. Trendpfeilen.
+- Anzeige nur wenn ein Vor RHK mit Datum und mindestens einem Vorwert hinterlegt ist.

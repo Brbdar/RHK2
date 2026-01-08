@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RHK Befundassistent (Web) – v26.1.27
+RHK Befundassistent (Web) – v27.2.4
 
 - Ultra-interaktiver Gradio-Assistenzbogen für RHK-/PH-Befunde
 - Deklaratives Regelwerk (YAML) zur Guideline-nahen Klassifikation, Modulen & Empfehlungen
@@ -37,7 +37,7 @@ except Exception:  # pragma: no cover
 # =============================================================================
 
 APP_NAME = "RHK Befundassistent"
-APP_VERSION = "v27.0.5"
+APP_VERSION = "v27.2.9"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 WHATS_NEW = (
     "Fix: eGFR wird automatisch berechnet (auch nach DOCX Import/Laden) · "

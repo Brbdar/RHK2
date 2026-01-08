@@ -1,0 +1,3 @@
+v27.2.1 (2026-01-08)
+- UX: Tabs/Segmented control fix: Clinic & Labor, Imaging, Lufu/CPET grouped into cards.
+- UX: DOCX download button uses gr.DownloadButton (no large file widget).

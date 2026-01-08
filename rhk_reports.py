@@ -670,6 +670,7 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
 
     # Modules (engine + user selected) – fallbasiert sortiert + ggf. gefiltert
     selected = _normalize_module_ids(ui.get("modules") or [])
+    selected_set = set(selected)
     auto_mods = _normalize_module_ids(dec.get("modules") or [])
     all_mods = list(dict.fromkeys(auto_mods + selected))
 
@@ -694,6 +695,14 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
             txt = filter_module_text(txt, env)
             if txt:
                 modules_txts.append(f"**{mid} – {blocks[mid].title}**\n{txt}")
+            else:
+                # Wenn ein Modul explizit manuell ausgewählt wurde, soll es im Arztbericht
+                # trotzdem sichtbar sein (auch wenn alle Bullet-Points als "bereits erfolgt"
+                # herausgefiltert wurden). So vermeiden wir "scheinbar verschluckte" Module.
+                if mid in selected_set:
+                    modules_txts.append(
+                        f"**{mid} – {blocks[mid].title}**\nDerzeit keine zusätzliche Maßnahme ableitbar."
+                    )
 
     recs = dec.get("recommendations") or []
     # Verlaufskonsequenz (falls Vor-RHK angegeben)
@@ -1015,7 +1024,8 @@ def build_doctor_report_for_copy(case: Dict[str, Any], blocks: Dict[str, TextBlo
     if proc.strip():
         ep_lines.append(_compact(proc))
     if ep_lines:
-        parts.append(f"**Empfehlung & Procedere:**\n{_compact("\n\n".join(ep_lines))}")
+        joined_ep = "\n\n".join(ep_lines)
+        parts.append(f"**Empfehlung & Procedere:**\n{_compact(joined_ep)}")
 
     return "\n\n".join([p for p in parts if p and p.strip()]).strip()
 
@@ -2777,6 +2787,132 @@ def markdown_to_word_html(md: Any) -> str:
     # In the worst case, strip bare marker words too (should not happen)
     html = html.replace("BOPEN", "").replace("BCLOSE", "")
     return html
+
+
+def markdown_to_docx_file(md: Any, out_path: str) -> str:
+    """Best-effort Markdown -> DOCX.
+
+    Scope (intentionally small and stable)
+    - Paragraphs
+    - Simple bullet lists (- / •)
+    - Bold spans (**x**)
+    - Section headers as bold lines ("**Titel:**")
+    - Headings (## / ###)
+    - Page breaks via a dedicated marker line: [[PAGEBREAK]]
+
+    This is used for the "DOCX" download button (copy layout). The in-app
+    report remains unchanged.
+    """
+    from docx import Document
+    from docx.shared import Pt, Cm
+
+    try:
+        s = "" if md is None else str(md)
+    except Exception:
+        s = ""
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+
+    doc = Document()
+
+    # Page setup: keep Word-default look but enforce predictable margins.
+    try:
+        for sec in doc.sections:
+            sec.top_margin = Cm(2.0)
+            sec.bottom_margin = Cm(2.0)
+            sec.left_margin = Cm(2.0)
+            sec.right_margin = Cm(2.0)
+    except Exception:
+        pass
+
+    # Set default font to Calibri 11 (Word default). Keep deterministic.
+    style = doc.styles["Normal"]
+    try:
+        style.font.name = "Calibri"
+        style.font.size = Pt(11)
+    except Exception:
+        pass
+
+    bold_pat = re.compile(r"\*\*(.+?)\*\*")
+
+    def _add_runs_with_bold(par, text: str):
+        """Add runs to paragraph, turning **x** into bold runs."""
+        if not text:
+            return
+        pos = 0
+        for m in bold_pat.finditer(text):
+            if m.start() > pos:
+                par.add_run(text[pos:m.start()])
+            r = par.add_run(m.group(1))
+            r.bold = True
+            pos = m.end()
+        if pos < len(text):
+            par.add_run(text[pos:])
+
+    # Build paragraphs
+    lines = [ln.rstrip() for ln in s.split("\n")]
+    prev_blank = True
+    for raw in lines:
+        ln = (raw or "").rstrip()
+        if not ln.strip():
+            prev_blank = True
+            continue
+
+        # Explicit page break marker
+        if ln.strip() == "[[PAGEBREAK]]":
+            try:
+                doc.add_page_break()
+            except Exception:
+                # Fallback: add spacing
+                doc.add_paragraph()
+            prev_blank = True
+            continue
+
+        # Headings
+        m_h2 = re.match(r"^\s*##\s+(.+)$", ln)
+        if m_h2:
+            par = doc.add_paragraph(m_h2.group(1).strip(), style="Heading 1")
+            prev_blank = True
+            continue
+        m_h3 = re.match(r"^\s*###\s+(.+)$", ln)
+        if m_h3:
+            par = doc.add_paragraph(m_h3.group(1).strip(), style="Heading 2")
+            prev_blank = True
+            continue
+
+        # Bullet list
+        m_b = re.match(r"^\s*(?:[-•]\s+)(.+)$", ln)
+        if m_b:
+            par = doc.add_paragraph(style="List Bullet")
+            _add_runs_with_bold(par, m_b.group(1).strip())
+            prev_blank = False
+            continue
+
+        # Section header line: **Titel:**
+        m_h = re.match(r"^\s*\*\*(.+?)\*\*\s*$", ln)
+        if m_h and (m_h.group(1).endswith(":") or m_h.group(1).endswith(" :")):
+            par = doc.add_paragraph()
+            r = par.add_run(m_h.group(1).strip())
+            r.bold = True
+            try:
+                par.paragraph_format.space_after = Pt(6)
+            except Exception:
+                pass
+            prev_blank = False
+            continue
+
+        # Normal paragraph (start new paragraph after blank lines)
+        if prev_blank:
+            par = doc.add_paragraph()
+            _add_runs_with_bold(par, ln.strip())
+        else:
+            # Continue previous paragraph (Word-like flow)
+            par = doc.paragraphs[-1]
+            par.add_run(" ")
+            _add_runs_with_bold(par, ln.strip())
+        prev_blank = False
+
+    doc.save(out_path)
+    return out_path
 
 
 def extract_markdown_section(md: Any, start_heading: str, end_heading: Optional[str] = None) -> str:

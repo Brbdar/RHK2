@@ -1,3 +1,50 @@
+Patch 27.2.9 (2026-01-08)
+
+1) Cards Mode – graue Balken wirklich entfernt
+- Innerhalb von .rhk-card werden Gradio-Container (Row, Block, Markdown/Prose Wrapper) konsequent transparent gesetzt.
+- .gr-row wird innerhalb von Cards neutralisiert (kein Background-Fill/kein Padding-Balken).
+
+2) Tabs – Reiter-Buttons werden nicht mehr durch eine Linie „geschnitten“
+- Entfernt: mögliche Border/Shadow am [role=tablist] Container.
+- Divider unterhalb der Tab-Pills weiter nach unten verschoben (zusätzlicher Abstand).
+
+---
+
+Patch 27.2.8 (2026-01-08)
+
+1) Cards Mode – graue Zwischenbalken vollständig entfernt
+- Tab-Seite ist jetzt transparent (keine große Box). Struktur erfolgt über .rhk-card Sektionen.
+- Row- und Block-Hintergründe in den Tab-Seiten werden transparent gesetzt, sodass keine grauen Trennbalken mehr erscheinen.
+
+2) Tabs – Reiterlinie schneidet nicht mehr durch die Buttons
+- Mehr Abstand unter den Pill-Tabs und Divider-Line weiter nach unten versetzt.
+- Z-Index-Fix: Buttons liegen immer vor der Divider-Line.
+
+---
+
+Patch 27.2.7 (2026-01-08)
+
+1) Arztbericht – manuell ausgewählte P-Module werden nicht mehr „verschluckt“
+- Explizit ausgewählte P-Module erscheinen im Procedere auch dann, wenn alle Bullet-Points als „bereits erfolgt“ herausgefiltert wurden.
+- Dann Ausgabe: „Derzeit keine zusätzliche Maßnahme ableitbar.“
+
+2) Cards Mode – graue Balken innerhalb von Cards entfernt
+- Globale Tab-Überschriften-Styles (h3/h4) greifen nur noch bei direkten Tab-Section-Headern, nicht innerhalb von .rhk-card.
+
+---
+
+Patch 27.2.4 (2026-01-08)
+
+Änderungen
+
+1) Klinik & Labor – bessere Orientierung
+- Neue Abschnittsüberschrift „Allgemeines, Anamnese, Vorerkrankungen“ am Anfang des Tabs.
+- Abschnitt „Symptome / Funktion“ umbenannt zu „Funktion / Symptome“ für konsistentere Navigation.
+
+2) Cards Mode – professionellere Section Header
+- Abschnittsüberschriften innerhalb der Tab-Cards sind jetzt klarer und „card header“-ähnlich gestylt (bessere Scanbarkeit, weniger Verlorenheitsgefühl).
+
+
 Patch: Screenshot/Scan Import (optional OCR)
 
 - Echo Import akzeptiert jetzt PDF ODER Screenshot (PNG/JPG/JPEG/WebP).
@@ -10,3 +57,8 @@ Python-Pakete (falls nicht vorhanden):
 
 System-Abhängigkeit:
   Tesseract OCR muss installiert sein und im PATH liegen.
+
+
+## v27.2.6 (2026-01-08)
+- FIX: P-Module titles restored in UI and selection works again (TextBlock structure preserved).
+- IMPROVE: P-Module texts shortened and styled as concise Arztbrief-Procedere.

@@ -1,0 +1,2 @@
+v27.0.6 (2026-01-07)
+- FIX: Copy-Buttons wieder funktionsfähig: JS Copy-Observer/Handler Fehler (rekursive/duplizierte installCopyObserver Definition) behoben.

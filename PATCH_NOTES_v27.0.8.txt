@@ -1,0 +1,9 @@
+Datum: 2026-01-07
+Version: v27.0.8
+
+Änderungen
+- DOCX Download (Arztbericht): Der exportierte DOCX enthält nun zusätzlich den Patientenbericht Rechtsherzkatheter sowie den Patientenbericht Echokardiographie (jeweils mit Seitenumbruch).
+- DOCX Layout: Unterstützt nun Überschriften (##/###) und explizite Seitenumbrüche ([[PAGEBREAK]]) für eine professionellere Word Struktur.
+
+Fixes
+- Keine.

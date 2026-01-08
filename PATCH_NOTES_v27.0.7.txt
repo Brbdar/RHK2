@@ -1,0 +1,11 @@
+RHK Befunder – Patch Notes v27.0.7 (2026-01-07)
+
+Änderungen
+
+1) DOCX Download Arztbericht
+- Neuer Button "DOCX" neben "Arztbericht kopieren".
+- Erzeugt einen fertig formatierten DOCX Arztbericht (Copy Layout).
+- In-App-Arztbericht bleibt unverändert.
+
+2) UI Kompaktheit
+- Copy/Download Button Row ist kompakter (kleinere Buttons).

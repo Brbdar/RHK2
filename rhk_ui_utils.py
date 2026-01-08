@@ -1071,9 +1071,44 @@ def build_pre_cath_header_html(ui: dict | None) -> str:
 
     renal_chip = _chip(f"Krea: {_fmt_or_dash(crea,2)}", renal_tone, renal_tip)
 
-    # 4)
+    # 5) Allergien (immer sichtbar)
+    # UI keys:
+    # - allergies_present: bool
+    # - allergies_list: list[str]
+    # - allergies_other_text: str
+    allergies_present = bool(ui.get("allergies_present") is True)
+    allergies_list = ui.get("allergies_list")
+    if allergies_list is None:
+        allergies_list = ui.get("allergies")
+    if not isinstance(allergies_list, list):
+        allergies_list = [] if allergies_list in (None, "") else [str(allergies_list)]
+    allergies_list = [str(x).strip() for x in allergies_list if str(x).strip()]
+    allergies_other = str(ui.get("allergies_other_text") or ui.get("allergies_other") or "").strip()
 
-    # 4) Infekt (CRP)
+    # Always show a neutral chip if nothing is present
+    if (not allergies_present) and (not allergies_list) and (not allergies_other):
+        allergy_chip = _chip("Allergien: –", "rhk-schip--info")
+    else:
+        items = list(allergies_list)
+        if allergies_other:
+            # if "sonstiges" is selected, replace it with the free text for readability
+            if any(i.lower() == "sonstiges" for i in items):
+                items = [i for i in items if i.lower() != "sonstiges"]
+            items.append(allergies_other)
+        # De-duplicate while keeping order
+        seen = set()
+        dedup = []
+        for it in items:
+            key = it.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            dedup.append(it)
+
+        allergy_text = ", ".join(dedup) if dedup else "(nicht spezifiziert)"
+        allergy_chip = _chip(f"Allergien: {allergy_text}", "rhk-schip--warn")
+
+    # 6) Infekt (CRP)
     crp = _safe_float(ui.get("crp_mg_l"))
     if crp is not None and crp > 20:
         infect_chip = _chip(f"Infekt: CRP {crp:g}", "rhk-schip--bad")
@@ -1090,5 +1125,6 @@ def build_pre_cath_header_html(ui: dict | None) -> str:
         + antico_chip
         + infect_chip
         + renal_chip
+        + allergy_chip
         + "</div>"
     )

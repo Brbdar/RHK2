@@ -1,0 +1,11 @@
+Patch 27.2.4 (2026-01-08)
+
+Änderungen
+
+1) Tabs – „angeschnittene“ Reiterlinie behoben
+- Trennlinie unter den Tabs neu positioniert (schneidet nicht mehr an).
+
+2) Cards Mode – echte Card-Sektionen in den Input-Reitern
+- Klinik & Labor: vier Cards (Allgemeines/Anamnese/Vorerkrankungen, Funktion/Symptome, Labor, Medikation & Zusatzangaben).
+- Bildgebung & Echo/CMR: getrennte Cards (Thorax-Bildgebung, MRT/CMR).
+- Lungenfunktion: getrennte Cards (Lungenfunktion, CPET).

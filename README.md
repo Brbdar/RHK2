@@ -1,4 +1,4 @@
-# RHK Befundassistent – v27.0.4 (split)
+# RHK Befundassistent – v27.2.4
 
 ## Neu in v27.0.4
 
@@ -263,3 +263,34 @@ Wenn du dieses Repo als LLM weiterentwickelst:
 ## v27.0.5 (2026-01-07)
 - Copy-Export: Reihenfolge/Format an Screenshot-Stil angepasst (Klinik/Labor/Bildgebung/Lufu/CPET → Beurteilung → Empfehlung/Procedere).
 - Clipboard Copy: robust gegen Gradio-Rerenders (Handler wird neu installiert via MutationObserver).
+
+
+## v27.0.6 (2026-01-07)
+- FIX: Copy-Buttons wieder funktionsfähig: JS Copy-Observer/Handler Fehler (duplizierte/rekursive installCopyObserver Definition) behoben.
+
+
+## v27.0.7 (2026-01-07)
+- Neuer Download Button: Arztbericht kann zusätzlich als fertig formatiertes DOCX heruntergeladen werden (Copy Layout, in-app Bericht unverändert).
+- Copy/Download Button Row kompakter gestaltet.
+
+
+## v27.0.8 (2026-01-07)
+- DOCX Export erweitert: Im selben Dokument werden nun unterhalb des Arztberichts zusätzlich der Patientenbericht Rechtsherzkatheter und der Patientenbericht Echokardiographie angehängt (jeweils mit Seitenumbruch).
+- DOCX Layout Engine erweitert: Überschriften (##/###) und explizite Seitenumbrüche ([[PAGEBREAK]]) werden unterstützt.
+
+
+## v27.2 (2026-01-07)
+
+- UX: Hauptreiter jetzt sticky und als segmented control deutlich sichtbarer.
+- Tab Unterzeile (Kontext) + Statuspunkte pro Tab (zeigt befüllte Tabs).
+- Dashboard: Verlaufskarte für RHK Ruhe (Vorbefund vs aktuell, Trendpfeile).
+
+## v27.2.4 (2026-01-08)
+
+- Klinik & Labor: Allergien-Workflow ergänzt (Checkbox → Mehrfachauswahl; „sonstiges“ → Freitext).
+- Pre-Cath Sticky Header: Allergien-Chip immer sichtbar (bei fehlenden Angaben: „Allergien: –“), Anzeige neben Nierenfunktion.
+- Fix: Antikoagulation „pausiert“ wird beim Laden/Speichern nicht mehr zurückgesetzt.
+
+## v27.1 (2026-01-07)
+- UI Redesign: Modernes, helles Card-based Dashboard Layout (Cards statt unstrukturierter Blöcke), bessere visuelle Gruppierung zur schnelleren Orientierung.
+- Accordions und Eingabebereiche sind optisch vereinheitlicht (Card Look, konsistente Radien, reduzierte visuelle Unruhe).
