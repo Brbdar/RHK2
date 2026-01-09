@@ -1,0 +1,5 @@
+v27.4.3
+- Sticky Header: LSB Tooltip + Begründung
+- UI: LSB Begründung Feld (conditional)
+- Report: LSB Begründung Ausgabe
+

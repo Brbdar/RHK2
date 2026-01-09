@@ -425,8 +425,14 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
         derived["vol_challenge_pawp_pre"] = pawp_pre_v
         derived["vol_challenge_pawp_post"] = pawp_post_v
         derived["vol_challenge_resp"] = f"PAWP pre {_fmt(pawp_pre_v,0)} → post {_fmt(pawp_post_v,0)} mmHg"
+
+        # Guideline-based endpoint for fluid challenge is the *absolute* PAWP response.
+        # Commonly used protocol: ~500 mL (7–10 mL/kg) NaCl over 5–10 min; PAWP ≥18 mmHg suggests occult LV diastolic dysfunction/HFpEF.
+        # Note: Validation/long-term data are limited; data for PAH response are insufficient (ESC/ERS 2022).
+        derived["vol_challenge_pawp_ge_18"] = bool(pawp_post_v >= 18.0)
     else:
         derived["vol_challenge_resp"] = ""
+        derived["vol_challenge_pawp_ge_18"] = False
 
     agent = (ui.get("vaso_agent") or "").strip()
     vaso_resp = (ui.get("vaso_response_desc") or "").strip()
@@ -1255,13 +1261,17 @@ def build_render_ctx(case: Dict[str, Any]) -> Dict[str, Any]:
     provocation_result_sentence = ""
     if der.get("volume_challenge_done"):
         provocation_type_desc = "Volumenchallenge"
+        pawp_pre = der.get("vol_challenge_pawp_pre")
+        pawp_post = der.get("vol_challenge_pawp_post")
         delta = der.get("vol_challenge_delta_pawp")
-        resp = der.get("vol_challenge_resp")
-        if delta is not None:
-            provocation_sentence = f"Nach Volumenchallenge ΔPAWP {_fmt(delta,0)} mmHg"
-            if resp:
-                provocation_sentence += f" ({resp})"
-            provocation_sentence += "."
+        if pawp_pre is not None and pawp_post is not None:
+            provocation_sentence = f"Nach Volumenchallenge PAWP {_fmt(pawp_pre,0)} → {_fmt(pawp_post,0)} mmHg"
+            if delta is not None:
+                provocation_sentence += f" (Δ {_fmt(delta,0)} mmHg)"
+            if bool(der.get("vol_challenge_pawp_ge_18")):
+                provocation_sentence += "; Endpunkt PAWP ≥18 mmHg (Hinweis okkulte HFpEF)."
+            else:
+                provocation_sentence += "."
             provocation_result_sentence = provocation_sentence
     elif der.get("vasoreactivity_done"):
         provocation_type_desc = "Vasoreaktivitätstest"

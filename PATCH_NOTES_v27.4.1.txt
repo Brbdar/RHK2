@@ -1,0 +1,13 @@
+PATCH NOTES – v27.4.1
+
+Stabilität / Release-Hygiene
+- Entfernt: __pycache__ und Untitled.ipynb aus dem Release-Paket.
+- README Versionsangaben konsolidiert (v27.4.1).
+
+Regression-Schutz (Regelwerk)
+- Neu: tests/rules_snapshot.py inkl. Snapshot-Ordner tests/_snapshots/
+  -> ermöglicht Vergleich/Update von Rule-Engine Outputs für definierte Beispiel-Fälle.
+
+PH-Therapie Sicherheit
+- Neu: harter Kontraindikations-Guard "Nitrate/NO-Donor + PDE-5-Hemmer"
+  -> Tag + Empfehlung im Ergebnis (Rulebook), UI-Key in "Bekannte PH" ergänzt.

@@ -436,18 +436,14 @@ CSS = ("""
 
 
 
-/*
-  Input tabs: the *tab page* itself should NOT look like a giant grey/boxed block.
-  The scanability must come from the inner .rhk-card sections.
-  This avoids the "graue Balken" effect and makes each area feel like a clean card.
-*/
+/* Tab content as card: improves scanability on Klinik/Labor, Imaging, Lufu/CPET etc. */
 #rhk_input_tabs .tabitem {
-  background: transparent !important;
-  border: none !important;
-  border-radius: 0 !important;
-  padding: 0 !important;
-  box-shadow: none !important;
-  margin-bottom: 16px !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(0,0,0,0.10) !important;
+  border-radius: 16px !important;
+  padding: 14px 14px 10px 14px !important;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.04) !important;
+  margin-bottom: 14px !important;
 }
 
 /* Make section headings within tabs feel like card headers */
@@ -457,55 +453,10 @@ CSS = ("""
   margin-bottom: 8px !important;
 }
 
-/* Section headers inside tab-cards: clear, compact, "card header" feel */
-/*
-  Tab-Section Headings (außerhalb von Cards)
-  Wichtig: In .rhk-card sollen Überschriften wie ein Card-Header wirken –
-  ohne die grauen Balken/Boxen aus den globalen h3/h4-Styles.
-  Daher: Styling nur für direkte Children der TabItem-Root.
-*/
-#rhk_input_tabs .tabitem > h3 {
-  /* No "header bar" – keep it clean and let the following card carry the structure */
-  font-size: 16px !important;
-  font-weight: 850 !important;
-  letter-spacing: 0.1px !important;
-  padding: 0 !important;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  margin: 10px 0 10px 0 !important;
-}
-
-#rhk_input_tabs .tabitem > h4 {
-  font-size: 14px !important;
-  font-weight: 800 !important;
-  padding: 0 !important;
-  background: transparent !important;
-  border: none !important;
-  border-radius: 0 !important;
-  margin: 8px 0 8px 0 !important;
-}
-
 /* Reduce vertical noise between form rows */
 #rhk_input_tabs .tabitem .gr-row {
   gap: 10px !important;
   margin-bottom: 10px !important;
-  background: transparent !important;
-  border: none !important;
-}
-
-/*
-  Remove unwanted "grey separator bars" coming from Gradio row/block backgrounds.
-  We want floating white cards on a soft page background – like your reference.
-*/
-#rhk_input_tabs .tabitem .gr-row > div,
-#rhk_input_tabs .tabitem .gr-row > span,
-#rhk_input_tabs .tabitem .gr-row .gr-block,
-#rhk_input_tabs .tabitem .gr-row .gr-form,
-#rhk_input_tabs .tabitem .gr-row .gr-box {
-  background: transparent !important;
-  box-shadow: none !important;
-  border: none !important;
 }
 
 /* Hidden clipboard payloads must remain in DOM for robust JS copy binding */
@@ -521,9 +472,10 @@ CSS = ("""
   --border: rgba(0,0,0,0.08);
 
   /* Gradio CSS vars (override dark defaults) */
-  --body-background-fill: #f6f7fb !important;
+  /* Canvas: very light lavender (keeps your existing palette, but less "grau" dominant) */
+  --body-background-fill: #faf9ff !important;
   --background-fill-primary: #ffffff !important;
-  --background-fill-secondary: #f6f7fb !important;
+  --background-fill-secondary: #faf9ff !important;
   --block-background-fill: rgba(255,255,255,0.96) !important;
   --block-border-color: rgba(0,0,0,0.08) !important;
   --input-background-fill: #ffffff !important;
@@ -532,7 +484,7 @@ CSS = ("""
   --input-text-color: #111111 !important;
 }
 
-html, body { color-scheme: light !important; background: #f6f7fb !important; }
+html, body { color-scheme: light !important; background: #faf9ff !important; }
 
 .gradio-container { max-width: 1700px !important; margin: 0 auto !important; padding-left: 8px; padding-right: 8px; }
 
@@ -544,10 +496,92 @@ html, body { color-scheme: light !important; background: #f6f7fb !important; }
 .rhk-card{
   background: rgba(255,255,255,0.98) !important;
   border: 1px solid rgba(15, 23, 42, 0.08) !important;
-  border-radius: 16px !important;
+  border-radius: 20px !important;
   padding: 14px 14px 10px 14px !important;
   box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04) !important;
   margin: 8px 0 !important;
+}
+
+/* ------------------------------------------------------------------
+   Section cards (Apple-like header bar + subtle progress)
+   ------------------------------------------------------------------ */
+
+.rhk-section-card{ padding: 0 !important; overflow: hidden; border-radius: 22px !important; }
+
+.rhk-sec-head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  background: rgba(168, 85, 247, 0.035); /* softer lavender tint */
+}
+
+.rhk-sec-title{
+  font-size: 13px;
+  font-weight: 850;
+  color: #0f172a;
+  letter-spacing: 0.1px;
+}
+
+.rhk-sec-progress{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.rhk-sec-progress.is-optional .rhk-sec-bar{ display: none; }
+
+.rhk-sec-progress .rhk-sec-count{
+  font-size: 12px;
+  font-weight: 750;
+  color: rgba(15, 23, 42, 0.70);
+}
+
+.rhk-sec-bar{
+  width: 92px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+.rhk-sec-bar > div{
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: rgba(168, 85, 247, 0.74);
+}
+
+.rhk-sec-body{
+  padding: 14px 14px 10px 14px !important;
+  background: #ffffff !important;
+}
+
+/* Inside section cards: prevent "graue Streifen" by keeping wrappers transparent */
+.rhk-section-card .gr-row,
+.rhk-section-card .gr-column,
+.rhk-section-card .gr-form,
+.rhk-section-card .gr-box,
+.rhk-section-card .gr-block,
+.rhk-section-card .wrap,
+.rhk-section-card .block{
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Apple-like rounding for input wrappers inside cards */
+.rhk-card .gr-text-input,
+.rhk-card .gr-number,
+.rhk-card .gr-dropdown,
+.rhk-card .gr-textbox,
+.rhk-card .gradio-dropdown,
+.rhk-card .gradio-textbox,
+.rhk-card .gradio-number,
+.rhk-card .gradio-text-input{
+  border-radius: 22px !important;
 }
 
 /* Slightly tighter variant */
@@ -578,37 +612,6 @@ html, body { color-scheme: light !important; background: #f6f7fb !important; }
 }
 .rhk-card .gr-row{
   gap: 10px !important;
-  /* Prevent the full-width grey bars between rows (Gradio background-fill on rows) */
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  margin: 0 0 10px 0 !important;
-}
-
-/* Gradio can paint container backgrounds for Markdown/prose blocks – remove inside cards */
-.rhk-card .gr-markdown,
-.rhk-card .prose,
-.rhk-card .markdown,
-.rhk-card .md,
-.rhk-card .wrap,
-.rhk-card .gr-form,
-.rhk-card .gr-box,
-.rhk-card .gr-block,
-.rhk-card .block,
-.rhk-card .form,
-.rhk-card .container{
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-
-/* Also neutralize the immediate row children wrappers */
-.rhk-card .gr-row > div,
-.rhk-card .gr-row > span{
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
 }
 
 /* Verlauf table (Dashboard) */
@@ -712,9 +715,6 @@ button[title*="Dark"] {
   overflow: visible !important;
   white-space: normal !important;
   gap: 4px 6px !important;
-  border-bottom: none !important;
-  box-shadow: none !important;
-  padding-bottom: 8px !important;
 }
 /* volle Tab-Titel (kein Ellipsis) */
 [role="tablist"] > button{
@@ -752,31 +752,22 @@ button[title*="Dark"] {
   background: rgba(246, 247, 251, 0.92) !important;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  /* Give the pill tabs more room so the divider never "cuts" through them */
-  padding: 10px 6px 12px 6px !important;
-  margin: 0 0 10px 0 !important;
+  padding: 10px 6px 14px 6px !important;
+  margin: 0 0 6px 0 !important;
   border-bottom: none !important;
 }
 
-/* Draw the divider BELOW the pills (avoid the "feine Linie schneidet Tabs" issue) */
+/* Divider under tab pills (prevents the line from visually "cutting" the buttons) */
 .gradio-container .tabs > .tab-nav::after,
 .gradio-container .tab-nav::after{
   content: "";
   position: absolute;
   left: 0;
   right: 0;
-  /* Push the divider a bit lower so it never visually intersects the pills */
-  bottom: -6px;
+  bottom: 0;
   height: 1px;
   background: rgba(15, 23, 42, 0.08);
   pointer-events: none;
-}
-
-/* Some Gradio builds add their own tablist underline. Remove it. */
-.gradio-container [role="tablist"]{
-  border-bottom: none !important;
-  box-shadow: none !important;
-  padding-bottom: 6px !important;
 }
 
 /* Segmented control look for tab buttons */
@@ -956,28 +947,12 @@ button[title*="Dark"] {
   background: rgba(246,247,251,0.92) !important;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  padding: 10px 6px 24px 6px !important; /* more bottom space so divider never "cuts" the pills */
+  padding: 8px 6px !important;
   margin: 0 0 6px 0 !important;
-  border-bottom: none !important;
-}
-
-/* Divider below the pill tabs (kept away from the pills) */
-.gradio-container .tabs > .tab-nav::after,
-.gradio-container .tab-nav::after{
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 2px;
-  height: 1px;
-  background: rgba(15,23,42,0.08);
-  z-index: 1;
-  pointer-events: none;
+  border-bottom: 1px solid rgba(15,23,42,0.08) !important;
 }
 
 .gradio-container .tab-nav button{
-  position: relative;
-  z-index: 2;
   border-radius: 999px !important;
   padding: 8px 12px !important;
   font-size: 13px !important;

@@ -1,0 +1,9 @@
+v27.4.0
+
+- Leitlinien-/Review-Update (WSPH 2024 + ESC/ERS 2022):
+  - Neue Regel: V/Q-(Perfusions)-Scan wird bei (neu/unexplained) PH explizit empfohlen, sofern nicht dokumentiert.
+  - Neue Regel: Tagging „Gruppe 1 (PAH) wahrscheinlich“ bei präkapillärer PH ohne Hinweise auf Gruppe 3/4 oder Shunt.
+  - Neue Regeln: Therapiehinweise entlang des WSPH-Algorithmus (initiale orale Kombination, Hochrisiko: frühe parenterale Prostacyclin-Pathway-Therapie + Kombination, Eskalationslogik bis hin zum 4. Pfad).
+  - Kontext-Hinweis: 4. Therapiepfad (BMPR2/Activin; z.B. Sotatercept) als Add-on Option bei nicht-niedrigem Risiko.
+
+Hinweis: Die Regeln formulieren bewusst Empfehlungen/Prüfhinweise (keine Verordnung) und sollen die klinische Entscheidung im PH-Zentrum unterstützen.

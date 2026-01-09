@@ -1,4 +1,4 @@
-# RHK Befundassistent – v27.2.4
+# RHK Befundassistent – v27.4.5
 
 ## Neu in v27.0.4
 
@@ -285,7 +285,7 @@ Wenn du dieses Repo als LLM weiterentwickelst:
 - Tab Unterzeile (Kontext) + Statuspunkte pro Tab (zeigt befüllte Tabs).
 - Dashboard: Verlaufskarte für RHK Ruhe (Vorbefund vs aktuell, Trendpfeile).
 
-## v27.2.4 (2026-01-08)
+## v27.2.2 (2026-01-08)
 
 - Klinik & Labor: Allergien-Workflow ergänzt (Checkbox → Mehrfachauswahl; „sonstiges“ → Freitext).
 - Pre-Cath Sticky Header: Allergien-Chip immer sichtbar (bei fehlenden Angaben: „Allergien: –“), Anzeige neben Nierenfunktion.

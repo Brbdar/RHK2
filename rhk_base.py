@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RHK Befundassistent (Web) – v27.2.4
+RHK Befundassistent (Web) – v27.4.2
 
 - Ultra-interaktiver Gradio-Assistenzbogen für RHK-/PH-Befunde
 - Deklaratives Regelwerk (YAML) zur Guideline-nahen Klassifikation, Modulen & Empfehlungen
@@ -37,10 +37,10 @@ except Exception:  # pragma: no cover
 # =============================================================================
 
 APP_NAME = "RHK Befundassistent"
-APP_VERSION = "v27.2.9"
+APP_VERSION = "v27.4.5"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 WHATS_NEW = (
-    "Fix: eGFR wird automatisch berechnet (auch nach DOCX Import/Laden) · "
+    "Echo: Expertenbericht erweitert und klarer strukturiert · Fix: eGFR wird automatisch berechnet (auch nach DOCX Import/Laden) · "
     "UX: Sticky Header Pre-Cath ist identisch zum Hämodynamik Header · "
     "Neu: P Module P26–P30 (Trinkmenge, Risikofaktoren, Gewicht, LTOT, CT Konferenz) · "
     "Neu: Klinik Feld Relevante Vorerkrankungen direkt unter Kurz-Anamnese · "

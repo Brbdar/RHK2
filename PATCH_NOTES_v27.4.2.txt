@@ -1,0 +1,8 @@
+## v27.4.2 (2026-01-09)
+- Risiko: Test Guard gegen tote Inputs (tests/test_risk_input_coverage.py). Riskorelevante Eingaben müssen mindestens einen Score beeinflussen.
+- Therapie: Kontraindikation PDE 5 Hemmer plus Riociguat ergänzt.
+- Therapie: Sotatercept Gruppenguard (nur PAH Gruppe 1) plus PDE 5 außerhalb Gruppe 1 nur mit Härtefall Dokumentation.
+- EKG: Hinweis wenn EKG nicht dokumentiert plus Tag bei dokumentierten Rechtsherzbelastungszeichen.
+- Pre Cath Safety: LSB Checkbox plus Warn Chip im Sticky Header nur wenn aktiv.
+- Medikation: Nitrate NO Donor als Sicherheitsabfrage plus PDE 5 Härtefall Begründung im Tab Medikation.
+- Reports: Arztbericht erweitert um EKG Angaben LSB Nitrate und Therapie Verlauf Felder.

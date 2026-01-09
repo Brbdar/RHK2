@@ -139,339 +139,468 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
                 # ---- Tab 1: Klinik & Labor ----
                 with gr.TabItem("Klinik & Labor", id=0):
-
-                    # Card 1
-                    with gr.Group(elem_classes=["rhk-card"]):
-                        gr.Markdown("### Allgemeines, Anamnese, Vorerkrankungen")
-                        with gr.Row():
-                            add("firstname", gr.Textbox(label="Vorname"))
-                            add("name", gr.Textbox(label="Name"))
-                        with gr.Row():
-                            add("age", gr.Number(label="Alter (Jahre)"))
-                            add("sex", gr.Dropdown(label="Geschlecht", choices=["keine Angabe", "weiblich", "männlich"], value="keine Angabe"))
-                        with gr.Row():
-                            add("height_cm", gr.Number(label="Größe (cm)"))
-                            add("weight_kg", gr.Number(label="Gewicht (kg)"))
-                        with gr.Row():
-                            add("bp_sys", gr.Number(label="RR syst (mmHg)"))
-                            add("bp_dia", gr.Number(label="RR diast (mmHg)"))
-                            add("hr", gr.Number(label="Herzfrequenz (/min)"))
-                        add("story", gr.Textbox(label="Story / Kurz-Anamnese", lines=3))
-                        add("comorbidities", gr.Textbox(
-                            label="Relevante Vorerkrankungen",
-                            lines=2,
-                            placeholder="z.B. KHK, COPD, Z. n. LAE, CKD …",
-                        ))
-
-                        # Allergien (aktiviert weitere Auswahl)
-                        allergies_present = add("allergies_present", gr.Checkbox(label="Allergien"))
-                        with gr.Column(visible=False) as allergies_details:
+                    # Card 1: Allgemeines/Anamnese/Vorerkrankungen
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_klinik_general = gr.HTML("<div class='rhk-sec-head'><div class='rhk-sec-title'>Allgemeines, Anamnese, Vorerkrankungen</div><div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span><div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>")
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            with gr.Row():
+                                add("firstname", gr.Textbox(label="Vorname"))
+                                add("name", gr.Textbox(label="Name"))
+                            with gr.Row():
+                                add("age", gr.Number(label="Alter (Jahre)"))
+                                add("sex", gr.Dropdown(label="Geschlecht", choices=["keine Angabe", "weiblich", "männlich"], value="keine Angabe"))
+                            with gr.Row():
+                                add("height_cm", gr.Number(label="Größe (cm)"))
+                                add("weight_kg", gr.Number(label="Gewicht (kg)"))
+                            with gr.Row():
+                                add("bp_sys", gr.Number(label="RR syst (mmHg)"))
+                                add("bp_dia", gr.Number(label="RR diast (mmHg)"))
+                                add("hr", gr.Number(label="Herzfrequenz (/min)"))
+                            add("story", gr.Textbox(label="Story / Kurz-Anamnese", lines=3))
+                            add("comorbidities", gr.Textbox(
+                                label="Relevante Vorerkrankungen",
+                                lines=2,
+                                placeholder="z.B. KHK, COPD, Z. n. LAE, CKD …",
+                            ))
+                            with gr.Row():
+                                ekg_present = add("ekg_present", gr.Checkbox(label="12-Kanal-EKG vorhanden"))
+                                add("lsb_present", gr.Checkbox(label="LSB (Linksschenkelblock)"))
+                            # LSB: Begründung nur wenn LSB aktiv
                             add(
-                                "allergies_list",
-                                gr.Dropdown(
-                                    label="Welche Allergien? (Mehrfachauswahl)",
-                                    choices=["Pflaster", "Heparin", "Lidocain", "sonstiges"],
-                                    multiselect=True,
-                                    value=[],
+                                "lsb_reason",
+                                gr.Textbox(
+                                    label="LSB: Begründung (z.B. bekannt seit…, Quelle EKG…)",
+                                    lines=1,
+                                    placeholder="Kurz begründen, warum LSB relevant ist (z.B. präexistent im EKG vom …).",
+                                    visible=False,
                                 ),
                             )
-                            add("allergies_other_text", gr.Textbox(label="Allergien – Sonstiges", lines=1, visible=False))
+                            with gr.Column(visible=False) as ekg_details:
+                                add(
+                                    "ekg_rhs_signs",
+                                    gr.Dropdown(
+                                        label="EKG: Rechtsherzbelastungszeichen (Mehrfachauswahl)",
+                                        choices=[
+                                            "Rechtsachsenabweichung",
+                                            "P pulmonale",
+                                            "R/S in V1 > 1 (RVH)",
+                                            "RBBB",
+                                            "T-Negativierung rechtspräkordial",
+                                            "S1Q3T3",
+                                            "Sonstiges/unklar",
+                                        ],
+                                        multiselect=True,
+                                        value=[],
+                                    ),
+                                )
+                                add("ekg_other_text", gr.Textbox(label="EKG – Sonstiges", lines=2, visible=False))
 
-                        with gr.Row():
-                            add("chd_pos", gr.Checkbox(label="Angeborener Herzfehler/Shunt bekannt oder V. a."))
-                        with gr.Column(visible=False) as chd_details:
-                            add("chd_type", gr.Dropdown(label="Welche Diagnose? (optional)", choices=["keine Angabe", "ASD (Vorhofseptumdefekt)", "VSD (Ventrikelseptumdefekt)", "PDA (Ductus arteriosus persistens)", "AVSD (atrioventrikulärer Septumdefekt)", "Komplexer Herzfehler / univentrikulär", "Eisenmenger-Syndrom", "Status nach Korrektur (z.B. Shunt-Verschluss)", "Sonstiges/unklar"], value="keine Angabe"))
-                            add("chd_desc", gr.Textbox(label="Details (optional)", lines=2))
-
-                        with gr.Row():
-                            ph_known = add("ph_known", gr.Checkbox(label="PH-Diagnose bekannt"))
-                            ph_suspected = add("ph_suspected", gr.Checkbox(label="PH-Verdachtsdiagnose"))
-
-                        # Bekannte PH: Details (nur sichtbar, wenn „PH-Diagnose bekannt“ aktiviert ist)
-                        with gr.Column(visible=False) as ph_known_details:
-                            gr.Markdown("#### Bekannte PH – Details")
-                            add("ph_known_dx", gr.Dropdown(
-                                label="Bekannte PH-Diagnose (Gruppe/Typ)",
-                                choices=[
-                                    "keine Angabe",
-                                    "PAH (Gruppe 1)",
-                                    "PH bei Linksherzerkrankung / HFpEF (Gruppe 2)",
-                                    "PH bei Lungenerkrankung / Hypoxie (Gruppe 3)",
-                                    "CTEPH (Gruppe 4)",
-                                    "Sonstige/unklar (Gruppe 5)",
-                                ],
-                                value="keine Angabe",
-                            ))
-                            add("ph_known_subtype", gr.Textbox(label="Subtyp / Kontext (optional)", lines=2, placeholder="z.B. Systemsklerose, Portopulmonal, idiopathisch …"))
+                            # Allergien (aktiviert weitere Auswahl)
+                            allergies_present = add("allergies_present", gr.Checkbox(label="Allergien"))
+                            with gr.Column(visible=False) as allergies_details:
+                                add(
+                                    "allergies_list",
+                                    gr.Dropdown(
+                                        label="Welche Allergien? (Mehrfachauswahl)",
+                                        choices=["Pflaster", "Heparin", "Lidocain", "sonstiges"],
+                                        multiselect=True,
+                                        value=[],
+                                    ),
+                                )
+                                add("allergies_other_text", gr.Textbox(label="Allergien – Sonstiges", lines=1, visible=False))
                             with gr.Row():
-                                add("ph_first_dx", gr.Textbox(label="Erstdiagnose (MM/JJJJ)", placeholder="z.B. 03/2021"))
-                                add("ph_reason_rhk", gr.Dropdown(
-                                    label="Grund der aktuellen Untersuchung",
-                                    choices=["keine Angabe", "Verlaufskontrolle", "Therapieentscheidung", "Neusymptomatik", "vor Eingriff/OP", "Sonstiges"],
+                                add("chd_pos", gr.Checkbox(label="Angeborener Herzfehler/Shunt bekannt oder V. a."))
+                            with gr.Column(visible=False) as chd_details:
+                                add("chd_type", gr.Dropdown(label="Welche Diagnose? (optional)", choices=["keine Angabe", "ASD (Vorhofseptumdefekt)", "VSD (Ventrikelseptumdefekt)", "PDA (Ductus arteriosus persistens)", "AVSD (atrioventrikulärer Septumdefekt)", "Komplexer Herzfehler / univentrikulär", "Eisenmenger-Syndrom", "Status nach Korrektur (z.B. Shunt-Verschluss)", "Sonstiges/unklar"], value="keine Angabe"))
+                                add("chd_desc", gr.Textbox(label="Details (optional)", lines=2))
+
+                            with gr.Row():
+                                ph_known = add("ph_known", gr.Checkbox(label="PH-Diagnose bekannt"))
+                                ph_suspected = add("ph_suspected", gr.Checkbox(label="PH-Verdachtsdiagnose"))
+
+                            # Bekannte PH: Details (nur sichtbar, wenn „PH-Diagnose bekannt“ aktiviert ist)
+                            with gr.Column(visible=False) as ph_known_details:
+                                add("ph_known_dx", gr.Dropdown(
+                                    label="Bekannte PH-Diagnose (Gruppe/Typ)",
+                                    choices=[
+                                        "keine Angabe",
+                                        "PAH (Gruppe 1)",
+                                        "PH bei Linksherzerkrankung / HFpEF (Gruppe 2)",
+                                        "PH bei Lungenerkrankung / Hypoxie (Gruppe 3)",
+                                        "CTEPH (Gruppe 4)",
+                                        "Sonstige/unklar (Gruppe 5)",
+                                    ],
                                     value="keine Angabe",
                                 ))
+                                add("ph_known_subtype", gr.Textbox(label="Subtyp / Kontext (optional)", lines=2, placeholder="z.B. Systemsklerose, Portopulmonal, idiopathisch …"))
+                                with gr.Row():
+                                    add("ph_first_dx", gr.Textbox(label="Erstdiagnose (MM/JJJJ)", placeholder="z.B. 03/2021"))
+                                    add("ph_reason_rhk", gr.Dropdown(
+                                        label="Grund der aktuellen Untersuchung",
+                                        choices=["keine Angabe", "Verlaufskontrolle", "Therapieentscheidung", "Neusymptomatik", "vor Eingriff/OP", "Sonstiges"],
+                                        value="keine Angabe",
+                                    ))
 
-                            ph_med_choices = [
-                                "PDE‑5‑Hemmer",
-                                "sGC‑Stimulator (Riociguat)",
-                                "Endothelin‑Rezeptorantagonist (ERA)",
-                                "Prostazyklin‑Therapie / -Analogon",
-                                "IP‑Rezeptoragonist (z.B. Selexipag)",
-                                "Kalziumantagonist (bei Vasoreaktivität)",
-                                "Diuretikum",
-                                "Sauerstofftherapie",
-                                "Sonstiges",
-                            ]
-                            add("ph_current_meds", gr.Dropdown(
-                                label="Aktuelle Therapie (Mehrfachauswahl)",
-                                choices=ph_med_choices,
-                                multiselect=True,
-                                value=[],
-                            ))
-                            add("ph_prev_meds", gr.Dropdown(
-                                label="Frühere Therapie (optional, Mehrfachauswahl)",
-                                choices=ph_med_choices,
-                                multiselect=True,
-                                value=[],
-                            ))
-                            add("ph_interventions", gr.Dropdown(
-                                label="Bereits durchgeführte Interventionen (optional, Mehrfachauswahl)",
-                                choices=[
-                                    "PEA (Pulmonalisendarteriektomie, OP)",
-                                    "BPA (Ballonangioplastie, Katheter)",
-                                    "Vasoreaktivitätstest",
-                                    "Intensivtherapie/Parenteraltherapie",
-                                    "LTX-Evaluation (Transplantations-Abklärung)",
+                                ph_med_choices = [
+                                    "PDE‑5‑Hemmer",
+                                    "sGC‑Stimulator (Riociguat)",
+                                    "Endothelin‑Rezeptorantagonist (ERA)",
+                                    "Prostazyklin‑Therapie / -Analogon",
+                                    "IP‑Rezeptoragonist (z.B. Selexipag)",
+                                    "Kalziumantagonist (bei Vasoreaktivität)",
+                                    "Diuretikum",
+                                    "Sauerstofftherapie",
+                                    "Sotatercept (BMPR2/Activin-Pfad)",
                                     "Sonstiges",
-                                ],
-                                multiselect=True,
-                                value=[],
+                                ]
+                                add("ph_current_meds", gr.Dropdown(
+                                    label="Aktuelle Therapie (Mehrfachauswahl)",
+                                    choices=ph_med_choices,
+                                    multiselect=True,
+                                    value=[],
+                                ))
+                                add("ph_prev_meds", gr.Dropdown(
+                                    label="Frühere Therapie (optional, Mehrfachauswahl)",
+                                    choices=ph_med_choices,
+                                    multiselect=True,
+                                    value=[],
+                                ))
+
+                                add("ph_tx_status", gr.Dropdown(
+                                    label="Therapie-Verlauf seit letzter Kontrolle",
+                                    choices=["keine Angabe", "unverändert", "neu begonnen", "eskaliert", "deeskaliert", "abgesetzt", "pausiert"],
+                                    value="keine Angabe",
+                                ))
+                                add("ph_new_meds", gr.Dropdown(
+                                    label="Neu begonnen / hinzugefügt (Mehrfachauswahl)",
+                                    choices=ph_med_choices,
+                                    multiselect=True,
+                                    value=[],
+                                ))
+                                add("ph_stopped_meds", gr.Dropdown(
+                                    label="Abgesetzt / pausiert (Mehrfachauswahl)",
+                                    choices=ph_med_choices,
+                                    multiselect=True,
+                                    value=[],
+                                ))
+                                add("ph_stop_reason", gr.Dropdown(
+                                    label="Grund für Absetzen/Pause (optional)",
+                                    choices=["keine Angabe", "Unverträglichkeit/Nebenwirkung", "Kontraindikation", "Ineffektivität", "Patient*innenwunsch", "Andere/unklar"],
+                                    value="keine Angabe",
+                                ))
+                                add("ph_stop_reason_text", gr.Textbox(label="Details (optional)", lines=2, placeholder="z.B. Hypotonie, Kopfschmerz, Blutung …"))
+
+                                add("ph_interventions", gr.Dropdown(
+                                    label="Bereits durchgeführte Interventionen (optional, Mehrfachauswahl)",
+                                    choices=[
+                                        "PEA (Pulmonalisendarteriektomie, OP)",
+                                        "BPA (Ballonangioplastie, Katheter)",
+                                        "Vasoreaktivitätstest",
+                                        "Intensivtherapie/Parenteraltherapie",
+                                        "LTX-Evaluation (Transplantations-Abklärung)",
+                                        "Sonstiges",
+                                    ],
+                                    multiselect=True,
+                                    value=[],
+                                ))
+
+                    # Card 2: Funktion/Symptome
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_klinik_symptoms = gr.HTML("<div class='rhk-sec-head'><div class='rhk-sec-title'>Funktion / Symptome</div><div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span><div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>")
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            with gr.Row():
+                                add("who_fc", gr.Dropdown(label="WHO-FC", choices=["keine Angabe", "I", "II", "III", "IV"], value="keine Angabe"))
+                                add("six_mwd_m", gr.Number(label="6MWD (m)"))
+                                add("six_mwd_date", gr.Textbox(label="6MWD Datum", placeholder="z.B. 01/2026"))
+                                add("syncope", gr.Dropdown(label="Synkope", choices=["keine Angabe", "keine", "gelegentlich", "wiederholt"], value="keine Angabe"))
+                            with gr.Row():
+                                add("hemoptysis", gr.Checkbox(label="Hämoptyse"))
+                                add("dizziness", gr.Checkbox(label="Schwindel"))
+                                add("stairs_flights", gr.Number(label="Treppen (Etagen) bis Pause", precision=0))
+
+                    # Card 3: Labor
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_klinik_labs = gr.HTML("<div class='rhk-sec-head'><div class='rhk-sec-title'>Labor</div><div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span><div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>")
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            # Neues Raster
+                            # Reihe 1: Hb | Leuko | Thrombo
+                            with gr.Row():
+                                add("hb_g_dl", gr.Number(label="Hb (g/dl)"))
+                                add("leukocytes_g_l", gr.Number(label="Leukozyten (G/l)"))
+                                add("platelets_g_l", gr.Number(label="Thrombozyten (G/l)"))
+
+                            # Optional: Anämie-Typ (nur sichtbar, wenn Hb grenzwertig/niedrig)
+                            anemia_type = add(
+                                "anemia_type",
+                                gr.Dropdown(
+                                    label="Anämie-Typ (falls Anämie vorliegt)",
+                                    choices=[
+                                        "keine Angabe",
+                                        "mikrozytär",
+                                        "normozytär",
+                                        "makrozytär",
+                                        "hämolytisch",
+                                        "akute Blutung/Blutverlust",
+                                        "unklar",
+                                    ],
+                                    value="keine Angabe",
+                                    visible=False,
+                                ),
+                            )
+
+                            # Reihe 2: INR | PTT | Kreatinin
+                            with gr.Row():
+                                add("inr", gr.Number(label="INR"))
+                                add("ptt_s", gr.Number(label="PTT (s)"))
+                                add("creatinine_mg_dl", gr.Number(label="Kreatinin (mg/dl)"))
+
+                            # Reihe 3: eGFR (auto) | CRP
+                            with gr.Row():
+                                add("egfr_ml_min_1_73", gr.Number(label="eGFR (ml/min/1,73m²)", interactive=False))
+                                add("crp_mg_l", gr.Number(label="CRP (mg/l)"))
+                            with gr.Row():
+                                add("bnp_kind", gr.Dropdown(label="BNP/NT-proBNP", choices=["BNP", "NT-proBNP"], value="NT-proBNP"))
+                                add("bnp_value", gr.Number(label="Wert (pg/ml)"))
+                                add("entresto", gr.Checkbox(label="Entresto/ARNI? (BNP eingeschränkt)"))
+                            with gr.Row():
+                                add("congestive_organopathy", gr.Radio(label="Hinweis auf congestive Organopathie?", choices=["keine Angabe", "ja", "nein"], value="keine Angabe"))
+                    
+                    # Card 4: Medikation & wichtige Zusatzangaben
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_klinik_meds = gr.HTML("<div class='rhk-sec-head'><div class='rhk-sec-title'>Medikation & wichtige Zusatzangaben</div><div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span><div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>")
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            # Antikoagulation (wichtig v.a. für CTEPH-/Embolie-Logik)
+                            with gr.Row():
+                                anticoag_status = add(
+                                    "anticoag_status",
+                                    gr.Dropdown(
+                                        label="Antikoagulation (Blutverdünnung)?",
+                                        choices=["keine Angabe", "nein", "ja", "ja, aber pausiert", "unklar"],
+                                        value="keine Angabe",
+                                    ),
+                                )
+                                anticoag_substance = add(
+                                    "anticoag_substance",
+                                    gr.Dropdown(
+                                        label="Substanz / Klasse (falls ja)",
+                                        choices=[
+                                            "keine Angabe",
+                                            "DOAC (Apixaban, Rivaroxaban, Edoxaban, Dabigatran)",
+                                            "VKA (Phenprocoumon/Warfarin)",
+                                            "Heparin/LMWH",
+                                            "Fondaparinux",
+                                            "sonstiges",
+                                        ],
+                                        value="keine Angabe",
+                                        visible=False,
+                                    ),
+                                )
+                            with gr.Row():
+                                anticoag_indication = add(
+                                    "anticoag_indication",
+                                    gr.Dropdown(
+                                        label="Indikation (falls ja)",
+                                        # NOTE: "keine Angabe" als explizite (leere) Option – verhindert Legacy-Load-Errors
+                                        choices=[
+                                            "keine Angabe",
+                                            "Vorhofflimmern",
+                                            "Venenthrombose/Lungenembolie",
+                                            "CTEPH/CTEPD",
+                                            "Mechanische Klappe",
+                                            "Andere/unklar",
+                                        ],
+                                        value="keine Angabe",
+                                        visible=False,
+                                    ),
+                                )
+                                anticoag_since = add(
+                                    "anticoag_since",
+                                    gr.Textbox(
+                                        label="seit wann (optional)",
+                                        placeholder="MM/JJJJ",
+                                        visible=False,
+                                    ),
+                                )
+                            anticoag_note = add(
+                                "anticoag_note",
+                                gr.Textbox(
+                                    label="Antikoagulation – Bemerkung (optional)",
+                                    lines=2,
+                                    visible=False,
+                                ),
+                            )
+
+                            # Für Pre-Cath Safety: Pausierung anzeigen (nur wenn Antikoagulation = ja)
+                            anticoag_paused = add(
+                                "anticoag_paused",
+                                gr.Checkbox(label="Antikoagulation pausiert?", visible=False),
+                            )
+
+                            # Nitrate/NO-Donor (Sicherheitsabfrage; relevant für PDE-5 / Riociguat)
+                            add("on_nitrates", gr.Checkbox(
+                                label="Nitrate/NO-Donor (z.B. Nitro, Isosorbid) aktuell eingenommen",
+                                value=False,
                             ))
 
-                    # Card 2
-                    with gr.Group(elem_classes=["rhk-card"]):
-                        gr.Markdown("### Funktion / Symptome")
-                        with gr.Row():
-                            add("who_fc", gr.Dropdown(label="WHO-FC", choices=["keine Angabe", "I", "II", "III", "IV"], value="keine Angabe"))
-                            add("six_mwd_m", gr.Number(label="6MWD (m)"))
-                            add("six_mwd_date", gr.Textbox(label="6MWD Datum", placeholder="z.B. 01/2026"))
-                            add("syncope", gr.Dropdown(label="Synkope", choices=["keine Angabe", "keine", "gelegentlich", "wiederholt"], value="keine Angabe"))
-                        with gr.Row():
-                            add("hemoptysis", gr.Checkbox(label="Hämoptyse"))
-                            add("dizziness", gr.Checkbox(label="Schwindel"))
-                            add("stairs_flights", gr.Number(label="Treppen (Etagen) bis Pause", precision=0))
-
-                    # Card 3
-                    with gr.Group(elem_classes=["rhk-card"]):
-                        gr.Markdown("### Labor")
-                        with gr.Row():
-                            add("hb_g_dl", gr.Number(label="Hb (g/dl)"))
-                            add("leukocytes_g_l", gr.Number(label="Leukozyten (G/l)"))
-                            add("platelets_g_l", gr.Number(label="Thrombozyten (G/l)"))
-
-                        anemia_type = add("anemia_type", gr.Dropdown(
-                            label="Anämie-Typ (falls Anämie vorliegt)",
-                            choices=["keine Angabe", "mikrozytär", "normozytär", "makrozytär", "hämolytisch", "akute Blutung/Blutverlust", "unklar"],
-                            value="keine Angabe",
-                            visible=False,
-                        ))
-
-                        with gr.Row():
-                            add("inr", gr.Number(label="INR"))
-                            add("ptt_s", gr.Number(label="PTT (s)"))
-                            add("creatinine_mg_dl", gr.Number(label="Kreatinin (mg/dl)"))
-
-                        with gr.Row():
-                            add("egfr_ml_min_1_73", gr.Number(label="eGFR (ml/min/1,73m²)", interactive=False))
-                            add("crp_mg_l", gr.Number(label="CRP (mg/l)"))
-                        with gr.Row():
-                            add("bnp_kind", gr.Dropdown(label="BNP/NT-proBNP", choices=["BNP", "NT-proBNP"], value="NT-proBNP"))
-                            add("bnp_value", gr.Number(label="Wert (pg/ml)"))
-                            add("entresto", gr.Checkbox(label="Entresto/ARNI? (BNP eingeschränkt)"))
-                        with gr.Row():
-                            add("congestive_organopathy", gr.Radio(label="Hinweis auf congestive Organopathie?", choices=["keine Angabe", "ja", "nein"], value="keine Angabe"))
-
-                    # Card 4
-                    with gr.Group(elem_classes=["rhk-card"]):
-                        gr.Markdown("### Medikation & wichtige Zusatzangaben")
-
-                        with gr.Row():
-                            anticoag_status = add("anticoag_status", gr.Dropdown(
-                                label="Antikoagulation (Blutverdünnung)?",
-                                choices=["keine Angabe", "nein", "ja", "ja, aber pausiert", "unklar"],
-                                value="keine Angabe",
+                            # PDE-5 außerhalb Gruppe 1 nur im Härtefall (strukturierte Begründung)
+                            pde5_hardship = add("pde5_hardship", gr.Checkbox(
+                                label="PDE-5 außerhalb Gruppe 1: Härtefall-Ausnahme dokumentiert",
+                                value=False,
                             ))
-                            anticoag_substance = add("anticoag_substance", gr.Dropdown(
-                                label="Substanz / Klasse (falls ja)",
-                                choices=[
-                                    "keine Angabe",
-                                    "DOAC (Apixaban, Rivaroxaban, Edoxaban, Dabigatran)",
-                                    "VKA (Phenprocoumon/Warfarin)",
-                                    "Heparin/LMWH",
-                                    "Fondaparinux",
-                                    "sonstiges",
-                                ],
-                                value="keine Angabe",
+                            pde5_hardship_desc = add("pde5_hardship_desc", gr.Textbox(
+                                label="Härtefall-Begründung (Pflicht, wenn aktiviert)",
+                                lines=2,
+                                placeholder="kurz begründen (z.B. individuelle Nutzen-Risiko-Abwägung, Off-Label-Entscheidung im Zentrum)",
                                 visible=False,
                             ))
-                        with gr.Row():
-                            anticoag_indication = add("anticoag_indication", gr.Dropdown(
-                                label="Indikation (falls ja)",
-                                choices=["keine Angabe", "Vorhofflimmern", "Venenthrombose/Lungenembolie", "CTEPH/CTEPD", "Mechanische Klappe", "Andere/unklar"],
-                                value="keine Angabe",
-                                visible=False,
-                            ))
-                            anticoag_since = add("anticoag_since", gr.Textbox(
-                                label="seit wann (optional)",
-                                placeholder="MM/JJJJ",
-                                visible=False,
-                            ))
-                        anticoag_note = add("anticoag_note", gr.Textbox(
-                            label="Antikoagulation – Bemerkung (optional)",
-                            lines=2,
-                            visible=False,
-                        ))
-
-                        anticoag_paused = add(
-                            "anticoag_paused",
-                            gr.Checkbox(label="Antikoagulation pausiert?", visible=False),
-                        )
-
-                        with gr.Row():
-                            add("ltx_eval", gr.Dropdown(
-                                label="LTX-Evaluation (Transplantations-Abklärung) erfolgt?",
-                                choices=["keine Angabe", "ja", "nein", "unklar"],
-                                value="keine Angabe",
-                            ))
-                            add("ltx_eval_date", gr.Textbox(label="LTX-Evaluation: Datum (optional)", placeholder="MM/JJJJ"))
+                            # Lungentransplantations-Evaluation (LTX)
+                            with gr.Row():
+                                add(
+                                    "ltx_eval",
+                                    gr.Dropdown(
+                                        label="LTX-Evaluation (Transplantations-Abklärung) erfolgt?",
+                                        choices=["keine Angabe", "ja", "nein", "unklar"],
+                                        value="keine Angabe",
+                                    ),
+                                )
+                                add("ltx_eval_date", gr.Textbox(label="LTX-Evaluation: Datum (optional)", placeholder="MM/JJJJ"))
 
 
                 # ---- Tab 2: Bildgebung & Echo/CMR (merged) ----
-
                 with gr.TabItem("Bildgebung & Echo/CMR", id=1):
-                    with gr.Group(elem_classes=["rhk-card"]):
-                        gr.Markdown("### Thorax-Bildgebung")
-                        with gr.Row():
-                            add("ct_done", gr.Checkbox(label="CT Thorax/CT-Angio durchgeführt"))
-                            add("vq_done", gr.Checkbox(label="V/Q durchgeführt"))
-
-                        # CT Thorax – Befundtext nur sichtbar wenn CT durchgeführt
-                        with gr.Column(visible=False) as ct_desc_col:
-                            add("ct_desc", gr.Textbox(label="CT Thorax – Kurzbefund", lines=3))
-                        with gr.Row():
-                            add("ct_ild", gr.Checkbox(label="ILD"))
-                            add("ct_emphysema", gr.Checkbox(label="Emphysem"))
-                            add("ct_embolie", gr.Checkbox(label="Embolie"))
-                            add("ct_mosaic", gr.Checkbox(label="Mosaikperfusion"))
-                            add("ct_koronarkalk", gr.Checkbox(label="Koronarkalk"))
-
-                        with gr.Accordion("ILD – Details (nur bei ILD)", open=False, visible=False) as acc_ild:
-                            add("ild_type", gr.Textbox(label="Welche ILD?", lines=1))
+                    # Card 1: Thorax-Bildgebung
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_imaging = gr.HTML("<div class='rhk-sec-head'><div class='rhk-sec-title'>Thorax-Bildgebung</div><div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span><div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>")
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
                             with gr.Row():
-                                add("ild_histology", gr.Checkbox(label="Histologisch gesichert?"))
-                                add("ild_fibrosis_clinic", gr.Checkbox(label="An Fibroseambulanz angebunden?"))
-                        add("ild_extent", gr.Dropdown(label="Ausmaß der ILD", choices=["", "gering", "mittel", "ausgedehnt"], value="", visible=False))
-
-                        # ILD – Antifibrotische Therapie (nur sichtbar, wenn ILD markiert ist)
-                        with gr.Column(visible=False) as ild_tx_details:
-                            gr.Markdown("#### ILD – Antifibrotische Therapie")
-                            antifib_status = add("antifibrotic_status", gr.Dropdown(
-                                label="Antifibrotische Therapie vorhanden?",
-                                choices=["keine Angabe", "ja", "nein", "unklar"],
-                                value="keine Angabe",
-                            ))
+                                add("ct_done", gr.Checkbox(label="CT Thorax/CT-Angio durchgeführt"))
+                                add("vq_done", gr.Checkbox(label="V/Q durchgeführt"))
+                            # CT Thorax – Befundtext nur sichtbar wenn CT durchgeführt
+                            with gr.Column(visible=False) as ct_desc_col:
+                                add("ct_desc", gr.Textbox(label="CT Thorax – Kurzbefund", lines=3))
                             with gr.Row():
-                                antifib_drug = add("antifibrotic_drug", gr.Dropdown(
-                                    label="Präparat (falls ja)",
-                                    choices=["keine Angabe", "Nintedanib", "Pirfenidon", "sonstiges"],
+                                add("ct_ild", gr.Checkbox(label="ILD"))
+                                add("ct_emphysema", gr.Checkbox(label="Emphysem"))
+                                add("ct_embolie", gr.Checkbox(label="Embolie"))
+                                add("ct_mosaic", gr.Checkbox(label="Mosaikperfusion"))
+                                add("ct_koronarkalk", gr.Checkbox(label="Koronarkalk"))
+
+                            with gr.Accordion("ILD – Details (nur bei ILD)", open=False, visible=False) as acc_ild:
+                                add("ild_type", gr.Textbox(label="Welche ILD?", lines=1))
+                                with gr.Row():
+                                    add("ild_histology", gr.Checkbox(label="Histologisch gesichert?"))
+                                    add("ild_fibrosis_clinic", gr.Checkbox(label="An Fibroseambulanz angebunden?"))
+                            add("ild_extent", gr.Dropdown(label="Ausmaß der ILD", choices=["", "gering", "mittel", "ausgedehnt"], value="", visible=False))
+
+                            # ILD – Antifibrotische Therapie (nur sichtbar, wenn ILD markiert ist)
+                            with gr.Column(visible=False) as ild_tx_details:
+                                gr.Markdown("#### ILD – Antifibrotische Therapie")
+                                antifib_status = add("antifibrotic_status", gr.Dropdown(
+                                    label="Antifibrotische Therapie vorhanden?",
+                                    choices=["keine Angabe", "ja", "nein", "unklar"],
                                     value="keine Angabe",
+                                ))
+                                with gr.Row():
+                                    antifib_drug = add("antifibrotic_drug", gr.Dropdown(
+                                        label="Präparat (falls ja)",
+                                        choices=["keine Angabe", "Nintedanib", "Pirfenidon", "sonstiges"],
+                                        value="keine Angabe",
+                                        visible=False,
+                                    ))
+                                    antifib_since = add("antifibrotic_since", gr.Textbox(
+                                        label="seit wann (optional)",
+                                        placeholder="MM/JJJJ",
+                                        visible=False,
+                                    ))
+                                antifib_note = add("antifibrotic_note", gr.Textbox(
+                                    label="Bemerkung (optional)",
+                                    lines=2,
                                     visible=False,
                                 ))
-                                antifib_since = add("antifibrotic_since", gr.Textbox(
-                                    label="seit wann (optional)",
-                                    placeholder="MM/JJJJ",
-                                    visible=False,
-                                ))
-                            antifib_note = add("antifibrotic_note", gr.Textbox(
-                                label="Bemerkung (optional)",
-                                lines=2,
-                                visible=False,
-                            ))
 
+                            with gr.Accordion("V/Q – Details (nur bei V/Q)", open=False, visible=False) as acc_vq:
+                                with gr.Row():
+                                    add("vq_defect", gr.Checkbox(label="V/Q pathologisch (Perfusionsdefekte)"))
+                                    add("vq_desc", gr.Textbox(label="V/Q – Kurzbeschreibung", lines=2))
+                    # Card 2: Echokardiographie
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_echo = gr.HTML("<div class='rhk-sec-head'><div class='rhk-sec-title'>Echokardiographie</div><div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span><div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>")
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            echo_ui = build_echo_section(add)
+                    import_pdf_cur = echo_ui["import_pdf_cur"]
+                    import_pdf_prev = echo_ui["import_pdf_prev"]
+                    import_preview_cur_html = echo_ui["import_preview_cur_html"]
+                    import_preview_prev_html = echo_ui["import_preview_prev_html"]
+                    compare_echo_html = echo_ui["compare_html"]
+                    details_echo_html = echo_ui["details_html"]
+                    state_echo_cur = echo_ui["state_echo_cur"]
+                    state_echo_prev = echo_ui["state_echo_prev"]
+                    btn_echo_apply = echo_ui["btn_apply"]
+                    btn_echo_clear = echo_ui["btn_clear_cur"]
+                    btn_echo_clear_prev = echo_ui["btn_clear_prev"]
 
-                        with gr.Accordion("V/Q – Details (nur bei V/Q)", open=False, visible=False) as acc_vq:
+                    # Card 3: MRT / CMR
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_cmr = gr.HTML("<div class='rhk-sec-head'><div class='rhk-sec-title'>MRT / CMR</div><div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span><div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>")
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
                             with gr.Row():
-                                add("vq_defect", gr.Checkbox(label="V/Q pathologisch (Perfusionsdefekte)"))
-                                add("vq_desc", gr.Textbox(label="V/Q – Kurzbeschreibung", lines=2))
-                        echo_ui = build_echo_section(add)
-                        import_pdf_cur = echo_ui["import_pdf_cur"]
-                        import_pdf_prev = echo_ui["import_pdf_prev"]
-                        import_preview_cur_html = echo_ui["import_preview_cur_html"]
-                        import_preview_prev_html = echo_ui["import_preview_prev_html"]
-                        compare_echo_html = echo_ui["compare_html"]
-                        details_echo_html = echo_ui["details_html"]
-                        state_echo_cur = echo_ui["state_echo_cur"]
-                        state_echo_prev = echo_ui["state_echo_prev"]
-                        btn_echo_apply = echo_ui["btn_apply"]
-                        btn_echo_clear = echo_ui["btn_clear_cur"]
-                        btn_echo_clear_prev = echo_ui["btn_clear_prev"]
-
-
-                    with gr.Group(elem_classes=["rhk-card"]):
-                        gr.Markdown("### MRT / CMR (optional)")
-                        with gr.Row():
-                            add("cmr_done", gr.Checkbox(label="CMR durchgeführt"))
-                            add("rvef", gr.Number(label="RV-EF (%)"))
-                            add("rvesvi", gr.Number(label="RVESVi (ml/m²)"))
+                                add("cmr_done", gr.Checkbox(label="CMR durchgeführt"))
+                                add("rvef", gr.Number(label="RV-EF (%)"))
+                                add("rvesvi", gr.Number(label="RVESVi (ml/m²)"))
 
                 # ---- Tab 3: Lungenfunktion ----
-
                 with gr.TabItem("Lungenfunktion", id=2):
-                    with gr.Group(elem_classes=["rhk-card"]):
-                        gr.Markdown("### Lungenfunktion")
-                        with gr.Row():
-                            add("lufu_done", gr.Checkbox(label="Lufu durchgeführt"))
-                            add("lufu_obstructive", gr.Checkbox(label="Obstruktiv"))
-                            add("lufu_restrictive", gr.Checkbox(label="Restriktiv"))
-                            add("lufu_diffusion", gr.Checkbox(label="Diffusionsstörung"))
-                        with gr.Row():
-                            add("fev1_l", gr.Number(label="FEV1 (% Soll)"))
-                            add("fvc_l", gr.Number(label="FVC (% Soll)"))
-                            add("dlco_sb", gr.Number(label="DLCO SB (% Soll, optional)"))
-                        with gr.Row():
-                            add("dlco_va", gr.Number(label="DLCO/VA (% Soll, optional)"))
-                            add("residual_volume_l", gr.Number(label="Residualvolumen RV (% Soll, optional)"))
-                        add("lufu_summary", gr.Textbox(label="Lufu Summary (Freitext)", lines=3))
+                    # Card 1: Lungenfunktion
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_lufu = gr.HTML("<div class='rhk-sec-head'><div class='rhk-sec-title'>Lungenfunktion</div><div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span><div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>")
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            with gr.Row():
+                                add("lufu_done", gr.Checkbox(label="Lufu durchgeführt"))
+                                add("lufu_obstructive", gr.Checkbox(label="Obstruktiv"))
+                                add("lufu_restrictive", gr.Checkbox(label="Restriktiv"))
+                                add("lufu_diffusion", gr.Checkbox(label="Diffusionsstörung"))
+                            with gr.Row():
+                                add("fev1_l", gr.Number(label="FEV1 (% Soll)"))
+                                add("fvc_l", gr.Number(label="FVC (% Soll)"))
+                                add("dlco_sb", gr.Number(label="DLCO SB (% Soll, optional)"))
+                            with gr.Row():
+                                add("dlco_va", gr.Number(label="DLCO/VA (% Soll, optional)"))
+                                add("residual_volume_l", gr.Number(label="Residualvolumen RV (% Soll, optional)"))
+                            add("lufu_summary", gr.Textbox(label="Lufu Summary (Freitext)", lines=3))
 
-                    with gr.Group(elem_classes=["rhk-card"]):
-                        gr.Markdown("### Spiroergometrie / CPET")
-                        with gr.Row():
-                            add("cpet_done", gr.Checkbox(label="CPET durchgeführt"))
-                            add("cpet_protocol", gr.Dropdown(label="Protokoll (optional)", choices=["Rampe", "Stufenprotokoll", "Semi supine", "Laufband", "Sonstiges"], value="Rampe"))
-                            add("cpet_site", gr.Textbox(label="Ort/Setup (optional)"))
+                    # Card 2: Spiroergometrie / CPET
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_cpet = gr.HTML("<div class='rhk-sec-head'><div class='rhk-sec-title'>Spiroergometrie / CPET</div><div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span><div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>")
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            with gr.Row():
+                                add("cpet_done", gr.Checkbox(label="CPET durchgeführt"))
+                                add("cpet_protocol", gr.Dropdown(label="Protokoll (optional)", choices=["Rampe", "Stufenprotokoll", "Semi supine", "Laufband", "Sonstiges"], value="Rampe"))
+                                add("cpet_site", gr.Textbox(label="Ort/Setup (optional)"))
 
-                        cpet_risk_html = gr.HTML(value="<div class='docx-muted'>Keine CPET Daten erfasst.</div>")
+                            cpet_risk_html = gr.HTML(value="<div class='docx-muted'>Keine CPET Daten erfasst.</div>")
 
-                        with gr.Column(visible=False) as cpet_details:
-                            with gr.Row():
-                                add("cpet_peak_vo2_ml_kg_min", gr.Number(label="Peak VO2 (ml/min/kg)"))
-                                add("cpet_peak_vo2_pct_pred", gr.Number(label="Peak VO2 (% Soll)"))
-                            with gr.Row():
-                                add("cpet_ve_vco2_slope", gr.Number(label="VE/VCO2 slope"))
-                                add("cpet_petco2_vt1_mmhg", gr.Number(label="PETCO2 @ VT1 (mmHg)"))
-                            with gr.Row():
-                                add("cpet_ve_vco2_vt1", gr.Number(label="VE/VCO2 @ VT1"))
-                                add("cpet_peak_o2_pulse_pct_pred", gr.Number(label="Peak O2 Puls (% Soll)"))
-                            with gr.Row():
-                                add("cpet_vo2_wr_slope_ml_min_w", gr.Number(label="ΔVO2/ΔWR (ml/min/W, optional)"))
-                                add("cpet_vo2_vt1_ml_kg_min", gr.Number(label="VO2 @ VT1 (ml/min/kg, optional)"))
-                            with gr.Row():
-                                add("cpet_spo2_nadir_pct", gr.Number(label="SpO2 Nadir (%), optional"))
-                                add("cpet_rer_peak", gr.Number(label="RER peak (Qualität)"))
-                                add("cpet_hr_peak_bpm", gr.Number(label="HF peak (/min, optional)"))
-                            with gr.Row():
-                                add("cpet_o2_pulse_pattern", gr.Dropdown(label="O2 Puls Verlauf (optional)", choices=["normal", "plateau", "fallend", "unbekannt"], value="unbekannt"))
-                            add("cpet_summary", gr.Textbox(label="CPET Summary (Freitext)", lines=3))
+                            with gr.Column(visible=False) as cpet_details:
+                                with gr.Row():
+                                    add("cpet_peak_vo2_ml_kg_min", gr.Number(label="V'O2max/kg (mL/min/kg)"))
+                                    add("cpet_peak_vo2_pct_pred", gr.Number(label="V'O2 Peak (% Soll)"))
+                                    add("cpet_peak_vo2_ml_min", gr.Number(label="V'O2 Peak (mL/min, optional)"))
+                                with gr.Row():
+                                    add("cpet_ve_vco2_slope", gr.Number(label="V'E/V'CO2 Slope (VECO2s)"))
+                                    add("cpet_petco2_vt1_mmhg", gr.Number(label="PETCO2 VT1 (mmHg)"))
+                                with gr.Row():
+                                    add("cpet_ve_vco2_vt1", gr.Number(label="EqCO2 / V'E/V'CO2 VT1"))
+                                    add("cpet_peak_o2_pulse_pct_pred", gr.Number(label="O2Puls Peak (% Soll)"))
+                                    add("cpet_peak_o2_pulse_ml", gr.Number(label="O2Puls Peak (mL, optional)"))
+                                with gr.Row():
+                                    add("cpet_vo2_wr_slope_ml_min_w", gr.Number(label="VO2Ws (ΔV'O2/ΔW) (mL/min/W, optional)"))
+                                    add("cpet_vo2_vt1_ml_kg_min", gr.Number(label="V'O2 VT1 (mL/min/kg, optional)"))
+                                with gr.Row():
+                                    add("cpet_spo2_nadir_pct", gr.Number(label="SpO2 Nadir (% , optional)"))
+                                    add("cpet_rer_peak", gr.Number(label="RER Peak (Qualität)"))
+                                    add("cpet_hr_peak_bpm", gr.Number(label="HF Peak (1/min, optional)"))
+                                with gr.Row():
+                                    add("cpet_o2_pulse_pattern", gr.Dropdown(label="O2Puls Verlauf (optional)", choices=["normal", "plateau", "fallend", "unbekannt"], value="unbekannt"))
+                                add("cpet_summary", gr.Textbox(label="CPET Summary (Freitext)", lines=3))
 
                 # ---- Tab 4: RHK ----
                 with gr.TabItem("RHK", id=3):
@@ -489,80 +618,113 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     auto_pvri = rhk_ui["auto_pvri"]
                     auto_tpg = rhk_ui["auto_tpg"]
                     auto_dpg = rhk_ui["auto_dpg"]
+                    hdr_rhk_rest = rhk_ui.get("hdr_rhk_rest")
+                    hdr_rhk_exercise = rhk_ui.get("hdr_rhk_exercise")
+                    hdr_rhk_addons = rhk_ui.get("hdr_rhk_addons")
+                    hdr_rhk_prev = rhk_ui.get("hdr_rhk_prev")
 
                 # ---- Tab 5: Weitere Bereiche ----
                 with gr.TabItem("Weitere Befunde", id=4):
-                    gr.Markdown("### Blutgase / LTOT")
-                    with gr.Row():
-                        add("ltot", gr.Checkbox(label="LTOT vorhanden"))
-                        ltot_flow = add("ltot_flow_l_min", gr.Number(label="LTOT (l/min)", visible=False))
-                    gr.Markdown("### Infektiologie / Immunologie")
-                    with gr.Row():
-                        add("virology_pos", gr.Checkbox(label="Virologie/Infektiologie positiv"))
-                    with gr.Row():
-                        viro_items = add("virology_items", gr.Dropdown(
-                            label="Virologie/Infektiologie – Auswahl (optional, Mehrfachauswahl)",
-                            choices=["HIV", "Hepatitis B", "Hepatitis C", "Schistosomiasis (parasitär)", "Andere/unklar"],
-                            multiselect=True,
-                            value=[],
-                            visible=False,
-                        ))
-                        viro_desc = add("virology_desc", gr.Textbox(label="Virologie/Infektiologie – Details", lines=2, visible=False))
+                    # Blutgase / LTOT
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_other_bloodgas = gr.HTML(
+                            "<div class='rhk-sec-head'><div class='rhk-sec-title'>Blutgase / LTOT</div>"
+                            "<div class='rhk-sec-progress is-optional'><span class='rhk-sec-count'>optional</span>"
+                            "<div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>"
+                        )
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            with gr.Row():
+                                add("ltot", gr.Checkbox(label="LTOT vorhanden"))
+                                ltot_flow = add("ltot_flow_l_min", gr.Number(label="LTOT (l/min)", visible=False))
 
-                    with gr.Row():
-                        add("immunology_pos", gr.Checkbox(label="Immunologie/Autoimmun positiv"))
-                    with gr.Row():
-                        immun_items = add("immunology_items", gr.Dropdown(
-                            label="Immunologie/Autoimmun – Auswahl (optional, Mehrfachauswahl)",
-                            choices=[
-                                "Systemische Sklerose (Sklerodermie)",
-                                "SLE (Lupus erythematodes)",
-                                "MCTD (Mixed connective tissue disease)",
-                                "Sjögren-Syndrom",
-                                "Rheumatoide Arthritis",
-                                "Myositis",
-                                "Vaskulitis",
-                                "Antiphospholipid-Syndrom",
-                                "Sarkoidose",
-                                "Andere/unklar",
-                            ],
-                            multiselect=True,
-                            value=[],
-                            visible=False,
-                        ))
-                        immun_desc = add("immunology_desc", gr.Textbox(label="Immunologie/Autoimmun – Details", lines=2, visible=False))
+                    # Infektiologie / Immunologie
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_other_infect = gr.HTML(
+                            "<div class='rhk-sec-head'><div class='rhk-sec-title'>Infektiologie / Immunologie</div>"
+                            "<div class='rhk-sec-progress is-optional'><span class='rhk-sec-count'>optional</span>"
+                            "<div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>"
+                        )
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            with gr.Row():
+                                add("virology_pos", gr.Checkbox(label="Virologie/Infektiologie positiv"))
+                            with gr.Row():
+                                viro_items = add("virology_items", gr.Dropdown(
+                                    label="Virologie/Infektiologie – Auswahl (optional, Mehrfachauswahl)",
+                                    choices=["HIV", "Hepatitis B", "Hepatitis C", "Schistosomiasis (parasitär)", "Andere/unklar"],
+                                    multiselect=True,
+                                    value=[],
+                                    visible=False,
+                                ))
+                                viro_desc = add("virology_desc", gr.Textbox(label="Virologie/Infektiologie – Details", lines=2, visible=False))
 
-                    gr.Markdown("### Genetik")
-                    with gr.Row():
-                        add("mutation_pos", gr.Checkbox(label="Mutation/Genetik relevant (PAH/PH-assoziiert)"))
-                    with gr.Row():
-                        mut_items = add("mutation_items", gr.Dropdown(
-                            label="Genetik – Auswahl (optional, Mehrfachauswahl)",
-                            choices=[
-                                "BMPR2",
-                                "ACVRL1 (ALK1)",
-                                "ENG",
-                                "SMAD9",
-                                "KCNK3",
-                                "TBX4",
-                                "SOX17",
-                                "ATP13A3",
-                                "GDF2 (BMP9)",
-                                "KDR",
-                                "CAV1",
-                                "EIF2AK4 (PVOD/PCH)",
-                                "Andere/unklar",
-                            ],
-                            multiselect=True,
-                            value=[],
-                            visible=False,
-                        ))
-                        mut_desc = add("mutation_desc", gr.Textbox(label="Genetik – Details", lines=2, visible=False))
+                            with gr.Row():
+                                add("immunology_pos", gr.Checkbox(label="Immunologie/Autoimmun positiv"))
+                            with gr.Row():
+                                immun_items = add("immunology_items", gr.Dropdown(
+                                    label="Immunologie/Autoimmun – Auswahl (optional, Mehrfachauswahl)",
+                                    choices=[
+                                        "Systemische Sklerose (Sklerodermie)",
+                                        "SLE (Lupus erythematodes)",
+                                        "MCTD (Mixed connective tissue disease)",
+                                        "Sjögren-Syndrom",
+                                        "Rheumatoide Arthritis",
+                                        "Myositis",
+                                        "Vaskulitis",
+                                        "Antiphospholipid-Syndrom",
+                                        "Sarkoidose",
+                                        "Andere/unklar",
+                                    ],
+                                    multiselect=True,
+                                    value=[],
+                                    visible=False,
+                                ))
+                                immun_desc = add("immunology_desc", gr.Textbox(label="Immunologie/Autoimmun – Details", lines=2, visible=False))
 
-                    gr.Markdown("### Abdomen / Leber")
-                    with gr.Row():
-                        add("abd_sono_done", gr.Checkbox(label="Abdomen-Sono durchgeführt"))
-                        abd_desc = add("abd_sono_desc", gr.Textbox(label="Besondere Befunde?", lines=2, visible=False))
+                    # Genetik
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_other_gen = gr.HTML(
+                            "<div class='rhk-sec-head'><div class='rhk-sec-title'>Genetik</div>"
+                            "<div class='rhk-sec-progress is-optional'><span class='rhk-sec-count'>optional</span>"
+                            "<div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>"
+                        )
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            with gr.Row():
+                                add("mutation_pos", gr.Checkbox(label="Mutation/Genetik relevant (PAH/PH-assoziiert)"))
+                            with gr.Row():
+                                mut_items = add("mutation_items", gr.Dropdown(
+                                    label="Genetik – Auswahl (optional, Mehrfachauswahl)",
+                                    choices=[
+                                        "BMPR2",
+                                        "ACVRL1 (ALK1)",
+                                        "ENG",
+                                        "SMAD9",
+                                        "KCNK3",
+                                        "TBX4",
+                                        "SOX17",
+                                        "ATP13A3",
+                                        "GDF2 (BMP9)",
+                                        "KDR",
+                                        "CAV1",
+                                        "EIF2AK4 (PVOD/PCH)",
+                                        "Andere/unklar",
+                                    ],
+                                    multiselect=True,
+                                    value=[],
+                                    visible=False,
+                                ))
+                                mut_desc = add("mutation_desc", gr.Textbox(label="Genetik – Details", lines=2, visible=False))
+
+                    # Abdomen / Leber
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_other_abd = gr.HTML(
+                            "<div class='rhk-sec-head'><div class='rhk-sec-title'>Abdomen / Leber</div>"
+                            "<div class='rhk-sec-progress is-optional'><span class='rhk-sec-count'>optional</span>"
+                            "<div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>"
+                        )
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            with gr.Row():
+                                add("abd_sono_done", gr.Checkbox(label="Abdomen-Sono durchgeführt"))
+                                abd_desc = add("abd_sono_desc", gr.Textbox(label="Besondere Befunde?", lines=2, visible=False))
 
                 # ---- Tab 6: Procedere & Module ----
                 with gr.TabItem("Procedere & Module", id=5):
@@ -635,9 +797,21 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 with gr.Row(elem_id="rhk_copy_row"):
                     btn_copy_doc = gr.Button("Arztbericht kopieren", variant="secondary", elem_id="btn_copy_doc")
                     btn_download_doc = gr.DownloadButton("DOCX", variant="secondary", elem_id="btn_download_doc")
+                    # Klinik-Workaround: direkte Browser-Downloads können in Word als "geschützt" (MOTW) landen oder durch Policies blockiert sein.
+                    # Daher zusätzlich: serverseitiges Speichern in einen frei wählbaren Ordner (ohne Download-Flag).
                     btn_copy_pat = gr.Button("Patient*innenbrief komplett kopieren", variant="secondary", elem_id="btn_copy_pat")
                     btn_copy_rhk = gr.Button("nur RHK Abschnitt kopieren", variant="secondary", elem_id="btn_copy_rhk")
                 copy_feedback = gr.Markdown("", elem_id="rhk_copy_feedback")
+
+                with gr.Row(elem_id="rhk_docx_save_row"):
+                    docx_save_dir = gr.Textbox(
+                        label="DOCX lokal speichern (Ordner)",
+                        placeholder="z.B. C:\\Users\\...\\Documents\\RHK_Befunde oder /home/.../RHK_Befunde",
+                        value="",
+                        elem_id="docx_save_dir",
+                    )
+                    btn_save_docx_local = gr.Button("DOCX lokal speichern", variant="secondary", elem_id="btn_save_docx_local")
+                docx_save_feedback = gr.Markdown("", elem_id="docx_save_feedback")
 
 
                 # Clipboard payloads MUST stay in DOM for robust cross-browser copy.
@@ -759,7 +933,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 return gr.update(value=None)
 
         def _update_pre_cath(consent_done, access_route, inr, ptt_s, platelets, anticoag_status, anticoag_paused, crp, creatinine, age, sex,
-                             allergies_present, allergies_list, allergies_other_text):
+                             allergies_present, allergies_list, allergies_other_text, lsb_present, lsb_reason):
             egfr_val = compute_egfr(creatinine, age, sex)
             try:
                 egfr_val = float(egfr_val) if egfr_val is not None else None
@@ -779,6 +953,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 'allergies_present': bool(allergies_present),
                 'allergies_list': allergies_list,
                 'allergies_other_text': allergies_other_text,
+                'lsb_present': bool(lsb_present),
+                'lsb_reason': (lsb_reason or ''),
             }
             return build_pre_cath_header_html(ui)
 
@@ -810,6 +986,70 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     comp.change(fn, inputs=inputs, outputs=outputs, trigger_mode="always_last", queue=False)
                 except TypeError:
                     comp.change(fn, inputs=inputs, outputs=outputs)
+
+        # ------------------------------------------------------------------
+        # Section header progress (non-sticky, Apple-like)
+        # ------------------------------------------------------------------
+
+        def _is_filled(v: Any) -> bool:
+            """Heuristic: count 'meaningfully filled' fields for UI progress."""
+            if v is None:
+                return False
+            # Booleans: only count when explicitly checked (True)
+            if isinstance(v, bool):
+                return v
+            # Numbers
+            try:
+                import math
+                if isinstance(v, (int, float)):
+                    return not math.isnan(float(v))
+            except Exception:
+                pass
+            # Multi-select
+            if isinstance(v, (list, tuple, set)):
+                return len([x for x in v if str(x).strip()]) > 0
+            s = str(v).strip()
+            if not s:
+                return False
+            # Common 'empty' sentinels
+            if s.lower() in ("keine angabe", "unklar", "—", "-"):
+                return False
+            return True
+
+        def _render_section_header(title: str, filled: int, total: int) -> str:
+            total = int(total) if total else 0
+            filled = int(filled) if filled else 0
+            if total <= 0:
+                pct = 0
+                cls = "rhk-sec-progress is-optional"
+                count_txt = "optional"
+            else:
+                pct = max(0, min(100, int(round(100.0 * filled / max(1, total)))))
+                cls = "rhk-sec-progress"
+                count_txt = f"{filled}/{total}"
+            return (
+                "<div class='rhk-sec-head'>"
+                f"<div class='rhk-sec-title'>{title}</div>"
+                f"<div class='{cls}' title='Ausfüllgrad (Schätzwert)'>"
+                f"<span class='rhk-sec-count'>{count_txt}</span>"
+                f"<div class='rhk-sec-bar'><div style='width:{pct}%'></div></div>"
+                "</div></div>"
+            )
+
+        def _bind_section_progress(header_comp, title: str, comps: List[gr.components.Component], calc_fn):
+            """Bind progress refresh to all comps in a section (no loading flicker)."""
+            if not comps:
+                return
+
+            def _cb(*vals):
+                filled, total = calc_fn(*vals)
+                return _render_section_header(title, filled, total)
+
+            for c in comps:
+                try:
+                    _bind_change(c, _cb, inputs=comps, outputs=[header_comp])
+                except Exception:
+                    pass
 
         # One-shot sync for visibility + computed fields after programmatic UI loads
         def _sync_post_load(ct_done_v, ct_ild_v, vq_done_v, creatinine, age, sex, allergies_present_v, allergies_list_v):
@@ -980,6 +1220,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 field_components["allergies_present"],
                 field_components["allergies_list"],
                 field_components["allergies_other_text"],
+                field_components["lsb_present"],
             ]
             # Update on any of these changes
             for _k in (
@@ -1016,7 +1257,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         except Exception:
             pass
 
-        # Allergien: Mehrfachauswahl erst aktivieren wenn Checkbox gesetzt ist
+                # Allergien: Mehrfachauswahl erst aktivieren wenn Checkbox gesetzt ist
         def _toggle_allergies(present: bool):
             return gr.update(visible=bool(present))
 
@@ -1026,9 +1267,31 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             show_other = any(str(x).strip().lower() == "sonstiges" for x in sel)
             return gr.update(visible=bool(show_other))
 
+        # EKG: Details nur wenn EKG vorhanden; "Sonstiges" Textfeld nur wenn gewählt
+        # LSB: Begründung sichtbar nur wenn Checkbox aktiv
+        def _toggle_lsb_reason(flag):
+            return gr.update(visible=bool(flag))
+
+        def _toggle_ekg(ekg_present_v):
+            return gr.update(visible=bool(ekg_present_v))
+
+        def _toggle_ekg_other(ekg_signs):
+            if not isinstance(ekg_signs, list):
+                ekg_signs = [] if ekg_signs in (None, "") else [str(ekg_signs)]
+            show = any(str(x).strip().lower().startswith("sonst") for x in ekg_signs)
+            return gr.update(visible=bool(show))
+
+        # PDE-5 Härtefall: Begründung sichtbar nur wenn Checkbox aktiv
+        def _toggle_pde5_hardship_desc(flag):
+            return gr.update(visible=bool(flag))
+
         try:
             _bind_change(field_components["allergies_present"], _toggle_allergies, inputs=[field_components["allergies_present"]], outputs=[allergies_details])
             _bind_change(field_components["allergies_list"], _toggle_allergies_other, inputs=[field_components["allergies_list"]], outputs=[field_components["allergies_other_text"]])
+            _bind_change(field_components["ekg_present"], _toggle_ekg, inputs=[field_components["ekg_present"]], outputs=[ekg_details])
+            _bind_change(field_components["lsb_present"], _toggle_lsb_reason, inputs=[field_components["lsb_present"]], outputs=[field_components["lsb_reason"]])
+            _bind_change(field_components["ekg_rhs_signs"], _toggle_ekg_other, inputs=[field_components["ekg_rhs_signs"]], outputs=[field_components["ekg_other_text"]])
+            _bind_change(field_components["pde5_hardship"], _toggle_pde5_hardship_desc, inputs=[field_components["pde5_hardship"]], outputs=[field_components["pde5_hardship_desc"]])
         except Exception:
             pass
 
@@ -1093,6 +1356,368 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 gr.update(visible=on),
             )
         _bind_change(field_components["antifibrotic_status"], _toggle_antifib, inputs=[field_components["antifibrotic_status"]], outputs=[antifib_drug, antifib_since, antifib_note])
+
+        # ------------------------------------------------------------------
+        # Section progress headers (UI only, no clinical logic)
+        # ------------------------------------------------------------------
+
+        # Klinik – Allgemeines
+        _sec_general_comps = [
+            field_components["firstname"], field_components["name"], field_components["age"], field_components["sex"],
+            field_components["height_cm"], field_components["weight_kg"], field_components["bp_sys"], field_components["bp_dia"],
+            field_components["hr"], field_components["story"], field_components["comorbidities"],
+            field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"],
+            field_components["chd_pos"], field_components["chd_type"], field_components["chd_desc"],
+            field_components["ph_known"], field_components["ph_known_dx"], field_components["ph_first_dx"], field_components["ph_reason_rhk"],
+        ]
+
+        def _calc_general(*vals):
+            (
+                firstname, name, age, sex, height_cm, weight_kg, bp_sys, bp_dia, hr, story, comorb,
+                allergies_present, allergies_list, allergies_other,
+                chd_pos, chd_type, chd_desc,
+                ph_known, ph_known_dx, ph_first_dx, ph_reason,
+            ) = vals
+
+            base = [firstname, name, age, sex, height_cm, weight_kg, bp_sys, bp_dia, hr, story, comorb]
+            total = len(base)
+            filled = sum(1 for v in base if _is_filled(v))
+
+            # Allergies: only count details if allergies are present or already documented
+            al_list = allergies_list if isinstance(allergies_list, list) else ([] if allergies_list in (None, "") else [str(allergies_list)])
+            if bool(allergies_present) or bool(al_list) or _is_filled(allergies_other):
+                total += 1
+                filled += 1 if bool(al_list) or _is_filled(allergies_other) else 0
+
+            # CHD: only count details if CHD is flagged
+            if bool(chd_pos):
+                total += 1
+                filled += 1 if _is_filled(chd_type) or _is_filled(chd_desc) else 0
+
+            # Known PH: count minimal context if flagged
+            if bool(ph_known):
+                extra = [ph_known_dx, ph_first_dx, ph_reason]
+                total += len(extra)
+                filled += sum(1 for v in extra if _is_filled(v))
+
+            return filled, total
+
+        _bind_section_progress(hdr_klinik_general, "Allgemeines, Anamnese, Vorerkrankungen", _sec_general_comps, _calc_general)
+
+        # Klinik – Symptome
+        _sec_symp_comps = [
+            field_components["who_fc"], field_components["six_mwd_m"], field_components["six_mwd_date"], field_components["syncope"],
+            field_components["hemoptysis"], field_components["dizziness"], field_components["stairs_flights"],
+        ]
+
+        def _calc_symptoms(*vals):
+            who_fc, six_mwd, six_date, syncope, hemoptysis, dizziness, stairs = vals
+            core = [who_fc, six_mwd, syncope, stairs]
+            # date is optional; count if provided
+            total = len(core) + 1
+            filled = sum(1 for v in core if _is_filled(v)) + (1 if _is_filled(six_date) else 0)
+            # symptom checkboxes are optional, but if checked they count as additional documentation
+            # (do not increase total to avoid penalizing stable/asymptomatic patients)
+            if bool(hemoptysis):
+                filled = min(total, filled + 1)
+            if bool(dizziness):
+                filled = min(total, filled + 1)
+            return filled, total
+
+        _bind_section_progress(hdr_klinik_symptoms, "Funktion / Symptome", _sec_symp_comps, _calc_symptoms)
+
+        # Klinik – Labor
+        _sec_labs_comps = [
+            field_components["hb_g_dl"], field_components["leukocytes_g_l"], field_components["platelets_g_l"],
+            field_components["inr"], field_components["ptt_s"], field_components["creatinine_mg_dl"], field_components["crp_mg_l"],
+            field_components["bnp_value"], field_components["congestive_organopathy"],
+        ]
+
+        def _calc_labs(*vals):
+            total = len(vals)
+            filled = sum(1 for v in vals if _is_filled(v))
+            return filled, total
+
+        _bind_section_progress(hdr_klinik_labs, "Labor", _sec_labs_comps, _calc_labs)
+
+        # Klinik – Medikation
+        _sec_meds_comps = [
+            field_components["anticoag_status"], field_components["anticoag_substance"], field_components["anticoag_indication"],
+            field_components["anticoag_since"], field_components["ltx_eval"], field_components["ltx_eval_date"],
+        ]
+
+        def _calc_meds(*vals):
+            anticoag_status, anticoag_sub, anticoag_ind, anticoag_since, ltx_eval, ltx_date = vals
+            base = [ltx_eval]
+            total = len(base)
+            filled = sum(1 for v in base if _is_filled(v))
+
+            s = str(anticoag_status or "").strip().lower()
+            # Only count anticoag details when anticoag is present
+            if s == "ja" or "paus" in s:
+                extra = [anticoag_status, anticoag_sub, anticoag_ind]
+                total += len(extra)
+                filled += sum(1 for v in extra if _is_filled(v))
+                # since is optional; count if provided
+                total += 1
+                filled += 1 if _is_filled(anticoag_since) else 0
+            return filled, total
+
+        _bind_section_progress(hdr_klinik_meds, "Medikation & wichtige Zusatzangaben", _sec_meds_comps, _calc_meds)
+
+        # Bildgebung – Thorax
+        _sec_imaging_comps = [
+            field_components["ct_done"], field_components["ct_desc"], field_components["ct_ild"], field_components["ild_type"],
+            field_components["antifibrotic_status"], field_components["vq_done"], field_components["vq_desc"],
+        ]
+
+        def _calc_imaging(*vals):
+            ct_done, ct_desc, ct_ild, ild_type, antifib_status, vq_done, vq_desc = vals
+            total = 0
+            filled = 0
+            if bool(ct_done):
+                total += 1
+                filled += 1 if _is_filled(ct_desc) else 0
+                if bool(ct_ild):
+                    total += 1
+                    filled += 1 if _is_filled(ild_type) else 0
+                    total += 1
+                    filled += 1 if _is_filled(antifib_status) else 0
+            if bool(vq_done):
+                total += 1
+                filled += 1 if _is_filled(vq_desc) else 0
+            return filled, total
+
+        _bind_section_progress(hdr_imaging, "Thorax-Bildgebung", _sec_imaging_comps, _calc_imaging)
+
+        # Echo – compact progress (key parameters)
+        _sec_echo_comps = [
+            field_components["lvef"], field_components["pasp_echo"], field_components["tapse_mm"],
+            field_components["s_prime_cm_s"], field_components["ee_ratio"],
+        ]
+
+        def _calc_echo(*vals):
+            total = len(vals)
+            filled = sum(1 for v in vals if _is_filled(v))
+            return filled, total
+
+        _bind_section_progress(hdr_echo, "Echokardiographie", _sec_echo_comps, _calc_echo)
+
+        # CMR – optional
+        _sec_cmr_comps = [field_components["cmr_done"], field_components["rvef"], field_components["rvesvi"]]
+
+        def _calc_cmr(*vals):
+            cmr_done, rvef, rvesvi = vals
+            if not bool(cmr_done):
+                return 0, 0
+            total = 2
+            filled = (1 if _is_filled(rvef) else 0) + (1 if _is_filled(rvesvi) else 0)
+            return filled, total
+
+        _bind_section_progress(hdr_cmr, "MRT / CMR", _sec_cmr_comps, _calc_cmr)
+
+        # Lungenfunktion
+        _sec_lufu_comps = [
+            field_components["lufu_done"], field_components["fev1_l"], field_components["fvc_l"],
+            field_components["dlco_sb"], field_components["dlco_va"], field_components["residual_volume_l"],
+            field_components["lufu_summary"],
+        ]
+
+        def _calc_lufu(*vals):
+            lufu_done, fev1, fvc, dlco_sb, dlco_va, rv, summary = vals
+            if not bool(lufu_done):
+                return 0, 0
+            core = [fev1, fvc]
+            optional = [dlco_sb, dlco_va, rv, summary]
+            total = len(core) + len(optional)
+            filled = sum(1 for v in core + optional if _is_filled(v))
+            return filled, total
+
+        _bind_section_progress(hdr_lufu, "Lungenfunktion", _sec_lufu_comps, _calc_lufu)
+
+        # CPET
+        _sec_cpet_comps = [
+            field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"],
+            field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
+            field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"],
+        ]
+
+        def _calc_cpet(*vals):
+            cpet_done, peak_vo2, peak_vo2_pct, vevco2, petco2, spo2, rer = vals
+            if not bool(cpet_done):
+                return 0, 0
+            core = [peak_vo2, peak_vo2_pct, vevco2]
+            optional = [petco2, spo2, rer]
+            total = len(core) + len(optional)
+            filled = sum(1 for v in core + optional if _is_filled(v))
+            return filled, total
+
+        _bind_section_progress(hdr_cpet, "Spiroergometrie / CPET", _sec_cpet_comps, _calc_cpet)
+
+        # --------------------------------------------------------------
+        # RHK – Section Cards
+        # --------------------------------------------------------------
+
+        # Ruhehämodynamik (core documentation)
+        _sec_rhk_rest_comps = [
+            field_components["spap_rest"], field_components["dpap_rest"], field_components["pawp_rest"],
+            field_components["rap_rest"], field_components["co_rest"],
+            field_components["mpap_rest"], field_components["ci_rest"], field_components["pvr_rest"],
+        ]
+
+        def _calc_rhk_rest(*vals):
+            spap, dpap, pawp, rap, co, mpap, ci, pvr = vals
+            core = [spap, dpap, pawp, rap, co]
+            total = len(core)
+            filled = sum(1 for v in core if _is_filled(v))
+            # optional fields can only improve perception, never penalize
+            if any(_is_filled(v) for v in [mpap, ci, pvr]) and filled < total:
+                filled += 1
+            return filled, total
+
+        if hdr_rhk_rest is not None:
+            _bind_section_progress(hdr_rhk_rest, "Ruhehämodynamik", _sec_rhk_rest_comps, _calc_rhk_rest)
+
+        # Belastungshämodynamik (optional)
+        _sec_rhk_ex_comps = [
+            field_components["exercise_done"], field_components["exercise_protocol"], field_components["exercise_peak_watts"],
+            field_components["spap_peak"], field_components["dpap_peak"], field_components["pawp_peak"], field_components["co_peak"],
+            field_components["mpap_peak"], field_components["ci_peak"],
+        ]
+
+        def _calc_rhk_ex(*vals):
+            ex_done, proto, watts, spap, dpap, pawp, co, mpap, ci = vals
+            if not bool(ex_done):
+                return 0, 0
+            core = [proto, watts, spap, dpap, pawp, co]
+            total = len(core)
+            filled = sum(1 for v in core if _is_filled(v))
+            # optional
+            if any(_is_filled(v) for v in [mpap, ci]) and filled < total:
+                filled += 1
+            return filled, total
+
+        if hdr_rhk_exercise is not None:
+            _bind_section_progress(hdr_rhk_exercise, "Belastungshämodynamik", _sec_rhk_ex_comps, _calc_rhk_ex)
+
+        # Zusatzmodule (optional, counts only when started)
+        _sec_rhk_addons_comps = [
+            field_components["volume_challenge_done"], field_components["pawp_pre"], field_components["pawp_post"],
+            field_components["vaso_test_done"], field_components["vaso_agent"], field_components["vaso_mpap_pre"], field_components["vaso_mpap_post"],
+            field_components["sat_pa"], field_components["sat_ao"],
+        ]
+
+        def _calc_rhk_addons(*vals):
+            (vc_done, pawp_pre, pawp_post, vaso_done, vaso_agent, vaso_pre, vaso_post, sat_pa, sat_ao) = vals
+            total = 0
+            filled = 0
+
+            if bool(vc_done):
+                total += 2
+                filled += (1 if _is_filled(pawp_pre) else 0) + (1 if _is_filled(pawp_post) else 0)
+
+            if bool(vaso_done):
+                total += 2
+                filled += (1 if _is_filled(vaso_pre) else 0) + (1 if _is_filled(vaso_post) else 0)
+                # agent optional: do not penalize
+                if _is_filled(vaso_agent) and filled < total:
+                    filled += 1
+
+            # if sats are entered, count minimal documentation
+            if any(_is_filled(v) for v in [sat_pa, sat_ao]):
+                total += 1
+                filled += 1
+
+            if total == 0:
+                return 0, 0
+            return filled, total
+
+        if hdr_rhk_addons is not None:
+            _bind_section_progress(hdr_rhk_addons, "Zusatzmodule", _sec_rhk_addons_comps, _calc_rhk_addons)
+
+        # Verlauf / Vergleich (optional)
+        _sec_rhk_prev_comps = [
+            field_components["prev_rhk_date"], field_components["prev_mpap"], field_components["prev_pawp"],
+            field_components["prev_ci"], field_components["prev_pvr"],
+        ]
+
+        def _calc_rhk_prev(*vals):
+            prev_date, prev_mpap, prev_pawp, prev_ci, prev_pvr = vals
+            if not any(_is_filled(v) for v in vals):
+                return 0, 0
+            total = len(vals)
+            filled = sum(1 for v in vals if _is_filled(v))
+            return filled, total
+
+        if hdr_rhk_prev is not None:
+            _bind_section_progress(hdr_rhk_prev, "Verlauf / Vergleich", _sec_rhk_prev_comps, _calc_rhk_prev)
+
+        # --------------------------------------------------------------
+        # Weitere Befunde – Section Cards
+        # --------------------------------------------------------------
+
+        # LTOT
+        _sec_other_bloodgas = [field_components["ltot"], field_components["ltot_flow_l_min"]]
+
+        def _calc_other_bloodgas(*vals):
+            ltot, flow = vals
+            if not bool(ltot):
+                return 0, 0
+            total = 1
+            filled = 1 if _is_filled(flow) else 0
+            return filled, total
+
+        _bind_section_progress(hdr_other_bloodgas, "Blutgase / LTOT", _sec_other_bloodgas, _calc_other_bloodgas)
+
+        # Infektiologie/Immunologie
+        _sec_other_infect = [
+            field_components["virology_pos"], field_components["virology_items"], field_components["virology_desc"],
+            field_components["immunology_pos"], field_components["immunology_items"], field_components["immunology_desc"],
+        ]
+
+        def _calc_other_infect(*vals):
+            v_pos, v_items, v_desc, i_pos, i_items, i_desc = vals
+            total = 0
+            filled = 0
+            if bool(v_pos):
+                total += 1
+                if (isinstance(v_items, list) and len(v_items) > 0) or _is_filled(v_desc):
+                    filled += 1
+            if bool(i_pos):
+                total += 1
+                if (isinstance(i_items, list) and len(i_items) > 0) or _is_filled(i_desc):
+                    filled += 1
+            if total == 0:
+                return 0, 0
+            return filled, total
+
+        _bind_section_progress(hdr_other_infect, "Infektiologie / Immunologie", _sec_other_infect, _calc_other_infect)
+
+        # Genetik
+        _sec_other_gen = [field_components["mutation_pos"], field_components["mutation_items"], field_components["mutation_desc"]]
+
+        def _calc_other_gen(*vals):
+            m_pos, m_items, m_desc = vals
+            if not bool(m_pos):
+                return 0, 0
+            total = 1
+            filled = 1 if ((isinstance(m_items, list) and len(m_items) > 0) or _is_filled(m_desc)) else 0
+            return filled, total
+
+        _bind_section_progress(hdr_other_gen, "Genetik", _sec_other_gen, _calc_other_gen)
+
+        # Abdomen
+        _sec_other_abd = [field_components["abd_sono_done"], field_components["abd_sono_desc"]]
+
+        def _calc_other_abd(*vals):
+            done, desc = vals
+            if not bool(done):
+                return 0, 0
+            total = 1
+            filled = 1 if _is_filled(desc) else 0
+            return filled, total
+
+        _bind_section_progress(hdr_other_abd, "Abdomen / Leber", _sec_other_abd, _calc_other_abd)
 
 
         # --- Helpers to map UI dict to component list ---
@@ -1641,6 +2266,51 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             markdown_to_docx_file(md, out_path)
             return out_path
 
+        def _export_doctor_docx_local(case_state: Any, out_dir: str):
+            """Create the same DOCX as download, but save it to a local path.
+
+            Motivation
+            - In some clinic environments, browser downloads are blocked or Word opens downloaded files in Protected View (Mark-of-the-Web).
+            - Saving to a local folder (e.g., Documents) avoids the download zone marker.
+            """
+            import os
+            import time
+
+            if not isinstance(case_state, dict):
+                raise gr.Error("Bitte zuerst den Befund erstellen, dann DOCX speichern.")
+
+            out_dir = str(out_dir or "").strip()
+            if not out_dir:
+                # sensible default
+                out_dir = os.path.join(os.path.expanduser("~"), "Documents", "RHK_Befunde")
+
+            try:
+                os.makedirs(out_dir, exist_ok=True)
+            except Exception as e:
+                raise gr.Error(f"Ordner kann nicht erstellt/genutzt werden: {out_dir} ({e})")
+
+            md_doc = build_doctor_report_for_copy(case_state, blocks)
+            md_pat_rhk = build_patient_report(case_state)
+            md_pat_echo = build_echo_patient_report(case_state)
+
+            md = "\n\n".join(
+                [
+                    "## Arztbericht",
+                    str(md_doc or "").strip(),
+                    "[[PAGEBREAK]]",
+                    "## Patientenbericht – Rechtsherzkatheter",
+                    str(md_pat_rhk or "").strip(),
+                    "[[PAGEBREAK]]",
+                    "## Patientenbericht – Echokardiographie",
+                    str(md_pat_echo or "").strip(),
+                ]
+            ).strip()
+
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            out_path = os.path.join(out_dir, f"rhk_arztbericht_{ts}.docx")
+            markdown_to_docx_file(md, out_path)
+            return f"Gespeichert: `{out_path}`"
+
         generate_outputs = [
             auto_mpap, auto_ci, auto_pvr, auto_pvri, auto_tpg, auto_dpg,
             dashboard,
@@ -1674,6 +2344,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             _export_doctor_docx,
             inputs=[state_case],
             outputs=[btn_download_doc],
+        )
+
+        # DOCX save to local path (clinic workaround)
+        btn_save_docx_local.click(
+            _export_doctor_docx_local,
+            inputs=[state_case, docx_save_dir],
+            outputs=[docx_save_feedback],
         )
         # --- Live status update (debounced client ping) ---
         # Instead of attaching a .change handler to dozens of inputs (slow + triggers during bulk programmatic updates),
@@ -1932,7 +2609,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         btn_example_top.click(_load_example_ui, inputs=[], outputs=input_components + [state_pmods_selected, state_case_filename])\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"]])\
             .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"], field_components["lsb_present"], field_components["lsb_reason"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_reset_docx_states, inputs=[], outputs=[state_docx_cur, state_docx_prev])\
             .then(_reset_echo_import_states, inputs=[], outputs=[import_pdf_cur, import_preview_cur_html, state_echo_cur, import_pdf_prev, import_preview_prev_html, state_echo_prev, compare_echo_html, details_echo_html, btn_echo_apply, state_case_filename])\
@@ -1941,7 +2618,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         btn_example_bottom.click(_load_example_ui, inputs=[], outputs=input_components + [state_pmods_selected, state_case_filename])\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"]])\
             .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"], field_components["lsb_present"], field_components["lsb_reason"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_reset_docx_states, inputs=[], outputs=[state_docx_cur, state_docx_prev])\
             .then(_reset_echo_import_states, inputs=[], outputs=[import_pdf_cur, import_preview_cur_html, state_echo_cur, import_pdf_prev, import_preview_prev_html, state_echo_prev, compare_echo_html, details_echo_html, btn_echo_apply, state_case_filename])\
@@ -2026,15 +2703,15 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         try:
             btn_clear_top.click(_clear_all, inputs=[], outputs=load_outputs, queue=False)\
-                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"]], outputs=[pre_cath_html, pre_cath_home_html])
+                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"], field_components["lsb_present"], field_components["lsb_reason"]], outputs=[pre_cath_html, pre_cath_home_html])
             btn_clear_bottom.click(_clear_all, inputs=[], outputs=load_outputs, queue=False)\
-                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"]], outputs=[pre_cath_html, pre_cath_home_html])
+                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"], field_components["lsb_present"], field_components["lsb_reason"]], outputs=[pre_cath_html, pre_cath_home_html])
         except TypeError:
             # Older Gradio builds may not support queue=...
             btn_clear_top.click(_clear_all, inputs=[], outputs=load_outputs)\
-                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"]], outputs=[pre_cath_html, pre_cath_home_html])
+                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"], field_components["lsb_present"], field_components["lsb_reason"]], outputs=[pre_cath_html, pre_cath_home_html])
             btn_clear_bottom.click(_clear_all, inputs=[], outputs=load_outputs)\
-                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"]], outputs=[pre_cath_html, pre_cath_home_html])
+                .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"], field_components["lsb_present"], field_components["lsb_reason"]], outputs=[pre_cath_html, pre_cath_home_html])
 
 
         # --- Clear / reset ---
@@ -2374,7 +3051,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"]])\
             .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"], field_components["lsb_present"], field_components["lsb_reason"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
 
@@ -2383,7 +3060,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"]])\
             .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"], field_components["lsb_present"], field_components["lsb_reason"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
 
@@ -2391,7 +3068,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"]])\
             .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"], field_components["lsb_present"], field_components["lsb_reason"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
 
@@ -2454,7 +3131,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         )\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"]])\
             .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"], field_components["lsb_present"], field_components["lsb_reason"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])
@@ -2473,7 +3150,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         )\
             .then(_sync_post_load, inputs=[field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"]], outputs=[ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"]])\
             .then(_sync_post_load_cpet, inputs=[field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"], field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"], field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"]], outputs=[cpet_details, cpet_risk_html])\
-            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"]], outputs=[pre_cath_html, pre_cath_home_html])\
+            .then(_update_pre_cath_both, inputs=[field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"], field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"], field_components["lsb_present"], field_components["lsb_reason"]], outputs=[pre_cath_html, pre_cath_home_html])\
             .then(_reset_flags_after_load, inputs=[], outputs=[state_flags])\
             .then(_generate, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_apply_pmods_values, inputs=[state_pmods_selected], outputs=[modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp])

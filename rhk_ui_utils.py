@@ -1106,7 +1106,14 @@ def build_pre_cath_header_html(ui: dict | None) -> str:
             dedup.append(it)
 
         allergy_text = ", ".join(dedup) if dedup else "(nicht spezifiziert)"
-        allergy_chip = _chip(f"Allergien: {allergy_text}", "rhk-schip--warn")
+        allergy_chip = _chip(f"Allergien: {allergy_text}", "rhk-schip--warn")    # 5b) LSB (nur wenn aktiv abgehakt) – Risiko: katheterinduziertes RSB kann bei präexistentem LSB zu komplettem AV-Block führen
+    lsb_present = bool(ui.get("lsb_present") is True)
+    lsb_reason = (ui.get("lsb_reason") or "").strip()
+    lsb_title = ""
+    if lsb_present:
+        base = "Präexistenter LSB: Risiko eines katheterinduzierten RSB mit komplettem AV-Block. Standby-Pacing/Defi/Monitoring bereit halten."
+        lsb_title = base + ((" Begründung: " + lsb_reason) if lsb_reason else "")
+    lsb_chip = _chip("LSB: ja", "rhk-schip--warn", lsb_title) if lsb_present else ""
 
     # 6) Infekt (CRP)
     crp = _safe_float(ui.get("crp_mg_l"))
@@ -1126,5 +1133,6 @@ def build_pre_cath_header_html(ui: dict | None) -> str:
         + infect_chip
         + renal_chip
         + allergy_chip
+        + lsb_chip
         + "</div>"
     )

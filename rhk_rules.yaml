@@ -552,3 +552,127 @@ rules:
       und Verlaufskontrolle; bei anhaltender Belastungslimitierung spezialisierte Mitbeurteilung (CTEPH/PH-Zentrum) erwägen.'
     add_modules:
     - P01
+
+# -----------------------------------------------------------------------------
+# WSPH 2024 / ESC-ERS 2022 oriented therapy + diagnostic refinement
+# (kept deliberately conservative: suggestions, not prescriptions)
+# -----------------------------------------------------------------------------
+
+- id: R_VQ_RECOMMENDED_UNEXPLAINED_PH
+  priority: 500
+  when: has_ph == True and (vq_done != True)
+  then:
+    add_tags:
+    - V/Q-Szinti empfohlen
+    add_recommendations:
+    - 'Bei neu/unexplained PH sollte ein Ventilations/Perfusions-Scan (oder Perfusionsscan) zum Ausschluss einer CTEPH/CTEPD durchgeführt werden.'
+    add_modules:
+    - P01
+
+- id: R_PAH_LIKELY_GROUP1_TAG
+  priority: 510
+  when: (mpap != None and mpap > 20) and (pawp_rest != None and pawp_rest <= 15) and (pvr != None and pvr > 2) and (vq_defect != True) and (ct_embolie != True) and (ct_mosaic != True) and (ct_ild != True) and (ct_emphysema != True) and (lufu_restrictive != True) and (lufu_obstructive != True) and (lufu_diffusion != True) and (step_up_present != True)
+  then:
+    add_tags:
+    - Gruppe 1 (PAH) wahrscheinlich
+    add_recommendations:
+    - 'Bei präkapillärer PH ohne Hinweise auf Gruppe 3/4 oder Shunt ist eine PAH (Gruppe 1) wahrscheinlich. Ätiologie-Abklärung nach Standardpfad (inkl. CTD, HIV, portopulmonal, Medikamente/Toxine, genetische Abklärung je nach Kontext) und Therapieentscheidung im PH-Zentrum.'
+
+- id: R_PAH_INIT_ORAL_DUAL_RECOMMEND
+  priority: 520
+  when: (mpap != None and mpap > 20) and (pawp_rest != None and pawp_rest <= 15) and (pvr != None and pvr > 2) and (leading_group == 1 or (vq_defect != True and ct_ild != True and lufu_obstructive != True and step_up_present != True)) and (risk_category != None) and (risk_category != 'high')
+  then:
+    add_tags:
+    - PAH-Therapie: frühe Kombination
+    add_recommendations:
+    - 'Bei PAH (Gruppe 1) wird in der Regel eine initiale orale Kombinationstherapie (ERA + PDE5i bzw. sGC-Stimulator als Alternative je nach Konstellation) mit früher Re-Evaluation empfohlen.'
+
+- id: R_PAH_HIGH_RISK_PARENTERAL_RECOMMEND
+  priority: 525
+  when: (mpap != None and mpap > 20) and (pawp_rest != None and pawp_rest <= 15) and (pvr != None and pvr > 2) and (leading_group == 1 or (vq_defect != True and ct_ild != True and lufu_obstructive != True and step_up_present != True)) and (risk_category == 'high')
+  then:
+    add_tags:
+    - PAH: Hochrisiko
+    add_recommendations:
+    - 'Bei Hochrisiko-Konstellation sollte eine rasche Therapieeskalation inkl. parenteraler Prostacyclin-Pathway-Therapie (i.v./s.c.) plus Kombinationstherapie im PH-Zentrum geprüft werden; parallel frühzeitige Anbindung an fortgeschrittene Therapien (inkl. Transplantationsoption).' 
+    add_modules:
+    - P25
+
+
+- id: R_CONTRA_NITRATES_PDE5
+  priority: 528
+  when: (on_nitrates == True) and ((ph_current_meds != None and ('PDE‑5‑Hemmer' in ph_current_meds)) or (ph_new_meds != None and ('PDE‑5‑Hemmer' in ph_new_meds)))
+  then:
+    add_tags:
+    - 'Kontraindikation: Nitrate + PDE‑5‑Hemmer'
+    add_recommendations:
+    - 'Wichtige Arzneimittel-Kontraindikation: Gleichzeitige Gabe von Nitraten/NO-Donoren (z.B. Nitro, Isosorbid) und PDE‑5‑Hemmern ist kontraindiziert (Risiko schwerer Hypotonie). Bitte Medikation prüfen und Anpassung vornehmen.'
+
+
+- id: R_CONTRA_RIO_PDE5
+  priority: 529
+  when: ((ph_current_meds != None and ('PDE‑5‑Hemmer' in ph_current_meds) and ('sGC‑Stimulator (Riociguat)' in ph_current_meds)) or (ph_new_meds != None and ('PDE‑5‑Hemmer' in ph_new_meds) and ('sGC‑Stimulator (Riociguat)' in ph_new_meds)) or (ph_current_meds != None and ('PDE‑5‑Hemmer' in ph_current_meds) and (ph_new_meds != None and ('sGC‑Stimulator (Riociguat)' in ph_new_meds))) or (ph_current_meds != None and ('sGC‑Stimulator (Riociguat)' in ph_current_meds) and (ph_new_meds != None and ('PDE‑5‑Hemmer' in ph_new_meds))))
+  then:
+    add_tags:
+    - 'Kontraindikation: PDE‑5‑Hemmer + Riociguat'
+    add_recommendations:
+    - 'Wichtige Kontraindikation: PDE‑5‑Hemmer dürfen nicht gemeinsam mit dem sGC‑Stimulator Riociguat gegeben werden (Risiko schwerer Hypotonie). Bitte Medikation prüfen und Anpassung vornehmen.'
+
+- id: R_THERAPY_SOTATERCEPT_GROUP_GUARD
+  priority: 531
+  when: (leading_group != None) and (leading_group != 1) and ((ph_current_meds != None and ('Sotatercept (BMPR2/Activin-Pfad)' in ph_current_meds)) or (ph_new_meds != None and ('Sotatercept (BMPR2/Activin-Pfad)' in ph_new_meds)))
+  then:
+    add_tags:
+    - 'Therapiehinweis: Sotatercept nur PAH (Gruppe 1)'
+    add_recommendations:
+    - 'Sotatercept ist als Therapiepfad für PAH (Gruppe 1) vorgesehen. Bei nicht-Gruppe-1-Konstellation bitte Indikation prüfen (ggf. Eintrag entfernen oder Kontext im Zentrum dokumentieren).'
+
+- id: R_THERAPY_PDE5_HARDSHIP_GUARD
+  priority: 532
+  when: (leading_group != None) and (leading_group != 1) and ((ph_current_meds != None and ('PDE‑5‑Hemmer' in ph_current_meds)) or (ph_new_meds != None and ('PDE‑5‑Hemmer' in ph_new_meds))) and (pde5_hardship != True)
+  then:
+    add_tags:
+    - 'Therapiehinweis: PDE‑5 außerhalb Gruppe 1 nur im Härtefall'
+    add_recommendations:
+    - 'PDE‑5‑Hemmer sind regelhaft für PAH (Gruppe 1) vorgesehen. Außerhalb Gruppe 1 bitte nur bei dokumentierter Härtefall-Ausnahme (Off-Label-Entscheidung im Zentrum) einsetzen oder Eintrag korrigieren.'
+
+- id: R_THERAPY_PDE5_HARDSHIP_NEEDS_REASON
+  priority: 533
+  when: (pde5_hardship == True) and ((pde5_hardship_desc == None) or (pde5_hardship_desc == ''))
+  then:
+    add_tags:
+    - 'Dokumentation fehlt: PDE‑5 Härtefall-Begründung'
+    add_recommendations:
+    - 'Bitte eine kurze Härtefall-Begründung dokumentieren (Nutzen-Risiko-Abwägung/Off-Label-Kontext), damit Therapieentscheidungen nachvollziehbar sind.'
+
+- id: R_EKG_MISSING_RECOMMEND
+  priority: 534
+  when: (ekg_present != True)
+  then:
+    add_tags:
+    - 'EKG fehlt'
+    add_recommendations:
+    - 'Ein 12-Kanal-EKG sollte vor/bei RHK vorliegen. Bitte EKG nach typischen Rechtsherzbelastungszeichen beurteilen und dokumentieren.'
+
+- id: R_EKG_RHS_SIGNS_TAG
+  priority: 536
+  when: (ekg_present == True) and (ekg_rhs_signs != None) and (ekg_rhs_signs != [])
+  then:
+    add_tags:
+    - 'EKG: Rechtsherzbelastung'
+- id: R_PAH_ESCALATION_IF_NOT_LOW
+  priority: 530
+  when: (leading_group == 1) and (risk_category != None) and (risk_category != 'low')
+  then:
+    add_tags:
+    - Therapieeskalation prüfen
+    add_recommendations:
+    - 'Therapieziel ist ein niedriges Risiko. Bei persistierendem Risiko (intermediär/hoch) trotz Therapie: zeitnahe Eskalation entlang der Therapiekaskade (Hinzunahme Prostacyclin-Pathway-Agent, ggf. Wechsel/Addition NO/cGMP-Pfad, bei geeigneten Patient*innen Add-on über BMPR2/Activin-Signalweg) und engmaschige Re-Evaluation.'
+
+- id: R_SOTATERCEPT_ADDON_CONTEXT_NOTE
+  priority: 535
+  when: (leading_group == 1) and (risk_category != None) and (risk_category != 'low')
+  then:
+    add_recommendations:
+    - 'Hinweis neue Therapieoption: Add-on über den BMPR2/Activin-Signalweg (z.B. Sotatercept) ist als vierter Pfad verfügbar; Einsatz/Timing sollte im PH-Zentrum und unter Berücksichtigung von Indikation, Kontraindikationen und Monitoring erfolgen.'
+

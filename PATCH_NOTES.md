@@ -1,69 +1,51 @@
-# Patch 27.2.9 (2026-01-08)
+## v27.4.4
+
+- Bugfix: LSB Chip wird nun im Pre-Cath Sticky Header korrekt angezeigt (nur wenn aktiv) und steht direkt neben Krea.
+- Tooltip: klinische Warnung zu LSB (Risiko katheterinduziertes RSB → kompletter AV-Block) plus optionale Begründung.
+
+## v27.4.3
+
+- Sticky Header: LSB Chip bekommt jetzt einen Tooltip mit klinischer Sicherheitswarnung (Risiko kompletten AV-Blocks bei katheterinduziertem RSB) und optionaler Begründung aus dem Feld "LSB: Begründung".
+- UI: Neues Feld "LSB: Begründung" (nur sichtbar wenn LSB aktiv) und wird in Pre-Cath Header + Arztbericht übernommen.
+
+# Patch 27.3.9 (2026-01-08)
 
 Änderungen
 
-1) Cards Mode – graue Balken wirklich entfernt
-- Innerhalb von .rhk-card werden nun auch Gradio-Container (Row, Block, Markdown/Prose Wrapper) konsequent auf transparent gesetzt.
-- Zusätzlich: .gr-row selbst wird innerhalb von Cards neutralisiert (kein Background-Fill, keine Padding-Balken).
+1) Echo Expertenbericht (Arztbericht) neu strukturiert und deutlich erweitert: Executive Summary, Nachlast/PH-Surrogate, RV-Funktion und RV-PA-Kopplung, Remodeling, Stauungszeichen, Linksherz-Kontext, leitlinienorientierte Einordnung, Verlauf (meaningful change).
+2) Fix: korrigiert fehlerhafte Ellipsen/Trunkierungen in der bisherigen Extended-Report-Implementierung (Stabilität).
 
-2) Tabs – Reiter-Buttons werden nicht mehr durch eine Linie „geschnitten“
-- Entfernt: mögliche Border/Shadow am [role=tablist] Container.
-- Divider unterhalb der Tab-Pills weiter nach unten verschoben (mit zusätzlichem Abstand).
+# Patch 27.3.6 (2026-01-08)
+
+Änderungen
+
+1) Cards Mode – Sektionen als "Header Card" (nicht sticky)
+- Klinik & Labor: Allgemeines/Anamnese/Vorerkrankungen, Funktion/Symptome, Labor, Medikation als eigenständige Cards mit klarer Kopfzeile.
+- Bildgebung & Echo/CMR: Thorax-Bildgebung, Echokardiographie, MRT/CMR als eigenständige Cards.
+- Lungenfunktion: Lungenfunktion und Spiroergometrie/CPET als eigenständige Cards.
+
+2) Fortschritt je Sektion (minimalistisch)
+- In jeder Sektion wird oben rechts ein kompakter Ausfüllgrad angezeigt (x/y + dezenter Progress-Bar).
+- Optional-Sektionen (z.B. CMR/CPET/Lufu ohne "durchgeführt") zeigen "optional" statt 0/0.
+
+3) Tabs – Button wird nicht mehr von der Linie "geschnitten"
+- Divider unterhalb der Tab-Pills (Pseudo-Element), zusätzlicher Abstand nach unten.
 
 ---
 
-# Patch 27.2.8 (2026-01-08)
+# Patch 27.3.5 (2026-01-08)
 
 Änderungen
 
-1) Cards Mode – graue Zwischenbalken vollständig entfernt
-- Die Tab-Seite selbst ist jetzt „transparent“ (keine große Box). Die Gliederung erfolgt ausschließlich über die inneren .rhk-card Sektionen.
-- Row- und Block-Hintergründe innerhalb der Tab-Seiten werden auf transparent gesetzt, sodass keine grauen Trennbalken mehr erscheinen.
+1) Arztbericht – neue automatische Interpretation unter „Beurteilung“
+- Unterhalb der Beurteilung wird nun ein eigenständiger Absatz „Interpretation“ erzeugt.
+- Narrative, guideline-aligned Einordnung der Ruhehämodynamik (keine PH vs. präkapillär vs. isoliert postkapillär vs. kombiniert post/präkapillär vs. unklassifizierte Konstellation).
+- Integration von Provokationstests: Belastung (mPAP/CO Slope, PAWP/CO Slope) und Volumenchallenge (PAWP Endpunkt ≥18 mmHg) inkl. Hinweis auf limitierte Datenlage bei PAH.
+- Zusätzlich werden zentrale pathologische Signale aus der numerischen Zusammenfassung (z.B. RAP, CI, PAC/PP) kurz verbalisiert.
 
-2) Tabs – Reiterlinie schneidet nicht mehr durch die Buttons
-- Mehr Abstand unter den Pill-Tabs und Divider-Line weiter nach unten versetzt.
-- Z-Index-Fix: Buttons liegen immer vor der Divider-Line.
-
----
-
-# Patch 27.2.7 (2026-01-08)
-
-Änderungen
-
-1) Arztbericht – manuell ausgewählte P-Module werden nicht mehr „verschluckt“
-- Wenn ein P-Modul explizit ausgewählt wurde, erscheint es im Procedere auch dann, wenn alle Bullet-Points als „bereits erfolgt“ herausgefiltert wurden.
-- In diesem Fall wird eine kurze, professionelle Zeile ausgegeben: „Derzeit keine zusätzliche Maßnahme ableitbar.“
-
-2) Cards Mode – graue Balken innerhalb von Cards entfernt
-- Die globalen Tab-Überschriften-Styles (h3/h4) wirken jetzt nur noch auf direkte Tab-Section-Header, nicht innerhalb von .rhk-card.
-- Ergebnis: Card-Header wirken sauber und „card-like“, ohne graue Zwischenbalken.
-
----
-
-# Patch 27.2.4 (2026-01-08)
-
-Änderungen
-
-1) Tabs – „angeschnittene“ Reiterlinie behoben
-- Die optische Trennlinie unter den Pill-Tabs liegt jetzt bewusst unterhalb der Tabs und schneidet die Reiter nicht mehr an.
-
-2) Cards Mode – echte Card-Sektionen in den Input-Reitern
-- Klinik & Labor: aufgeteilt in vier Cards (Allgemeines/Anamnese/Vorerkrankungen, Funktion/Symptome, Labor, Medikation & Zusatzangaben).
-- Bildgebung & Echo/CMR: getrennte Cards für Thorax-Bildgebung und MRT/CMR.
-- Lungenfunktion: getrennte Cards für Lungenfunktion und CPET.
-
----
-
-# Patch 27.2.3 (2026-01-08)
-
-Änderungen
-
-1) Klinik & Labor – bessere Orientierung
-- Neue Abschnittsüberschrift „Allgemeines, Anamnese, Vorerkrankungen“ am Anfang des Tabs.
-- Abschnitt „Symptome / Funktion“ umbenannt zu „Funktion / Symptome“ für konsistentere Navigation.
-
-2) Cards Mode – professionellere Section Header
-- Abschnittsüberschriften innerhalb der Tab-Cards sind jetzt klarer und „card header“-ähnlich gestylt (bessere Scanbarkeit, weniger Verlorenheitsgefühl).
+2) Procedere – neue P Module
+- P31 „Risikofaktoren Management“ ergänzt.
+- P32 „Ausschluss einer pulmonalen Hypertonie“ ergänzt.
 
 ---
 
@@ -273,6 +255,22 @@ Hinweis OCR
 - DOCX export uses DownloadButton; removed large empty file widget.
 
 
-## v27.2.6 (2026-01-08)
-- FIX: P-Module titles restored in UI and selection works again (TextBlock structure preserved).
-- IMPROVE: P-Module texts shortened and styled as concise Arztbrief-Procedere.
+## v27.3.3 (2026-01-08)
+- FEATURE: Volumenchallenge Endpunkt leitlinienbasiert ergänzt: absolute PAWP-Antwort (PAWP post ≥18 mmHg) als Hinweis auf okkulte LV-Diastolikstörung/HFpEF (mit Hinweis auf begrenzte Validierung).
+- IMPROVE: Arztbericht – „Hämodynamische Zusatzinterpretation“ ergänzt: relevante Auffälligkeiten aus PP/PAC/TPG/DPG/CI/RAP sowie Belastungs-Slopes werden kurz als Text verbalisiert, damit Zahlen nicht „stehen bleiben“.
+- FEATURE: DOCX Export zusätzlich als „lokales Speichern“ (Ordner frei wählbar) – Workaround für Klinik-Policies/Protected-View bei Browser-Downloads.
+
+
+## v27.4.1
+- Release-Hygiene: Entfernt __pycache__ und Untitled.ipynb
+- Tests: Snapshot-Regression für Regelwerk (tests/rules_snapshot.py)
+- Sicherheit: Kontraindikations-Guard Nitrate/NO-Donor + PDE-5-Hemmer
+
+## v27.4.2 (2026-01-09)
+- Risiko: Test Guard gegen tote Inputs (tests/test_risk_input_coverage.py). Riskorelevante Eingaben müssen mindestens einen Score beeinflussen.
+- Therapie: Kontraindikation PDE 5 Hemmer plus Riociguat ergänzt.
+- Therapie: Sotatercept Gruppenguard (nur PAH Gruppe 1) plus PDE 5 außerhalb Gruppe 1 nur mit Härtefall Dokumentation.
+- EKG: Hinweis wenn EKG nicht dokumentiert plus Tag bei dokumentierten Rechtsherzbelastungszeichen.
+- Pre Cath Safety: LSB Checkbox plus Warn Chip im Sticky Header nur wenn aktiv.
+- Medikation: Nitrate NO Donor als Sicherheitsabfrage plus PDE 5 Härtefall Begründung im Tab Medikation.
+- Reports: Arztbericht erweitert um EKG Angaben LSB Nitrate und Therapie Verlauf Felder.
