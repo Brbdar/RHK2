@@ -1168,7 +1168,7 @@ _add_k_package(
     empfehlung=(
         "Hochgradige präkapilläre PH mit Zeichen der Rechtsherzbelastung und reduziertem Herzzeitvolumen. "
         "{therapy_escalation_sentence} "
-        "Engmaschige klinische Kontrolle (Klinik, BNP/NT-proBNP, Echo, Belastbarkeit) empfohlen. "
+        ""
         "Bei führender Stauung: Priorisierung der Dekongestion und Trigger-/Komorbiditätsdiagnostik (Infekt, Rhythmus, Anämie, Hypoxie/ILD-Progress) "
         "je nach klinischem Kontext. "
         "Diskussion im Expert:innenboard/Referenzzentrum bei persistierend hohem Risiko erwägen."

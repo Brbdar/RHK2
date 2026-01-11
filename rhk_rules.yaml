@@ -290,7 +290,10 @@ rules:
     - P12
 - id: R_RV_HIGH_HINT
   priority: 159
-  when: residual_volume_l != None and residual_volume_l >= 3.5
+  # RV is documented in this UI as % predicted (see label). A low threshold like 3.5
+  # was a units mismatch and caused near-universal false positives. We only flag
+  # clearly elevated RV (%pred) and only in a constellation supporting hyperinflation.
+  when: residual_volume_l != None and residual_volume_l >= 140 and (ct_emphysema == True or (fev1_l != None and fev1_l < 80))
   then:
     add_tags:
     - RV erhöht (Hyperinflation möglich)

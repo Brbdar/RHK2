@@ -68,6 +68,124 @@ _add(
     ],
 )
 
+
+# ---------------------------------------------------------------------------
+# Patientenbericht-Archetypen (H1...H6)
+#
+# Hinweis:
+# - Diese Bausteine sind *fokusverschiebend* (Schwerpunkt), nicht diagnostisch.
+# - Sie werden nur verwendet, wenn `derived.p_archetype_id` gesetzt ist.
+# - Fallback bleibt immer der bestehende Standardtext.
+# ---------------------------------------------------------------------------
+
+_add(
+    "PX_ARCH_H1_FOCUS_MEASURED",
+    "Archetyp H1: kein PH in Ruhe, aber Risiko/Vorerkrankung – Fokus Messung",
+    [
+        "Auch wenn die Werte in Ruhe unauffällig sind, bedeutet das nicht automatisch Entwarnung. Bei bestimmten Vorerkrankungen kann es wichtig sein, den Verlauf und die Belastungssituation im Blick zu behalten.",
+        "Ein Normalbefund in Ruhe ist in Ihrer Konstellation ein gutes Zeichen, ersetzt aber nicht die Verlaufskontrolle. Manche Veränderungen zeigen sich zuerst unter Belastung oder im zeitlichen Verlauf.",
+    ],
+)
+
+_add(
+    "PX_ARCH_H1_FOCUS_MEANING",
+    "Archetyp H1: kein PH in Ruhe, aber Risiko/Vorerkrankung – Fokus Bedeutung",
+    [
+        "Das Ziel ist jetzt vor allem, Veränderungen früh zu erkennen. Wichtig sind dabei Beschwerden, Belastbarkeit und Kontrolluntersuchungen, nicht nur ein einzelner Messzeitpunkt.",
+        "In solchen Situationen ist oft die Kombination aus Symptomen, Verlauf und ergänzenden Untersuchungen entscheidend. So können wir rechtzeitig handeln, falls sich etwas verändert.",
+    ],
+)
+
+_add(
+    "PX_ARCH_H2_FOCUS_MEASURED",
+    "Archetyp H2: Grenzwerte/frühe PH – Fokus Messung",
+    [
+        "Einige Werte liegen in einem Grenzbereich. Das kann ein sehr frühes Stadium sein oder eine vorübergehende Schwankung. Deshalb ist Dynamik oft wichtiger als eine Momentaufnahme.",
+        "Die Messwerte bewegen sich nahe an den Grenzbereichen. Das allein ist noch keine Aussage darüber, wie stabil die Situation bleibt. Entscheidend ist der Verlauf zusammen mit Ihren Beschwerden.",
+    ],
+)
+
+_add(
+    "PX_ARCH_H2_FOCUS_MEANING",
+    "Archetyp H2: Grenzwerte/frühe PH – Fokus Bedeutung",
+    [
+        "In einem Frühstadium geht es häufig darum, Ursachen sauber einzuordnen und den Verlauf zu beobachten. Eine Behandlung wird immer gegen Nutzen und Risiken abgewogen.",
+        "Bei grenzwertigen Befunden ist es besonders wichtig, Trends zu erkennen: Werden Werte oder Beschwerden schlechter, bleibt alles stabil oder verbessert es sich? Daraus leiten wir die nächsten Schritte ab.",
+    ],
+)
+
+_add(
+    "PX_ARCH_H3_FOCUS_MEASURED",
+    "Archetyp H3: etablierte präkapilläre PH – Fokus Messung",
+    [
+        "Die Werte sprechen dafür, dass die Lungengefäße einen erhöhten Widerstand bieten. Das rechte Herz muss dadurch gegen eine höhere Nachlast arbeiten.",
+        "Im Vordergrund steht eine erhöhte Belastung des rechten Herzens durch den Widerstand in den Lungengefäßen. Das erklärt, warum Belastung und Leistungsfähigkeit so wichtig sind.",
+    ],
+)
+
+_add(
+    "PX_ARCH_H3_FOCUS_MEANING",
+    "Archetyp H3: etablierte präkapilläre PH – Fokus Bedeutung",
+    [
+        "Der Schwerpunkt liegt nun weniger auf der Frage *ob* Lungenhochdruck vorliegt, sondern darauf, wie gut das rechte Herz damit zurechtkommt und welche Therapieziele wir gemeinsam verfolgen.",
+        "Wichtig ist, die Belastung des rechten Herzens zu senken und die Belastbarkeit zu stabilisieren oder zu verbessern. Kontrollen helfen, Therapieeffekte früh zu erkennen.",
+    ],
+)
+
+_add(
+    "PX_ARCH_H4_FOCUS_MEASURED",
+    "Archetyp H4: postkapilläre/kombinierte PH – Fokus Messung",
+    [
+        "Es gibt Hinweise, dass der Druckanstieg (auch) durch einen Rückstau von der linken Herzseite mitbedingt ist. Das verändert, welche Behandlungsansätze im Vordergrund stehen.",
+        "Das Muster spricht dafür, dass die linke Herzhälfte eine wichtige Rolle spielt. Dann ist die Einordnung der linken Herzfunktion und der Flüssigkeitsbalance besonders relevant.",
+    ],
+)
+
+_add(
+    "PX_ARCH_H4_FOCUS_MEANING",
+    "Archetyp H4: postkapilläre/kombinierte PH – Fokus Bedeutung",
+    [
+        "In solchen Konstellationen ist oft die Behandlung des linken Herzens und der Begleiterkrankungen entscheidend. Eine spezifische PH‑Therapie ist nicht automatisch der erste Schritt.",
+        "Der wichtigste Hebel ist häufig, den Rückstau zu reduzieren und die linke Herzfunktion bestmöglich zu unterstützen. Welche Medikamente sinnvoll sind, wird individuell entschieden.",
+    ],
+)
+
+_add(
+    "PX_ARCH_H5_FOCUS_MEASURED",
+    "Archetyp H5: thromboembolische Konstellation/CTEPH – Fokus Messung",
+    [
+        "Es gibt Hinweise, dass (auch) ältere Blutgerinnsel in den Lungengefäßen eine Rolle spielen könnten. Dann geht es besonders um die Mechanik des Blutflusses durch die Lunge.",
+        "Bei diesem Muster ist wichtig zu prüfen, ob Engstellen durch ältere Gerinnsel bestehen. Das kann man mit gezielter Bildgebung oft sehr gut beurteilen.",
+    ],
+)
+
+_add(
+    "PX_ARCH_H5_FOCUS_MEANING",
+    "Archetyp H5: thromboembolische Konstellation/CTEPH – Fokus Bedeutung",
+    [
+        "Wenn sich der Verdacht bestätigt, gibt es neben Medikamenten auch spezielle Behandlungsoptionen, die die Durchblutung der Lunge direkt verbessern können. Welche davon passt, hängt von der genauen Verteilung ab.",
+        "In diesem Zusammenhang sind bestimmte Untersuchungen wie die Ventilations/Perfusions‑Szintigraphie besonders hilfreich. Sie zeigen, wie gleichmäßig die Lunge durchblutet wird.",
+    ],
+)
+
+_add(
+    "PX_ARCH_H6_FOCUS_MEASURED",
+    "Archetyp H6: rechtes Herz im Vordergrund bei moderatem Druck – Fokus Messung",
+    [
+        "Obwohl die Druckwerte nicht extrem hoch sind, zeigen Marker des rechten Herzens eine relevante Belastung. Das kann erklären, warum Beschwerden dennoch deutlich sein können.",
+        "Manchmal spiegelt der Druck allein nicht die gesamte Situation wider. Hinweise auf eine Belastung des rechten Herzens oder Rückstau können dann besonders aussagekräftig sein.",
+    ],
+)
+
+_add(
+    "PX_ARCH_H6_FOCUS_MEANING",
+    "Archetyp H6: rechtes Herz im Vordergrund bei moderatem Druck – Fokus Bedeutung",
+    [
+        "Dann ist besonders wichtig, Funktion, Belastbarkeit und Verlauf zu betrachten. Therapieentscheidungen orientieren sich oft daran, wie gut das rechte Herz die Situation kompensieren kann.",
+        "In solchen Fällen achten wir besonders auf Verlauf, Belastbarkeit und Zeichen von Rückstau. Das hilft, die Behandlung an das anzupassen, was für Sie im Alltag relevant ist.",
+    ],
+)
+
 _add(
     "PX_INCOMPLETE",
     "Einordnung derzeit nicht eindeutig",
@@ -105,6 +223,25 @@ _add(
     ],
 )
 
+
+
+_add(
+    "PX_VOLUME_CHALLENGE",
+    "Volumenchallenge",
+    [
+        "Manchmal geben wir während der Untersuchung gezielt eine definierte Menge Flüssigkeit über die Vene. Damit prüfen wir, ob der Druck auf der linken Herzseite dabei auffällig ansteigt. Das kann helfen, eine Mitbeteiligung der linken Herzhälfte besser einzuordnen.",
+        "Bei der Volumenchallenge wird kontrolliert Flüssigkeit gegeben. Wir schauen dann, ob sich der Füllungsdruck im linken Herzen deutlich erhöht. Das ist ein Hinweis darauf, dass es unter mehr Blutvolumen leichter zu einem Rückstau in die Lunge kommt."
+    ],
+)
+
+_add(
+    "PX_VASOREACTIVITY",
+    "Vasoreaktivität",
+    [
+        "Bei der Vasoreaktivität wird ein kurzwirksames Testmedikament eingesetzt. Damit prüfen wir, ob sich die Lungengefäße im Test deutlich entspannen. Das kann in ausgewählten Fällen Einfluss auf die Therapieplanung haben.",
+        "Bei diesem Zusatztest schauen wir, ob die Lungengefäße auf ein kurzfristig gegebenes Medikament spürbar reagieren. Eine deutliche Reaktion kann therapeutisch bedeutsam sein."
+    ],
+)
 
 _add(
     "PX_INTERPRETATION",

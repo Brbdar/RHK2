@@ -11,10 +11,152 @@ Hinweis: Inhalt ist weitgehend 1:1 aus der Master-Datei extrahiert.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
+import json
+import hashlib
+import threading
+from collections import OrderedDict
+
+# =============================================================================
+# Performance: bounded report caching (no functional changes)
+# =============================================================================
+
+REPORT_CACHE_MAXSIZE = 256
+
+_report_cache_lock = threading.RLock()
+
+# Each cache maps (kind, case_fingerprint) -> rendered string/dict
+_report_cache: 'OrderedDict[tuple, object]' = OrderedDict()
+
+
+def _case_fingerprint(case: dict) -> str:
+    """Stable fingerprint for a case dict.
+
+    Case is JSON-serializable by design (ui/derived/scores/decision/env/warnings/debug).
+    We hash the sorted JSON to keep keys compact and avoid memory blowups.
+    """
+    try:
+        js = json.dumps(case, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    except Exception:
+        # Fallback: best-effort; should not happen in practice
+        js = str(case)
+    return hashlib.blake2b(js.encode('utf-8', errors='ignore'), digest_size=16).hexdigest()
+
+
+def _cache_get(kind: str, fp: str):
+    key = (kind, fp)
+    with _report_cache_lock:
+        if key in _report_cache:
+            _report_cache.move_to_end(key)
+            return _report_cache[key]
+    return None
+
+
+def _cache_set(kind: str, fp: str, value):
+    key = (kind, fp)
+    with _report_cache_lock:
+        _report_cache[key] = value
+        _report_cache.move_to_end(key)
+        while len(_report_cache) > REPORT_CACHE_MAXSIZE:
+            _report_cache.popitem(last=False)
+
+
 from rhk_base import *  # noqa: F401,F403
 
 # Einige Render-Helpers liegen im Case-Modul (im Flat-Master waren sie vorher "weiter oben").
 from rhk_case import build_render_ctx, render_p01_dynamic, filter_module_text  # noqa: F401
+# ---------------------------------------------------------------------------
+# Small, conservative post-filters for narrative blocks
+# ---------------------------------------------------------------------------
+
+def _no_congestion_context(ui: Dict[str, Any], der: Dict[str, Any]) -> bool:
+    """Return True if available inputs support "no (central or pulmonary venous) congestion"."""
+    congestion_likely = bool((der or {}).get("congestion_likely"))
+    pawp = _safe_float((ui or {}).get("pawp_rest"))
+    pv_stauung_likely = bool(pawp is not None and pawp > 15)
+    return (not congestion_likely) and (not pv_stauung_likely)
+
+
+def _filter_narrative_block(text: str, ui: Dict[str, Any], der: Dict[str, Any]) -> str:
+    """Conservatively removes known contradictory stock phrases from narrative bundles.
+
+    IMPORTANT: This must never invent content; it only removes text that is internally
+    contradictory to the current case (e.g., "Bei führender Stauung" while no congestion).
+    """
+    t = str(text or "")
+    if not t.strip():
+        return ""
+
+    # If no congestion is likely, remove the optional clause that proposes congestion-first
+    # management, because it contradicts the explicitly stated absence of congestion.
+    if _no_congestion_context(ui, der):
+        if "Bei führender Stauung" in t:
+            # Remove the sentence segment starting at "Bei führender Stauung:" up to the next period.
+            import re
+            t = re.sub(r"\s*Bei führender Stauung:\s*[^.]*\.?\s*", " ", t, flags=re.IGNORECASE)
+
+    # Reduce redundant one-liners that often duplicate earlier context.
+    t = t.replace("Aktuell RHK in Ruhe.", "").replace("Aktuell RHK in Ruhe", "").strip()
+
+    # In-house center reports must not recommend referral to itself.
+    # Remove any sentences that suggest discussion/presentation in an external expert board/center.
+    import re
+    t = re.sub(r"\s*Diskussion\s+im\s+Expert[^.]*\.\s*", " ", t, flags=re.IGNORECASE)
+    t = re.sub(r"\s*Diskussion\s+im\s+PH-Board[^.]*\.\s*", " ", t, flags=re.IGNORECASE)
+    t = re.sub(r"\s*Vorstellung\s+im\s+PH-Zentrum[^.]*\.\s*", " ", t, flags=re.IGNORECASE)
+    t = re.sub(r"\s*Vorstellung\s+im\s+Referenzzentrum[^.]*\.\s*", " ", t, flags=re.IGNORECASE)
+    # Avoid overly broad regexes that could remove unrelated content.
+
+    # Clean multiple spaces introduced by removals.
+    t = " ".join(t.split())
+    return t
+
+
+
+# =============================================================================
+# Warnings / Hinweise – formatting helpers
+# =============================================================================
+
+def _format_warning_item(w: Any) -> str:
+    """Render warning/hint items robustly.
+
+    Some logic paths attach structured dicts like:
+    {"code": ..., "severity": ..., "message": ..., "fields": ..., "values": ...}
+    We must never leak raw dict representations into the UI/report.
+    """
+    if w is None:
+        return ""
+    if isinstance(w, dict):
+        msg = str((w.get("message") or "")).strip()
+        if not msg:
+            # fallback to code if message missing
+            msg = str((w.get("code") or "")).strip()
+        # Optional tiny suffix if we have a key value pair and it's non sensitive
+        try:
+            vals = w.get("values") or {}
+            if isinstance(vals, dict) and vals:
+                # show at most one numeric value in a compact, human-readable form
+                k0 = next(iter(vals.keys()))
+                v0 = vals.get(k0)
+                if isinstance(v0, (int, float)):
+                    key_map = {
+                        "pasp_echo": "sPAP (Echo)",
+                        "trv_ms": "TRV",
+                        "rap_rest": "RAP",
+                        "pawp_rest": "PAWP",
+                        "mpap_rest": "mPAP",
+                        "co_rest": "CO",
+                        "ci_rest": "CI",
+                    }
+                    lab = key_map.get(str(k0), str(k0))
+                    # avoid clutter for unknown internal keys
+                    if lab:
+                        msg = f"{msg} ({lab}: {fmt_float(v0, 1)})"
+        except Exception:
+            pass
+        return msg
+    return str(w).strip()
 
 # =============================================================================
 # Befund – input summary block
@@ -25,20 +167,140 @@ def _md_kv(label: str, value: str) -> str:
     return f"- **{label}:** {value}"
 
 
-def _md_section(title: str, lines: List[str]) -> str:
-    """Small helper to build a Markdown section from a list of list-items."""
+def _md_section(title: str, lines: List[str], *, add_colon: bool = False) -> str:
+    """Small helper to build a section from a list of list-items.
+
+    add_colon=True yields plain-text headers like 'Klinik:' (used for Arztbericht summary blocks).
+    """
     if not lines:
         return ""
+    if add_colon:
+        return f"{title}:\n" + "\n".join(lines)
     return f"### {title}\n" + "\n".join(lines)
 
 
-def summarize_inputs(case: Dict[str, Any]) -> str:
+
+def _build_relevante_vorerkrankungen_line(ui: Dict[str, Any]) -> str:
+    """Build a single-line 'Relevante Vorerkrankungen' string for the Arztbericht.
+
+    Includes ONLY items explicitly captured as relevant comorbidities in the UI:
+    - Freitext 'comorbidities'
+    - Virologie/Infektiologie (e.g., HIV/Hepatitis) when marked positive
+    - Immunologie/Autoimmun when marked positive
+    - Angeborener Herzfehler/Shunt when marked positive
+    """
+    items: List[str] = []
+    comorb = (ui.get("comorbidities") or "").strip()
+    if comorb:
+        items.append(comorb)
+
+    # CHD/Shunt
+    if ui.get("chd_pos") is True:
+        chd_type = (ui.get("chd_type") or "").strip()
+        chd_desc = (ui.get("chd_desc") or "").strip()
+        txt = "Angeborener Herzfehler/Shunt"
+        bits = []
+        if chd_type:
+            bits.append(chd_type)
+        if chd_desc:
+            bits.append(chd_desc)
+        if bits:
+            txt += f" ({' – '.join(bits)})"
+        items.append(txt)
+
+    # Virology
+    if ui.get("virology_pos") is True:
+        v_items = ui.get("virology_items")
+        v_desc = (ui.get("virology_desc") or "").strip()
+        parts: List[str] = []
+        if isinstance(v_items, list) and v_items:
+            parts.extend([str(x).strip() for x in v_items if str(x).strip()])
+        elif isinstance(v_items, str) and v_items.strip():
+            parts.append(v_items.strip())
+        if v_desc:
+            parts.append(v_desc)
+        items.append("Virologie/Infektiologie: " + (", ".join(parts) if parts else "positiv"))
+
+    # Immunology
+    if ui.get("immunology_pos") is True:
+        i_items = ui.get("immunology_items")
+        i_desc = (ui.get("immunology_desc") or "").strip()
+        parts = []
+        if isinstance(i_items, list) and i_items:
+            parts.extend([str(x).strip() for x in i_items if str(x).strip()])
+        elif isinstance(i_items, str) and i_items.strip():
+            parts.append(i_items.strip())
+        if i_desc:
+            parts.append(i_desc)
+        items.append("Immunologie/Autoimmun: " + (", ".join(parts) if parts else "positiv"))
+
+    joined = "; ".join([x for x in items if x])
+    return joined if joined else "-"
+
+
+
+def _build_ph_therapieverlauf_block(ui: Dict[str, Any]) -> str:
+    """Build 'PH-Therapieverlauf' block for Arztbericht (between Empfehlung and Procedere).
+
+    Requirements (deterministic):
+    - show previously tried/stopped therapy BEFORE current therapy
+    - no future therapy escalation recommendations here (belongs to Procedere modules)
+    """
+    lines: List[str] = []
+    stopped = ui.get("ph_stopped_meds") or []
+    prev = ui.get("ph_prev_meds") or []
+    # Combine while preserving order and uniqueness
+    tried: List[str] = []
+    for lst in (stopped, prev):
+        if isinstance(lst, list):
+            for x in lst:
+                s = str(x).strip()
+                if s and s not in tried:
+                    tried.append(s)
+
+    if tried:
+        lines.append(_md_kv("Bereits erprobt/abgesetzt", ", ".join(tried)))
+
+    stop_reason = (ui.get("ph_stop_reason") or "").strip()
+    stop_reason_txt = (ui.get("ph_stop_reason_text") or "").strip()
+    if stop_reason or stop_reason_txt:
+        bits = [b for b in [stop_reason, stop_reason_txt] if b]
+        lines.append(_md_kv("Absetzgrund", " – ".join(bits)))
+
+    cur = ui.get("ph_current_meds") or []
+    cur_list: List[str] = []
+    if isinstance(cur, list):
+        cur_list = [str(x).strip() for x in cur if str(x).strip()]
+    elif isinstance(cur, str) and cur.strip():
+        cur_list = [cur.strip()]
+    if cur_list:
+        lines.append(_md_kv("Aktuelle Therapie", ", ".join(cur_list)))
+
+    new = ui.get("ph_new_meds") or []
+    new_list: List[str] = []
+    if isinstance(new, list):
+        new_list = [str(x).strip() for x in new if str(x).strip()]
+    elif isinstance(new, str) and new.strip():
+        new_list = [new.strip()]
+    if new_list:
+        # This is *documented* planned meds (UI), not an autogenerated recommendation
+        lines.append(_md_kv("Geplante Therapie", ", ".join(new_list)))
+
+    if not lines:
+        return ""
+
+    # Plain-text header with colon (as per spec)
+    return "PH-Therapieverlauf:\n" + "\n".join(lines) + "\n"
+
+def summarize_inputs(case: Dict[str, Any], *, mode: str = "default") -> str:
     """Creates a compact, structured overview of the raw input data (Markdown)."""
     ui = case.get("ui") or {}
     env = case.get("env") or {}
     der = case.get("derived") or {}
 
     parts: List[str] = []
+
+    is_doctor = (mode == "doctor")
 
     # ---------------------------------------------------------------------
     # Klinik
@@ -49,11 +311,11 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
         klinik_lines.append(_md_kv("Kurz-Anamnese", story))
 
     comorb = (ui.get("comorbidities") or "").strip()
-    if comorb:
+    if comorb and (not is_doctor):
         klinik_lines.append(_md_kv("Relevante Vorerkrankungen", comorb))
 
     # Angeborener Herzfehler / Shunt (DD Gruppe 1)
-    if ui.get("chd_pos") is True:
+    if (not is_doctor) and ui.get("chd_pos") is True:
         chd_type = ui.get("chd_type")
         chd_desc = (ui.get("chd_desc") or "").strip()
         txt = "ja"
@@ -64,7 +326,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
         klinik_lines.append(_md_kv("Angeborener Herzfehler/Shunt", txt))
 
     # Virologie/Infektiologie (z.B. HIV; DD Gruppe 1)
-    if ui.get("virology_pos") is True:
+    if (not is_doctor) and ui.get("virology_pos") is True:
         items = ui.get("virology_items")
         desc = (ui.get("virology_desc") or "").strip()
         parts: List[str] = []
@@ -77,7 +339,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
         klinik_lines.append(_md_kv("Virologie/Infektiologie", " / ".join(parts) if parts else "positiv"))
 
     # Immunologie/Autoimmun (z.B. CTD; DD Gruppe 1)
-    if ui.get("immunology_pos") is True:
+    if (not is_doctor) and ui.get("immunology_pos") is True:
         items = ui.get("immunology_items")
         desc = (ui.get("immunology_desc") or "").strip()
         parts = []
@@ -102,7 +364,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
             parts.append(desc)
         klinik_lines.append(_md_kv("Genetik/Mutation", " / ".join(parts) if parts else "positiv"))
 
-    if ui.get("ph_known") is True:
+    if (not is_doctor) and ui.get("ph_known") is True:
         klinik_lines.append(_md_kv("PH-Diagnose", "bekannt"))
 
         # Details zur bekannten PH (falls angegeben)
@@ -134,7 +396,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
         if isinstance(interv, list) and interv:
             klinik_lines.append(_md_kv("Interventionen", ", ".join([str(x) for x in interv])))
 
-    elif ui.get("ph_suspected") is True:
+    elif (not is_doctor) and ui.get("ph_suspected") is True:
         klinik_lines.append(_md_kv("PH-Verdachtsdiagnose", "ja"))
 
     # Vitals
@@ -215,7 +477,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
     # Medikation / Zusatzangaben (falls erfasst)
     anticoag_status = (ui.get("anticoag_status") or "").strip()
     # "keine Angabe" darf niemals als Fakt in den Bericht geraten.
-    if anticoag_status and anticoag_status.lower() not in ("keine angabe", "k. a."):
+    if anticoag_status and anticoag_status.lower() not in ("keine angabe", "k. a.") and ((not is_doctor) or anticoag_status.lower() == "ja"):
         msg = anticoag_status
         if anticoag_status.lower() == "ja":
             bits: List[str] = []
@@ -233,7 +495,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
         klinik_lines.append(_md_kv("Antikoagulation", msg))
 
     note = (ui.get("anticoag_note") or "").strip()
-    if note and anticoag_status.lower() in ("ja", "nein"):
+    if note and anticoag_status.lower() in ("ja", "nein") and (not is_doctor):
         klinik_lines.append(_md_kv("Antikoagulation – Bem.", note))
 
     antif_status = (ui.get("antifibrotic_status") or "").strip()
@@ -266,7 +528,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
     if not klinik_lines:
         klinik_lines.append("Keine klinischen Angaben erfasst.")
 
-    parts.append(_md_section("Klinik", klinik_lines))
+    parts.append(_md_section("Klinik", klinik_lines, add_colon=is_doctor))
 
     # ---------------------------------------------------------------------
     # Labor (Fließtext; BNP/NT-proBNP separat)
@@ -432,7 +694,7 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
     if not img_lines:
         img_lines.append("Keine Bildgebung oder Echo oder CMR Angaben erfasst.")
 
-    parts.append(_md_section("Bildgebung / Echo / CMR", img_lines))
+    parts.append(_md_section("Bildgebung / Echo / CMR", img_lines, add_colon=is_doctor))
 
     # ---------------------------------------------------------------------
     # Lungenfunktion (Fließtext; Kommentar separat)
@@ -523,15 +785,68 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
         v = _safe_float(ui.get("cpet_spo2_nadir_pct"))
         if v is not None:
             cpet_items.append(f"SpO2 Nadir: {_fmt(v,0)} %")
+        v = _safe_float(ui.get("cpet_spo2_rest_pct"))
+        if v is not None:
+            cpet_items.append(f"SpO2 Ruhe: {_fmt(v,0)} %")
+        v = _safe_float(ui.get("cpet_spo2_peak_pct"))
+        if v is not None:
+            cpet_items.append(f"SpO2 Peak: {_fmt(v,0)} %")
+        v = _safe_float(ui.get("cpet_o2_supp_l_min"))
+        if v is not None and v > 0:
+            cpet_items.append(f"O2 während CPET: {_fmt(v,1)} L/min")
         v = _safe_float(ui.get("cpet_rer_peak"))
         if v is not None:
             cpet_items.append(f"RER Peak: {_fmt(v,2)}")
         v = _safe_float(ui.get("cpet_hr_peak_bpm"))
         if v is not None:
             cpet_items.append(f"HF Peak: {_fmt(v,0)} 1/min")
+        v = _safe_float(ui.get("cpet_hr_pct_pred"))
+        if v is not None:
+            cpet_items.append(f"HF Peak: {_fmt(v,0)} % Soll")
         pat = (ui.get("cpet_o2_pulse_pattern") or "").strip()
         if pat:
             cpet_items.append(f"O2Puls Verlauf: {pat}")
+
+        v = _safe_float(ui.get("cpet_peak_o2_pulse_ml"))
+        if v is not None:
+            cpet_items.append(f"O2Puls Peak: {_fmt(v,1)} mL")
+        v = _safe_float(ui.get("cpet_o2_pulse_slope"))
+        if v is not None:
+            cpet_items.append(f"O2Puls Slope: {_fmt(v,2)}")
+        sys_v = _safe_float(ui.get("cpet_bp_sys_peak"))
+        dia_v = _safe_float(ui.get("cpet_bp_dia_peak"))
+        if sys_v is not None and dia_v is not None:
+            cpet_items.append(f"RR Peak: {_fmt(sys_v,0)}/{_fmt(dia_v,0)} mmHg")
+        sys_r = _safe_float(ui.get("cpet_bp_sys_rest"))
+        dia_r = _safe_float(ui.get("cpet_bp_dia_rest"))
+        if sys_r is not None and dia_r is not None:
+            cpet_items.append(f"RR Ruhe: {_fmt(sys_r,0)}/{_fmt(dia_r,0)} mmHg")
+
+        if bool(ui.get("cpet_angina")):
+            cpet_items.append("Symptom: Angina")
+        if bool(ui.get("cpet_dizziness")):
+            cpet_items.append("Symptom: Schwindel/Präsynkope")
+        if bool(ui.get("cpet_syncope")):
+            cpet_items.append("Symptom: Synkope")
+        if bool(ui.get("cpet_arrhythmia")):
+            txt = (ui.get("cpet_arrhythmia_text") or "").strip()
+            cpet_items.append("Arrhythmie" + (f" ({txt})" if txt else ""))
+        st = (ui.get("cpet_st_changes") or "").strip()
+        if st and st.lower() not in ("keine", "none"):
+            cpet_items.append(f"ST/T: {st}")
+
+        sr = (ui.get("cpet_stop_reason") or "").strip()
+        if sr:
+            cpet_items.append(f"Abbruchgrund: {sr}")
+        v = _safe_float(ui.get("cpet_petco2_rest_mmhg"))
+        if v is not None:
+            cpet_items.append(f"PETCO2 Ruhe: {_fmt(v,0)} mmHg")
+        v = _safe_float(ui.get("cpet_petco2_peak_mmhg"))
+        if v is not None:
+            cpet_items.append(f"PETCO2 Peak: {_fmt(v,0)} mmHg")
+        v = _safe_float(ui.get("cpet_breathing_reserve_pct"))
+        if v is not None:
+            cpet_items.append(f"Atemreserve: {_fmt(v,0)} %")
 
         cpet_flow = "; ".join(cpet_items) if cpet_items else "CPET durchgeführt (Details nicht angegeben)."
         cpet_section = "### Spiroergometrie / CPET\n" + cpet_flow
@@ -539,6 +854,16 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
         summ = (ui.get("cpet_summary") or "").strip()
         if summ:
             cpet_section += "\n\n**Kommentar:** " + summ
+
+        # Optional: deterministic Spiro-Logic interpretation in doctor report
+        if bool(ui.get("cpet_spiro_in_report")):
+            try:
+                import spiro_logic as _spiro
+                res = _spiro.analyze(dict(ui))
+                if res and res.report_text:
+                    cpet_section += "\n\n**Spiro-Logic Interpretation:**\n" + res.report_text
+            except Exception:
+                pass
 
         parts.append(cpet_section)
 
@@ -550,7 +875,449 @@ def summarize_inputs(case: Dict[str, Any]) -> str:
 # Doctor report (Markdown)
 # =============================================================================
 
+def build_doctor_report_template(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> str:
+    fp = _case_fingerprint(case)
+    cached = _cache_get('doctor_report_template', fp)
+    if cached is not None:
+        return cached
+
+    """Arztbericht im Klinik-Layout (Muster-basiert, kompakt, nicht redundant).
+
+    Ziele
+    - feste Gliederung wie im Muster-DOCX
+    - Arzt-Adressat (klinisch verwertbar, handlungsleitend)
+    - keine Zahlenfriedhöfe, keine Dopplungen
+    - CPET/Spiro-Logic nur als Kurzheadline + klinische Zusammenfassung (wenn vorhanden)
+    """
+    ui: Dict[str, Any] = case.get("ui", {}) or {}
+    der: Dict[str, Any] = case.get("derived", {}) or {}
+    sc: Dict[str, Any] = case.get("scores", {}) or {}
+    dec: Dict[str, Any] = case.get("decision", {}) or {}
+    env: Dict[str, Any] = case.get("env", {}) or {}
+
+    ctx = build_render_ctx(case)
+
+    def _par(line: str) -> None:
+        line = (line or "").strip()
+        if not line:
+            return
+        out.append(line)
+        out.append("")  # blank line -> new paragraph in DOCX conversion
+
+    def _clean_item(x: str) -> str:
+        x = (x or "").strip()
+        # strip common bullet markers the user might paste
+        x = re.sub(r"^\s*[-•]\s+", "", x)
+        return x.strip()
+
+    def _split_items(s: str) -> List[str]:
+        s = (s or "").strip()
+        if not s or s in ("-", "—"):
+            return []
+        # Prefer newline-separated items
+        if "\n" in s:
+            items = [_clean_item(x) for x in s.splitlines()]
+            return [x for x in items if x]
+        # Fallback: semicolon-separated
+        if ";" in s:
+            items = [_clean_item(x) for x in s.split(";")]
+            return [x for x in items if x]
+        # Single item
+        return [_clean_item(s)] if _clean_item(s) else []
+
+    def _fmt_bp(sys_k: str, dia_k: str) -> Optional[str]:
+        sbp = _safe_float(ui.get(sys_k))
+        dbp = _safe_float(ui.get(dia_k))
+        if sbp is None and dbp is None:
+            return None
+        if sbp is not None and dbp is not None:
+            return f"{fmt_int(sbp)}/{fmt_int(dbp)} mmHg"
+        if sbp is not None:
+            return f"{fmt_int(sbp)} mmHg"
+        return f"{fmt_int(dbp)} mmHg"
+
+    def _kv(label: str, value: Any) -> Optional[str]:
+        v = "" if value is None else str(value).strip()
+        if not v or v in ("-", "—"):
+            return None
+        return f"{label}: {v}"
+
+    def _bul(line: str, lvl: int = 0) -> None:
+        line = (line or "").strip()
+        if not line:
+            return
+        indent = "  " * max(0, int(lvl))
+        out.append(f"{indent}- {line}")
+
+    def _extract_section(md: str, title: str) -> List[str]:
+        """Extract bullet lines from summarize_inputs section (best-effort)."""
+        if not md:
+            return []
+        start = f"### {title}"
+        if start not in md:
+            return []
+        chunk = md.split(start, 1)[1]
+        # until next heading
+        if "\n### " in chunk:
+            chunk = chunk.split("\n### ", 1)[0]
+        lines = []
+        for ln in chunk.splitlines():
+            ln = (ln or "").rstrip()
+            if not ln.strip():
+                continue
+            if ln.strip().startswith("- "):
+                lines.append(ln.strip())
+        return lines
+
+    out: List[str] = []
+
+    # ------------------------------------------------------------------
+    # Header block (fixed label line, as in the Muster)
+    # ------------------------------------------------------------------
+    _par("**Allgemeines, Klinik, Bildgebung und Funktion:**")
+
+    # Kurz-Anamnese
+    story = (ui.get("story") or "").strip()
+    _par(f"Kurz-Anamnese: {story if story else '-'}")
+
+    # Relevante Vorerkrankungen (prefer list formatting if multiple items)
+    comorb_raw = (ui.get("comorbidities") or "").strip()
+    comorb_items = _split_items(comorb_raw)
+    if len(comorb_items) >= 2:
+        _par("Relevante Vorerkrankungen: -")
+        for it in comorb_items:
+            _bul(it, 0)
+        out.append("")
+    elif len(comorb_items) == 1:
+        _par(f"Relevante Vorerkrankungen: {comorb_items[0]}")
+    else:
+        _par("Relevante Vorerkrankungen: -")
+
+    # Präprozedurale Sicherheitsangaben (werden in der UI erhoben; müssen im Bericht sichtbar sein)
+    access_route = (ui.get("access_route") or "").strip()
+    consent_done = ui.get("consent_done")
+    anticoag_paused = ui.get("anticoag_paused")
+    allergies_present = ui.get("allergies_present")
+    allergies_list = ui.get("allergies_list") or []
+    allergies_other = (ui.get("allergies_other_text") or "").strip()
+
+    # Zugang
+    if access_route:
+        _par(f"Zugang (geplant): {access_route}")
+
+    # Aufklärung/Einwilligung
+    if consent_done is True:
+        _par("Aufklärung/Einwilligung: erfolgt")
+    elif consent_done is False:
+        _par("Aufklärung/Einwilligung: nicht dokumentiert")
+
+    # Antikoagulation pausiert?
+    if anticoag_paused is True:
+        _par("Antikoagulation: pausiert (bitte Periprozedur Plan prüfen)")
+    elif anticoag_paused is False:
+        _par("Antikoagulation: nicht pausiert (bitte Periprozedur Plan prüfen)")
+
+    # Allergien
+    if allergies_present is True:
+        items = []
+        if isinstance(allergies_list, list):
+            items.extend([str(x).strip() for x in allergies_list if str(x).strip()])
+        if allergies_other:
+            items.append(allergies_other)
+        _par(f"Allergien: {', '.join(items) if items else 'ja (nicht spezifiziert)'}")
+    elif allergies_present is False:
+        _par("Allergien: verneint")
+
+    # Bekannte / vermutete PH
+    if (not is_doctor) and ui.get("ph_known") is True:
+        dx = (ui.get("ph_known_dx") or "").strip()
+        _par(f"Bekannte PH-Diagnose: {dx if dx else '-'}")
+
+        items: List[tuple[str, str]] = []
+        first_dx = (ui.get("ph_first_dx") or "").strip()
+        if first_dx:
+            items.append(("Erstdiagnose", first_dx))
+        reason = (ui.get("ph_reason_rhk") or "").strip()
+        if reason:
+            items.append(("Aktueller Anlass", reason))
+        subtype = (ui.get("ph_known_subtype") or "").strip()
+        if subtype:
+            items.append(("Subtyp/Kontext", subtype))
+
+        # Therapie (Historie zuerst, dann aktuell)
+        prev = ui.get("ph_prev_meds") or []
+        if isinstance(prev, list) and prev:
+            items.append(("Frühere Therapie", ", ".join([str(x) for x in prev if str(x).strip()])))
+
+        tx_status = (ui.get("ph_tx_status") or "").strip()
+        if tx_status:
+            items.append(("Therapie-Verlauf", tx_status))
+        stopped = ui.get("ph_stopped_meds") or []
+        if isinstance(stopped, list) and stopped:
+            items.append(("Abgesetzt/pausiert", ", ".join([str(x) for x in stopped if str(x).strip()])))
+        stop_r = (ui.get("ph_stop_reason") or "").strip()
+        stop_t = (ui.get("ph_stop_reason_text") or "").strip()
+        if stop_r or stop_t:
+            items.append(("Absetzgrund", " – ".join([x for x in [stop_r, stop_t] if x])))
+
+        cur = ui.get("ph_current_meds") or []
+        if isinstance(cur, list) and cur:
+            items.append(("Aktuelle Therapie", ", ".join([str(x) for x in cur if str(x).strip()])))
+
+        new_meds = ui.get("ph_new_meds") or []
+        if isinstance(new_meds, list) and new_meds:
+            items.append(("Neu begonnen/hinzugefügt", ", ".join([str(x) for x in new_meds if str(x).strip()])))
+
+        for k, v in items:
+            _bul(f"{k}: {v}", 0)
+        out.append("")
+    elif (not is_doctor) and ui.get("ph_suspected") is True:
+        _par("PH-Verdachtsdiagnose: ja")
+
+    # ------------------------------------------------------------------
+    # Klinik (vitals + symptoms + function)
+    # ------------------------------------------------------------------
+    _par("Klinik")
+    bp = _fmt_bp("bp_sys", "bp_dia")
+    if bp:
+        _bul(f"Blutdruck: {bp}")
+    hr = _safe_float(ui.get("hr"))
+    if hr is not None:
+        _bul(f"Herzfrequenz: {fmt_int(hr)}/min")
+    # Symptome (nur wenn aktiv)
+    if ui.get("dizziness") is True:
+        _bul("Schwindel: ja")
+    syn = ui.get("syncope")
+    if isinstance(syn, bool):
+        if syn:
+            _bul("Synkope: ja")
+    else:
+        syn_s = (syn or "").strip()
+        if syn_s and syn_s.lower() not in ("nein", "keine"):
+            _bul(f"Synkope: {syn_s}")
+    if ui.get("exertional_dyspnea") is True:
+        _bul("Belastungsdyspnoe: ja")
+    who = (ui.get("who_fc") or "").strip()
+    if who:
+        _bul(f"WHO-FC: {who}")
+    six = _safe_float(ui.get("six_mwd_m"))
+    if six is not None:
+        six_dt = (ui.get("six_mwd_date") or "").strip()
+        if six_dt:
+            _bul(f"6MWD: {_fmt(six,0)} m (Datum: {six_dt})")
+        else:
+            _bul(f"6MWD: {_fmt(six,0)} m")
+    out.append("")
+
+    # ------------------------------------------------------------------
+    # Labor / Bildgebung / Funktion (as in Muster)
+    # ------------------------------------------------------------------
+    summ = summarize_inputs(case) or ""
+
+    lab_lines = _extract_section(summ, "Labor")
+    if lab_lines:
+        _par("Labor:")
+        for ln in lab_lines:
+            _bul(ln[2:].strip(), 0)  # strip "- "
+        out.append("")
+
+    img_lines = _extract_section(summ, "Bildgebung / Echo / CMR")
+    if img_lines:
+        _par("Bildgebung / Echo / CMR:")
+        for ln in img_lines:
+            body = ln[2:].strip()
+            # Nest detail lines for readability (matches Muster look)
+            if body.lower().startswith(("v/q details:", "echo:", "cmr:", "mrt:", "v/q details")):
+                _bul(body, 1)
+            else:
+                _bul(body, 0)
+        out.append("")
+
+    lufu_lines = _extract_section(summ, "Lungenfunktion")
+    if lufu_lines:
+        _par("Lungenfunktion:")
+        for ln in lufu_lines:
+            _bul(ln[2:].strip(), 0)
+        out.append("")
+
+    # CPET / Spiro-Logic (kompakt)
+    cpet_present = any(_safe_float(ui.get(k)) is not None for k in ["cpet_peak_vo2_ml_kg_min", "cpet_ve_vco2_slope", "cpet_petco2_rest_mmhg", "cpet_hr_peak_bpm", "cpet_rer_peak"])
+    if cpet_present or (ui.get("cpet_summary") or "").strip():
+        _par("Spiroergometrie / CPET:")
+        # Kontext (optional)
+        prot = (ui.get("cpet_protocol") or "").strip()
+        site = (ui.get("cpet_site") or "").strip()
+        chrono = (ui.get("cpet_chrono_comment") or "").strip()
+        if prot:
+            _bul(f"Protokoll: {prot}", 0)
+        if site:
+            _bul(f"Ort/Setup: {site}", 0)
+        if chrono:
+            _bul(f"Chronotrope Limitierung: {chrono}", 0)
+        try:
+            import spiro_logic as _spiro
+            res = _spiro.analyze(dict(ui))
+        except Exception:
+            res = None
+
+        if res and (res.headline or res.clinical_summary):
+            if res.headline:
+                _bul(res.headline, 0)
+            if res.clinical_summary:
+                _bul(res.clinical_summary, 0)
+        else:
+            # Fallback: keep very short numeric cues
+            v = _safe_float(ui.get("cpet_peak_vo2_ml_kg_min"))
+            if v is not None:
+                _bul(f"V'O2max/kg: {_fmt(v,1)} mL/min/kg", 0)
+            v = _safe_float(ui.get("cpet_ve_vco2_slope"))
+            if v is not None:
+                _bul(f"V'E/V'CO2 Slope: {_fmt(v,1)}", 0)
+
+        cpet_note = (ui.get("cpet_summary") or "").strip()
+        if cpet_note:
+            _bul(f"Kommentar: {cpet_note}", 0)
+        out.append("")
+
+    # ------------------------------------------------------------------
+    # Beurteilung und Empfehlung (2 Absätze + Risikoscores)
+    # ------------------------------------------------------------------
+    _par("Beurteilung und Empfehlung:")
+
+    # Use bundle blocks (compact narrative) – do NOT append numeric detail blocks here
+    b_id = f"{dec.get('bundle','')}_B" if dec.get("bundle") else ""
+    e_id = f"{dec.get('bundle','')}_E" if dec.get("bundle") else ""
+    beur = render_block(blocks[b_id], ctx) if b_id and b_id in blocks else ""
+    empf = render_block(blocks[e_id], ctx) if e_id and e_id in blocks else ""
+
+    beur_p = _filter_narrative_block(markdown_to_plain(beur).strip(), ui, der)
+    empf_p = _filter_narrative_block(markdown_to_plain(empf).strip(), ui, der)
+
+    if beur_p:
+        _par(beur_p)
+    # second paragraph: keep it short; if empty, fall back to deterministic conclusion
+    if empf_p:
+        _par(empf_p)
+    else:
+        leading_cause = dec.get("leading_cause") or "unklaren Genese"
+        leading_action = dec.get("leading_action") or ""
+        _par(f"In der Zusammenschau der Befunde ergeben sich Hinweise auf mehrere mögliche Ursachen/Mechanismen ({leading_cause}). Eine eindeutige führende Zuordnung ist anhand der vorliegenden Angaben nicht sicher.")
+
+    # Risk bullets (as in Muster)
+    if sc.get("esc_ers_4s") or sc.get("esc_ers_3s") or sc.get("reveal_lite2") or sc.get("reveal_lite2_points"):
+        if sc.get("esc_ers_4s"):
+            _bul(f"ESC/ERS 4-Strata: {sc.get('esc_ers_4s')}", 0)
+        if sc.get("esc_ers_3s"):
+            _bul(f"ESC/ERS 3-Strata: {sc.get('esc_ers_3s')}", 0)
+        if sc.get("reveal_lite2") is not None:
+            cat = sc.get("reveal_lite2")
+            pts = sc.get("reveal_lite2_points")
+            if str(cat) == "nicht berechenbar":
+                missing = sc.get("reveal_lite2_missing") or []
+                miss_txt = ", ".join(missing) if missing else "Parameter unvollständig"
+                _bul(f"REVEAL Lite 2: nicht berechenbar (fehlend: {miss_txt})", 0)
+            else:
+                cat_de = {"low": "niedrig", "intermediate": "intermediär", "high": "hoch"}.get(str(cat), str(cat))
+                pts_txt = str(pts) if pts is not None else "—"
+                _bul(f"REVEAL Lite 2: {pts_txt} Punkte ({cat_de})", 0)
+        out.append("")
+
+    # ------------------------------------------------------------------
+    # Procedere (handlungsleitend, strukturiert)
+    # ------------------------------------------------------------------
+    _par("Procedere:")
+
+    # Procedere muss die tatsächlich gewählten (und ggf. fallbasiert vorgeschlagenen) P Module abbilden.
+    # Keine generischen Standardblöcke ohne Modulbezug.
+    selected_mods = _normalize_module_ids(ui.get("modules") or [])
+    auto_mods = _normalize_module_ids(dec.get("modules") or [])
+    all_mods = list(dict.fromkeys(auto_mods + selected_mods))
+
+    policy = der.get("p_module_policy") or {}
+    disabled_mods: Dict[str, str] = (policy.get("disabled") or {})
+    allowed_order: List[str] = policy.get("allowed") or list(_ALL_P_MODULE_IDS)
+
+    emitted_any = False
+    for mid in allowed_order:
+        if mid not in all_mods:
+            continue
+        if mid in disabled_mods:
+            # Modul ist nicht anwählbar oder klinisch nicht passend: im Bericht nicht ausgeben
+            continue
+        blk = blocks.get(mid)
+        if not blk:
+            continue
+
+        # Templates können Platzhalter enthalten -> mit ctx rendern (SafeDict)
+        if mid == "P01":
+            txt = render_p01_dynamic(env)
+        else:
+            txt = render_block(blk, ctx)
+            txt = filter_module_text(txt, env)
+        txt = str(txt or "").strip()
+        if not txt:
+            continue
+
+        # Bullet Rendering: Mehrzeiler bleiben als Unterpunkte strukturiert
+        def _clean_bullet(s: str) -> str:
+            s = str(s or "").strip()
+            # Avoid double bullets like "- • ..." when templates already contain bullet glyphs.
+            while s.startswith("•") or s.startswith("-") or s.startswith("–"):
+                s = s[1:].lstrip()
+            return s
+
+        lines = [_clean_bullet(ln) for ln in txt.splitlines() if str(ln).strip()]
+        if not lines:
+            continue
+        _bul(lines[0], 0)
+        for sub in lines[1:]:
+            _bul(sub, 1)
+        emitted_any = True
+
+    free = (ui.get("procedere_free") or "").strip()
+    if free:
+        _bul(free, 0)
+        emitted_any = True
+
+    if not emitted_any:
+        _bul("Kein spezifisches Procedere ausgewählt oder ableitbar (Module nicht gewählt oder Daten fehlen).", 0)
+    out.append("")
+
+    # ------------------------------------------------------------------
+    # Zusätzliche Hinweise (kontextbasiert, kurz)
+    # ------------------------------------------------------------------
+    hints: List[str] = []
+
+    bmi = _safe_float(der.get("bmi"))
+    if bmi is not None and bmi >= 30:
+        hints.append("Adipositas kann Dyspnoe und Leistungsfähigkeit beeinflussen; Belastbarkeit im Kontext (Training, Lagerung, Atemmuster) interpretieren.")
+
+    # include selected warnings (non-technical)
+    warn = case.get("warnings") or []
+    if isinstance(warn, list):
+        for w in warn:
+            ww = _format_warning_item(w)
+            if not ww:
+                continue
+            # keep only patient-facing actionable warnings out; clinician warning ok but short
+            if "fehl" in ww.lower() or "unvoll" in ww.lower():
+                continue
+            hints.append(ww)
+
+    if hints:
+        _par("Zusätzliche Hinweise:")
+        for h in list(dict.fromkeys([x for x in hints if x]))[:8]:
+            _bul(h, 0)
+
+    _res = "\n".join(out).rstrip()
+    _cache_set('doctor_report_template', fp, _res)
+    return _res
 def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> str:
+    fp = _case_fingerprint(case)
+    cached = _cache_get('doctor_report', fp)
+    if cached is not None:
+        return cached
+
     ui = case["ui"]
     der = case["derived"]
     sc = case["scores"]
@@ -724,6 +1491,71 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     b_id = f"{dec['bundle']}_B"
     e_id = f"{dec['bundle']}_E"
     beurteilung = render_block(blocks[b_id], ctx) if b_id in blocks else f"[Fehlender Textblock: {b_id}]"
+    beurteilung = _filter_narrative_block(beurteilung, ui, der)
+
+    def _compose_rest_hemo_parenthetical(d: Dict[str, Any], ui: Dict[str, Any]) -> str:
+        """Return a single parenthetical containing the mandatory rest hemodynamic parameters.
+
+        Deterministic order; includes only values that are present. If core values are missing,
+        returns an empty string (never invent).
+        """
+        mpap = d.get("mpap_rest")
+        pawp = d.get("pawp_rest")
+        pvr = d.get("pvr_rest")
+        if mpap is None or pawp is None or pvr is None:
+            return ""
+
+        bits: List[str] = []
+        spap = ui.get("spap_rest")
+        dpap = ui.get("dpap_rest")
+        if spap is not None and dpap is not None:
+            bits.append(f"sPAP/dPAP {fmt_int(spap)}/{fmt_int(dpap)} mmHg")
+        bits.append(f"mPAP {fmt_int(mpap)} mmHg")
+        bits.append(f"PAWP {fmt_int(pawp)} mmHg")
+        rap = d.get("rap_rest")
+        if rap is not None:
+            bits.append(f"RAP {fmt_int(rap)} mmHg")
+
+        co = d.get("co_rest")
+        if co is None:
+            co = d.get("co")
+        if co is not None:
+            bits.append(f"CO {fmt_float(co, 2)} l/min")
+
+        ci = d.get("ci_rest")
+        if ci is None:
+            ci = d.get("ci")
+        if ci is not None:
+            bits.append(f"CI {fmt_float(ci, 2)} l/min/m²")
+
+        sv = d.get("sv_rest_ml")
+        if sv is not None:
+            bits.append(f"SV {fmt_int(sv)} ml")
+        svi = d.get("svi_rest_ml_m2")
+        if svi is not None:
+            bits.append(f"SVI {fmt_int(svi)} ml/m²")
+
+        bits.append(f"PVR {fmt_float(pvr, 2)} WU")
+        pvri = d.get("pvri_rest")
+        if pvri is not None:
+            bits.append(f"PVRi {fmt_float(pvri, 2)} WU·m²")
+        tpg = d.get("tpg_rest")
+        if tpg is not None:
+            bits.append(f"TPG {fmt_int(tpg)} mmHg")
+        dpg = d.get("dpg_rest")
+        if dpg is not None:
+            bits.append(f"DPG {fmt_int(dpg)} mmHg")
+        pp = d.get("pp_pa_rest")
+        if pp is not None:
+            bits.append(f"PP (PA) {fmt_int(pp)} mmHg")
+        pac = d.get("pac_rest_ml_per_mmhg")
+        if pac is not None:
+            bits.append(f"PAC {fmt_int(pac)} ml/mmHg")
+        rc = d.get("rc_time_rest_s")
+        if rc is not None:
+            bits.append(f"RC-Zeit {fmt_float(rc, 2)} s")
+
+        return "(" + ", ".join(bits) + ")"
     # --- Dynamische Ergänzungen (Zahlen/Fakten) ---
     extra_lines: List[str] = []
     # systemische Hämodynamik / Oxygenierung (falls im Textblock nicht enthalten)
@@ -732,23 +1564,19 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     if ctx.get("oxygen_sentence") and "ox" not in beurteilung.lower():
         extra_lines.append(ctx["oxygen_sentence"].strip())
 
-    # numerische Ruhehämodynamik
+    # Integrate mandatory rest hemodynamics into the first assessment sentence to avoid redundancy.
     if der:
-        rest_bits = []
-        if der.get("mpap_rest") is not None: rest_bits.append(f"mPAP {fmt_int(der['mpap_rest'])} mmHg")
-        if der.get("pawp_rest") is not None: rest_bits.append(f"PAWP {fmt_int(der['pawp_rest'])} mmHg")
-        if der.get("rap_rest") is not None: rest_bits.append(f"RAP {fmt_int(der['rap_rest'])} mmHg")
-        if der.get("ci_rest") is not None: rest_bits.append(f"CI {fmt_float(der['ci_rest'], 2)} l/min/m²")
-        if der.get("hr_rest") is not None: rest_bits.append(f"HF {fmt_int(der['hr_rest'])}/min")
-        if der.get("sv_rest_ml") is not None: rest_bits.append(f"SV {fmt_int(der['sv_rest_ml'])} ml")
-        if der.get("svi_rest_ml_m2") is not None: rest_bits.append(f"SVI {fmt_int(der['svi_rest_ml_m2'])} ml/m²")
-        if der.get("pp_pa_rest") is not None: rest_bits.append(f"PP (PA) {fmt_int(der['pp_pa_rest'])} mmHg")
-        if der.get("pac_rest_ml_per_mmhg") is not None: rest_bits.append(f"PAC {fmt_int(der['pac_rest_ml_per_mmhg'])} ml/mmHg")
-        if der.get("rc_time_rest_s") is not None: rest_bits.append(f"RC-Zeit {fmt_float(der['rc_time_rest_s'], 2)} s")
-        if der.get("pvr_rest") is not None: rest_bits.append(f"PVR {fmt_float(der['pvr_rest'], 2)} WU")
-        if der.get("tpg_rest") is not None: rest_bits.append(f"TPG {fmt_int(der['tpg_rest'])} mmHg")
-        if rest_bits and "mPAP" not in beurteilung:
-            extra_lines.append("Ruhehämodynamik: " + ", ".join(rest_bits) + ".")
+        import re
+        rest_par = _compose_rest_hemo_parenthetical(der, ui)
+        if rest_par:
+            # Prefer replacing an existing parenthetical that starts with mPAP...
+            if re.search(r"\(\s*mPAP[^)]*\)", beurteilung):
+                beurteilung = re.sub(r"\(\s*mPAP[^)]*\)", rest_par, beurteilung, count=1)
+            else:
+                # Otherwise, inject right after the first sentence (deterministic).
+                i = beurteilung.find(".")
+                if i != -1:
+                    beurteilung = (beurteilung[:i+1] + " " + rest_par + beurteilung[i+1:]).strip()
 
     # Belastung
     if der and der.get("exercise_done"):
@@ -775,6 +1603,15 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     if ctx.get("comparison_sentence") and "Im Vergleich" not in beurteilung:
         extra_lines.append(ctx["comparison_sentence"].strip())
 
+    # If no prior RHK comparison is available, say so explicitly (deterministic).
+    if (not ctx.get("comparison_table_md")) and (not ctx.get("comparison_sentence")):
+        extra_lines.append("Ein hämodynamischer Vorbefund zum Verlauf liegt nicht vor.")
+
+    # If no exercise/volume/vasoreactivity testing was performed, say so explicitly.
+    did_prov = bool(der and (der.get("exercise_done") or der.get("volume_done") or der.get("vaso_done")))
+    if not did_prov:
+        extra_lines.append("Keine Belastungs- oder Provokationsmanöver durchgeführt.")
+
     if extra_lines:
         beurteilung = (beurteilung.rstrip() + "\n\n" + "\n".join(extra_lines)).strip()
 
@@ -782,12 +1619,42 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     interpretation = _hemo_interpretation_paragraph().strip()
 
     empfehlung = render_block(blocks[e_id], ctx) if e_id in blocks else f"[Fehlender Textblock: {e_id}]"
+    empfehlung = _filter_narrative_block(empfehlung, ui, der)
+
+    # Empfehlung soll keine pathophysiologische Einordnung wiederholen.
+    # Entferne Sätze, die explizit Schwellenwerte/Kriterien (mPAP/PAWP/PVR etc.) wiederholen.
+    try:
+        import re
+        empfehlung = re.sub(r"\s*Es\s+liegen\s+hämodynamische\s+Kriterien[^.]*\.\s*", " ", empfehlung, flags=re.IGNORECASE)
+        empfehlung = re.sub(r"\s*\([^)]*(mPAP|PAWP|PVR|TPG|DPG)[^)]*\)\s*", " ", empfehlung, flags=re.IGNORECASE)
+        empfehlung = " ".join(str(empfehlung or "").split())
+    except Exception:
+        pass
 
     # RHK structured section
-    rest_line = f"- sPAP {_fmt(ui.get('spap_rest'),0)} / dPAP {_fmt(ui.get('dpap_rest'),0)} / mPAP {_fmt(der.get('mpap'),0)} mmHg\n" \
-                f"- PAWP {_fmt(ui.get('pawp_rest'),0)} mmHg, RAP {_fmt(ui.get('rap_rest'),0)} mmHg\n" \
-                f"- CO {_fmt(der.get('co'),2)} l/min, CI {_fmt(der.get('ci'),2)} l/min/m²\n" \
-                f"- PVR {_fmt(der.get('pvr'),1)} WU (PVRi {_fmt(der.get('pvri'),1)} WU·m²), TPG {_fmt(der.get('tpg'),0)} mmHg, DPG {_fmt(der.get('dpg'),0)} mmHg"
+    # RHK Ruhehämodynamik: show a complete, clinician-friendly numeric summary when available.
+    rest_lines = []
+    rest_lines.append(f"- sPAP {_fmt(ui.get('spap_rest'),0)} / dPAP {_fmt(ui.get('dpap_rest'),0)} / mPAP {_fmt(der.get('mpap'),0)} mmHg")
+    rest_lines.append(f"- PAWP {_fmt(ui.get('pawp_rest'),0)} mmHg, RAP {_fmt(ui.get('rap_rest'),0)} mmHg")
+    rest_lines.append(f"- CO {_fmt(der.get('co'),2)} l/min, CI {_fmt(der.get('ci'),2)} l/min/m²")
+    if der.get('sv_rest_ml') is not None or der.get('svi_rest_ml_m2') is not None:
+        rest_lines.append(f"- SV {_fmt(der.get('sv_rest_ml'),0)} ml, SVI {_fmt(der.get('svi_rest_ml_m2'),0)} ml/m²")
+    tail = []
+    tail.append(f"PVR {_fmt(der.get('pvr'),2)} WU")
+    if der.get('pvri') is not None:
+        tail.append(f"PVRi {_fmt(der.get('pvri'),2)} WU·m²")
+    if der.get('tpg') is not None:
+        tail.append(f"TPG {_fmt(der.get('tpg'),0)} mmHg")
+    if der.get('dpg') is not None:
+        tail.append(f"DPG {_fmt(der.get('dpg'),0)} mmHg")
+    if der.get('pp_pa_rest') is not None:
+        tail.append(f"PP (PA) {_fmt(der.get('pp_pa_rest'),0)} mmHg")
+    if der.get('pac_rest_ml_per_mmhg') is not None:
+        tail.append(f"PAC {_fmt(der.get('pac_rest_ml_per_mmhg'),0)} ml/mmHg")
+    if der.get('rc_time_rest_s') is not None:
+        tail.append(f"RC-Zeit {_fmt(der.get('rc_time_rest_s'),2)} s")
+    rest_lines.append("- " + ", ".join(tail))
+    rest_line = "\n".join(rest_lines)
 
     exercise_block = ""
     if der.get("exercise_done"):
@@ -832,7 +1699,10 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
         vaso_block = "#### Vasoreaktivität\n" + "\n".join(vaso_lines)
 
     stepox_block = ""
-    if any(_safe_float(ui.get(k)) is not None for k in ["sat_svc", "sat_ivc", "sat_ra", "sat_rv", "sat_pa", "sat_ao"]):
+    # Stufenoxymetrie only if sufficiently complete (>=4/6 samples).
+    sat_keys = ["sat_svc", "sat_ivc", "sat_ra", "sat_rv", "sat_pa", "sat_ao"]
+    sat_filled = sum(1 for k in sat_keys if _safe_float(ui.get(k)) is not None)
+    if sat_filled >= 4:
         sat_lines = []
         for k, lab in [("sat_svc", "SVC"), ("sat_ivc", "IVC"), ("sat_ra", "RA"), ("sat_rv", "RV"), ("sat_pa", "PA"), ("sat_ao", "AO")]:
             v = _safe_float(ui.get(k))
@@ -840,6 +1710,9 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
                 sat_lines.append(_md_kv(lab, f"{_fmt(v,0)}%"))
         sat_lines.append(_md_kv("Interpretation", der.get("step_up_sentence") or "—"))
         stepox_block = "#### Stufenoxymetrie\n" + "\n".join(sat_lines)
+    elif sat_filled > 0:
+        # Do not interpret if too sparse; keep the report clean.
+        pass
 
     curve_block = ""
     curve_flags = []
@@ -907,10 +1780,34 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
                 modules_txts.append(f"**{mid} – {blocks[mid].title}**\n{txt}")
 
     recs = dec.get("recommendations") or []
+
+    # Empfehlungen aus dem Regelwerk können Platzhalter aus der TextDB enthalten -> jetzt mit ctx auflösen
+    def _fmt_rec(x: Any) -> str:
+        try:
+            return str(x).format_map(SafeDict(ctx)).strip()
+        except Exception:
+            return str(x).strip()
+
+    recs = [_fmt_rec(r) for r in recs if str(r).strip()]
     # Verlaufskonsequenz (falls Vor-RHK angegeben)
     tr_rec = (ctx.get("comparison_recommendation_doc") or "").strip()
     if tr_rec and (tr_rec not in recs):
         recs = list(recs) + [tr_rec]
+
+    # Guard: do not silently include/interpret exercise/volume/vaso modules unless explicitly checked.
+    if bool(der.get("exercise_values_present")) and not bool(der.get("exercise_done")):
+        recs = list(recs) + [
+            "Hinweis: Belastungswerte sind im Datensatz vorhanden, die Belastungshämodynamik wurde jedoch nicht als durchgeführt markiert (Checkbox nicht gesetzt). "
+            "Interpretation/Übernahme erfolgt daher nicht. Bitte ggf. Modul aktivieren oder Werte entfernen."
+        ]
+
+    # Age-adapted filtering: for patients >=70 years, suppress transplant references in recommendations.
+    age = _safe_float(ui.get("age"))
+    if age is not None and age >= 70 and recs:
+        def _keep_rec(r: str) -> bool:
+            s = (r or "").lower()
+            return ("transplant" not in s) and ("ltx" not in s)
+        recs = [r for r in recs if _keep_rec(str(r))]
 
 
 
@@ -921,7 +1818,7 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
         concluding = str(eti.get("doc_conclusion") or "").strip()
     else:
         leading_cause = dec.get("leading_cause") or "unklaren Genese"
-        leading_action = dec.get("leading_action") or "eine strukturierte Komplettierung der Diagnostik"
+        leading_action = dec.get("leading_action") or ""
         concluding = f"In der Zusammenschau der Befunde gehen wir von einer führenden **{leading_cause}** aus. Entsprechend empfehlen wir **{leading_action}**."
 
 
@@ -935,12 +1832,14 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     if ui.get("name") or ui.get("firstname"):
         patient_line = f"**Patient:** {ui.get('firstname','')} {ui.get('name','')}".strip() + "\n\n"
 
-    summary_block = summarize_inputs(case)
+    summary_block = summarize_inputs(case, mode="doctor")
+
+    relevant_vor = _build_relevante_vorerkrankungen_line(ui)
 
     report = [
         header,
         patient_line,
-        "## Befundübersicht\n",
+        "Relevante Vorerkrankungen: " + relevant_vor + "\n\n",
         summary_block,
         "\n## Rechtsherzkatheter\n",
         "#### Ruhehämodynamik\n",
@@ -966,10 +1865,10 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     report.append("\n## Beurteilung\n")
     report.append(beurteilung.strip() + "\n")
 
-    # Add a deterministic, guideline-aligned interpretation paragraph under the assessment.
-    # This is designed to translate the numeric summary into a readable clinical statement.
+    # Interpretation is its own section (pathophysiology). Keep Beurteilung descriptive.
     if interpretation:
-        report.append("\n**Interpretation:**\n" + interpretation.strip() + "\n")
+        report.append("\n## Interpretation\n")
+        report.append(interpretation.strip() + "\n")
 
     report.append("\n## Empfehlung\n")
     report.append(_md_kv("Diagnose/Einordnung", dec.get("primary_dx", "—")))
@@ -977,6 +1876,11 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     report.append(empfehlung.strip() + "\n")
 
     report.append(concluding + "\n")
+
+    # PH therapy course (documented in UI) – placed between Empfehlung and Procedere
+    ph_tx_block = _build_ph_therapieverlauf_block(ui)
+    if ph_tx_block:
+        report.append("\n" + ph_tx_block)
 
     if modules_txts or skipped_mods or ui.get("procedere_free") or recs:
         report.append("\n## Procedere:\n")
@@ -992,10 +1896,9 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
             report.append("\n**Zusätzliche Hinweise:**\n")
             report.extend([f"- {r}" for r in recs])
 
-    return "\n".join(report).strip()
-
-
-
+    _res = "\n".join(report).strip()
+    _cache_set('doctor_report', fp, _res)
+    return _res
 # =============================================================================
 # Patient report (plain language, no abbreviations/numbers)
 # =============================================================================
@@ -1151,94 +2054,25 @@ def _render_echo_patient_text(block_id: str, blocks: Dict[str, Any], ctx: Dict[s
 # =============================================================================
 
 def build_doctor_report_for_copy(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> str:
-    """Build a Word-friendly doctor report (Markdown) used ONLY for clipboard copy.
+    fp = _case_fingerprint(case)
+    cached = _cache_get('doctor_report_copy', fp)
+    if cached is not None:
+        return cached
 
-    Design goals (Copy/Word only; in-app report remains unchanged):
-    - Professional, compact, and highly readable in Word.
-    - Stable order: Kurz-Anamnese/Klinik -> Vorerkrankungen -> Labor -> Bildgebung/Echo -> Lungenfunktion -> CPET -> Beurteilung -> Empfehlung/Procedere.
-    - Uses bullets where appropriate and avoids oversized Markdown headings (Word tends to inflate them).
-    - Ensures no captured information is lost (adds structured input overview).
+    """Backward-compatible alias.
+
+    Single source of truth for the Arztbericht is `build_doctor_report`.
+    Clipboard/DOCX/UI must match exactly.
     """
-    import re
-
-    def _compact(s: str) -> str:
-        s = (s or "").strip()
-        s = re.sub(r"\n{3,}", "\n\n", s)
-        return s.strip()
-
-    # Canonical in-app report provides the final medical logic
-    doc = build_doctor_report(case, blocks)
-    beur = extract_markdown_section(doc, "Beurteilung", "Empfehlung")
-    empf = extract_markdown_section(doc, "Empfehlung", "Procedere")
-    proc = extract_markdown_section(doc, "Procedere", None)
-
-    # Structured raw input summary (contains CT Kurzbefund, 6MWD Datum, CPET, etc.)
-    summ = summarize_inputs(case) or ""
-
-    # Split summary by ### headings into sections
-    sections: Dict[str, str] = {}
-    cur_title = None
-    buf: List[str] = []
-    for line in summ.splitlines():
-        m = re.match(r"^###\s+(.*)\s*$", line.strip())
-        if m:
-            if cur_title is not None:
-                sections[cur_title] = "\n".join(buf).strip()
-            cur_title = m.group(1).strip()
-            buf = []
-        else:
-            buf.append(line)
-    if cur_title is not None:
-        sections[cur_title] = "\n".join(buf).strip()
-
-    # Prefered order (matches your screenshot style)
-    preferred_order = [
-        "Klinik",
-        "Labor",
-        "Bildgebung / Echo / CMR",
-        "6-Minuten-Gehtest",
-        "Lungenfunktion",
-        "Spiroergometrie / CPET",
-    ]
-
-    parts: List[str] = []
-
-    # Helper to render a section with compact bold header (Word-friendly)
-    def _render_section(title: str, body: str) -> None:
-        body = _compact(body)
-        if not body:
-            return
-        # Avoid giant headings in Word: use bold header line instead of Markdown headings.
-        parts.append(f"**{title}:**\n{body}")
-
-    # Render preferred sections first
-    for title in preferred_order:
-        _render_section(title, sections.get(title, ""))
-
-    # Render any remaining sections (future-proof)
-    for title, body in sections.items():
-        if title in preferred_order:
-            continue
-        _render_section(title, body)
-
-    # Medical interpretation (Beurteilung first, then Empfehlung/Procedere)
-    if beur.strip():
-        parts.append(f"**Beurteilung:**\n{_compact(beur)}")
-
-    ep_lines: List[str] = []
-    if empf.strip():
-        ep_lines.append(_compact(empf))
-    if proc.strip():
-        ep_lines.append(_compact(proc))
-    if ep_lines:
-        joined_ep = "\n\n".join(ep_lines)
-        parts.append(f"**Empfehlung & Procedere:**\n{_compact(joined_ep)}")
-
-    return "\n\n".join([p for p in parts if p and p.strip()]).strip()
-
-
-
+    _res = build_doctor_report(case, blocks)
+    _cache_set('doctor_report_copy', fp, _res)
+    return _res
 def build_echo_patient_report(case: Dict[str, Any]) -> str:
+    fp = _case_fingerprint(case)
+    cached = _cache_get('echo_patient_report', fp)
+    if cached is not None:
+        return cached
+
     """Patientenbericht Echokardiographie als klar gegliederter Text.
 
     Ziele
@@ -1574,11 +2408,9 @@ def build_echo_patient_report(case: Dict[str, Any]) -> str:
     if lines:
         bits.append("### Messwerte (für Ihre Unterlagen)\n" + "\n".join(lines))
 
-    return "\n\n".join([b for b in bits if b and b.strip()]).strip() + "\n"
-
-
-
-
+    _res = "\n\n".join([b for b in bits if b and b.strip()]).strip() + "\n"
+    _cache_set('echo_patient_report', fp, _res)
+    return _res
 def _pick_patient_template(block: Any, rng: random.Random) -> str:
     """Pick a block template variant.
 
@@ -1628,6 +2460,11 @@ def _render_patient_text(block_id: str, blocks: Dict[str, Any], ctx: Dict[str, A
 
 
 def build_patient_report(case: Dict[str, Any]) -> str:
+    fp = _case_fingerprint(case)
+    cached = _cache_get('patient_report', fp)
+    if cached is not None:
+        return cached
+
     """Erstellt einen patientenfreundlichen Bericht (drucktauglich, mit echtem Mehrwert).
 
     Leitlinien für den Patientenbericht:
@@ -1644,6 +2481,8 @@ def build_patient_report(case: Dict[str, Any]) -> str:
     der: Dict[str, Any] = case.get("derived", {}) or {}
     dec: Dict[str, Any] = case.get("decision", {}) or {}
     hf: Dict[str, Any] = case.get("hfpef", {}) or {}
+    sc: Dict[str, Any] = case.get("scores", {}) or {}
+    sc: Dict[str, Any] = case.get("scores", {}) or {}
 
     blocks, bundles, module_summary, glossary = _load_patient_textdb()
     rng = random.Random(_stable_patient_seed(case))
@@ -1739,12 +2578,52 @@ def build_patient_report(case: Dict[str, Any]) -> str:
 
     has_ph = bool(mpap is not None and mpap > 20)
     congestion = bool(der.get("congestion_likely"))
+    hemo_cat = str(der.get("hemo_category") or "").strip().lower()
 
     # Grobe Einordnung (aus Regelwerk/Entscheidung)
     bundle = _norm(dec.get("bundle") or "")
     primary_dx = _norm(dec.get("primary_dx") or "")
     leading_cause = _norm(dec.get("leading_cause") or "")
     leading_action = _norm(dec.get("leading_action") or "")
+
+    # Patientenbericht-Archetypen (H1...H6) – Fokusverschiebung ohne Diagnostik
+    archetype_id = str(der.get("p_archetype_id") or "H0").strip().upper()
+    if not archetype_id:
+        archetype_id = "H0"
+
+    _ARCH_BLOCKS = {
+        "H1": {
+            "measured": "PX_ARCH_H1_FOCUS_MEASURED",
+            "meaning": "PX_ARCH_H1_FOCUS_MEANING",
+        },
+        "H2": {
+            "measured": "PX_ARCH_H2_FOCUS_MEASURED",
+            "meaning": "PX_ARCH_H2_FOCUS_MEANING",
+        },
+        "H3": {
+            "measured": "PX_ARCH_H3_FOCUS_MEASURED",
+            "meaning": "PX_ARCH_H3_FOCUS_MEANING",
+        },
+        "H4": {
+            "measured": "PX_ARCH_H4_FOCUS_MEASURED",
+            "meaning": "PX_ARCH_H4_FOCUS_MEANING",
+        },
+        "H5": {
+            "measured": "PX_ARCH_H5_FOCUS_MEASURED",
+            "meaning": "PX_ARCH_H5_FOCUS_MEANING",
+        },
+        "H6": {
+            "measured": "PX_ARCH_H6_FOCUS_MEASURED",
+            "meaning": "PX_ARCH_H6_FOCUS_MEANING",
+        },
+    }
+
+    def _arch_text(kind: str) -> str:
+        """Optionaler Fokus-Text je Archetyp (Fallback: leer)."""
+        bid = (_ARCH_BLOCKS.get(archetype_id) or {}).get(kind)
+        if not bid:
+            return ""
+        return _render_patient_text(bid, blocks, ctx, rng)
 
     def _patientize_cause(txt: str) -> str:
         t = (txt or "").strip()
@@ -1821,12 +2700,48 @@ def build_patient_report(case: Dict[str, Any]) -> str:
     # Risiko (vereinfachte Sprache)
     risk_txt = _risk_txt(der.get("risk_category"))
 
+    # ESC/ERS Follow-up Risiko (4-Strata)
+    esc4 = sc.get("esc_ers_4s")
+    esc4_n = sc.get("esc_ers_4s_n")
+    esc4_missing = sc.get("esc_ers_4s_missing") or []
+
+    # BNP/NT-proBNP (patientenfreundliche Einordnung; keine harten Diagnosen)
+    bnp_kind = (ui.get("bnp_kind") or "BNP/NT-proBNP")
+    bnp_val = _safe_float(ui.get("bnp_value"))
+    entresto = bool(ui.get("entresto"))
+
+    def _bio_qual(kind: str, v: Optional[float]) -> Optional[str]:
+        if v is None:
+            return None
+        k = (kind or "").upper()
+        # Grobe Orientierung – bewusst weich formuliert
+        if "NT" in k:
+            if v < 300:
+                return "niedrig"
+            if v < 1400:
+                return "erhöht"
+            return "deutlich erhöht"
+        # BNP
+        if v < 100:
+            return "niedrig"
+        if v < 300:
+            return "erhöht"
+        return "deutlich erhöht"
+
+    bio_qual = _bio_qual(str(bnp_kind), bnp_val)
+
     # ------------------------------------------------------------------
     # Bericht zusammensetzen
     # ------------------------------------------------------------------
     lines: List[str] = []
     pname = _patient_name(ui)
     salutation = _patient_salutation(ui, rng)
+
+    # Kontext für patientenfreundliche Textbausteine
+    ctx = {
+        "name": pname,
+        "salutation": salutation,
+    }
 
     lines.append("# Patientenbericht zum Rechtsherzkatheter")
     meta = []
@@ -1839,161 +2754,316 @@ def build_patient_report(case: Dict[str, Any]) -> str:
 
     # 1) Kurzfazit (Nutzen)
     lines.append("## Das Wichtigste auf einen Blick")
-    # Hauptaussage patientengerecht
-    if has_ph:
-        main = "Die Messwerte sprechen für eine **Druckerhöhung in den Lungengefäßen (Lungenhochdruck)**."
+
+    # Maximal 5 kurze Sätze, konsequent fallbezogen (keine Floskeln).
+    overview = []  # type: list[str]
+
+    # Satz 1: Kernbefund (mit Wert + Schwelle, wenn vorhanden)
+    if has_ph and mpap is not None:
+        overview.append(
+            f"Der mittlere Druck in Ihren Lungengefäßen (mPAP) liegt bei {_fmt(mpap,0)} mmHg und ist damit deutlich erhöht (Lungenhochdruck ab >20 mmHg)."
+        )
+    elif has_ph:
+        overview.append("Die Messwerte sprechen für eine Druckerhöhung in den Lungengefäßen (Lungenhochdruck).")
     else:
-        main = "In der Messung finden sich **keine klaren Hinweise auf eine relevante Druckerhöhung in den Lungengefäßen**."
-    lines.append(f"- {main}")
+        overview.append("In der Messung finden sich keine Hinweise auf eine relevante Druckerhöhung in den Lungengefäßen.")
 
+    # Satz 2: Muster (prä oder postkapillär), wenn ableitbar
+    if has_ph and hemo_cat:
+        if hemo_cat == "precap":
+            if pvr is not None:
+                overview.append(
+                    f"Das Muster passt zu einer präkapillären Form, dabei ist der Widerstand in den Lungengefäßen erhöht (PVR {_fmt(pvr,1)} WU, erhöht ab >2 WU)."
+                )
+            else:
+                overview.append("Das Muster passt zu einer präkapillären Form, dabei steht der Widerstand in den Lungengefäßen im Vordergrund.")
+        elif hemo_cat in {"ipcph", "cpcph"}:
+            if pawp is not None:
+                overview.append(
+                    f"Es gibt Hinweise, dass die linke Herzseite mitbeteiligt sein könnte (PAWP {_fmt(pawp,0)} mmHg, häufig erhöht ab >15 mmHg)."
+                )
+            else:
+                overview.append("Es gibt Hinweise, dass die linke Herzseite mitbeteiligt sein könnte.")
+
+    # Satz 3: Was fällt besonders auf (BNP oder Pumpfunktion)
+    if bnp_val is not None:
+        q = _bio_qual(str(bnp_kind), bnp_val)
+        q_txt = f" ({q})" if q else ""
+        if q == "niedrig":
+            overview.append(
+                f"Der Blutwert {bnp_kind} liegt bei {_fmt(bnp_val,0)} pg/ml{q_txt}. Das spricht eher gegen eine aktuell stark erhöhte Herzbelastung (der Wert wird aber auch von Alter, Nierenfunktion und akuten Infekten beeinflusst)."
+            )
+        elif q in {"erhöht", "deutlich erhöht"}:
+            overview.append(
+                f"Der Blutwert {bnp_kind} liegt bei {_fmt(bnp_val,0)} pg/ml{q_txt}. Das passt dazu, dass das Herz derzeit stärker belastet ist und wird im Verlauf als wichtiger Orientierungspunkt genutzt."
+            )
+        else:
+            overview.append(
+                f"Der Blutwert {bnp_kind} liegt bei {_fmt(bnp_val,0)} pg/ml. Wir nutzen diesen Wert zusammen mit Symptomen und Belastbarkeit, um den Verlauf besser einzuordnen."
+            )
+    elif ci is not None and _qual('CI', ci) in {"niedrig", "grenzwertig"}:
+        overview.append(f"Die Pumpleistung ist eher reduziert (CI {_fmt(ci,2)} l/min/m²).")
+
+    # Satz 4: Risiko (kurz, ohne langen Exkurs)
+    if esc4:
+        overview.append(f"Die Risikoeinstufung liegt aktuell bei {esc4}. Das beeinflusst, wie eng wir Therapie und Kontrollen planen.")
+
+    # Satz 5: Unsicherheit + nächster Schritt (sofort erklären, warum und wie es weitergeht)
     eti = der.get("ph_etiology") if isinstance(der, dict) else None
-    eti_patient_line = str(eti.get("patient_cause_line") or "").strip() if isinstance(eti, dict) else ""
+    cand_n = len(eti.get("candidates") or []) if isinstance(eti, dict) else 0
+    ambiguous = bool(cand_n > 1)
 
-    if eti_patient_line:
-        lines.append(f"- Einordnung (mögliche Ursachen): {eti_patient_line}")
-    elif cause_patient:
-        lines.append(f"- Wahrscheinlichste Einordnung: **{cause_patient}**.")
+    if ambiguous:
+        if leading_action:
+            overview.append(
+                f"Welche Ursache am meisten beiträgt, ist anhand der bisherigen Daten noch nicht sicher. Als nächstes klären wir gezielt {leading_action}, damit wir die Behandlung passend ausrichten können."
+            )
+        else:
+            overview.append(
+                "Welche Ursache am meisten beiträgt, ist anhand der bisherigen Daten noch nicht sicher. Deshalb ergänzen wir weitere Untersuchungen, um die Hauptursache zu klären und die Behandlung gezielt auszurichten."
+            )
+    else:
+        if leading_action:
+            overview.append(f"Als nächster Schritt klären wir gezielt {leading_action}, damit wir die Behandlung passend ausrichten können.")
 
-    if leading_action:
-        lines.append(f"- Nächster Schwerpunkt: **{leading_action}**.")
-
-    if trend_info.get("has_prev"):
-        lines.append(f"- Verlauf im Vergleich: **{trend_info.get('trend','')}**.")
-
-    # Zusatz-Hinweise
-    if congestion:
-        lines.append("- Zusätzlich gibt es Hinweise auf **Wasser-/Stauungsneigung** (das kann z. B. Schwellungen oder Gewichtszunahme erklären).")
-    if risk_txt:
-        lines.append(f"- {risk_txt}")
-
-    # Belastung (falls durchgeführt) – patientengerecht, ohne Jargon
-    if der.get("exercise_done"):
-        mpap_s = _safe_float(der.get("mpap_co_slope"))
-        pawp_s = _safe_float(der.get("pawp_co_slope"))
-        patt = (der.get("exercise_pattern") or "")
-
-        # Nur dann prominent erwähnen, wenn wir wirklich etwas aussagen können.
-        ex_bits: List[str] = []
-        if mpap_s is not None:
-            ex_bits.append(f"mPAP/CO‑Slope {fmt_float(mpap_s, 1)}")
-        if pawp_s is not None:
-            ex_bits.append(f"PAWP/CO‑Slope {fmt_float(pawp_s, 1)}")
-
-        if ex_bits or patt:
-            msg = "Unter Belastung wurden zusätzliche Messwerte erhoben. "
-            if ex_bits:
-                msg += "Dabei zeigen die Druckanstiege im Verhältnis zur Kreislaufsteigerung: " + " und ".join(ex_bits) + " (je höher, desto eher spricht das für eine Belastungsreaktion im Lungenkreislauf bzw. eine Mitbeteiligung der linken Herzhälfte)."
-            if patt:
-                p_desc = describe_exercise_pattern(patt)
-                if p_desc:
-                    msg += f" Einordnung: {p_desc}."
-            lines.append(f"- {msg}")
+    # Ausgabe (max. 5 Sätze)
+    for s in overview[:5]:
+        lines.append(s)
     lines.append("")
 
+
+    # ------------------------------------------------------------------
+    # Narrativer Kernteil (fallzentriert, nicht generisch)
+    # ------------------------------------------------------------------
+    lines.append("## Was wurde bei Ihnen gemessen – und warum ist das wichtig?")
+
+    if has_ph:
+        # 1) Druck + Widerstand + Einordnung als zusammenhängende Geschichte
+        if mpap is not None:
+            lines.append(
+                f"Bei Ihnen wurde ein erhöhter Druck im Lungenkreislauf gemessen (mPAP {_fmt(mpap,0)} mmHg, Lungenhochdruck ab >20 mmHg). "
+                "Das bedeutet: Das rechte Herz muss Blut gegen einen höheren Widerstand in Richtung Lunge pumpen."
+            )
+        else:
+            lines.append(
+                "Bei Ihnen zeigen die Messungen einen Lungenhochdruck. Das bedeutet: Das rechte Herz muss Blut gegen einen höheren Widerstand in Richtung Lunge pumpen."
+            )
+
+        if hemo_cat == "precap" and (pawp is not None) and (pvr is not None):
+            lines.append(
+                f"Der Druck vor der linken Herzhälfte ist dabei nicht erhöht (PAWP {_fmt(pawp,0)} mmHg). "
+                f"Gleichzeitig ist der Widerstand in den Lungengefäßen deutlich erhöht (PVR {_fmt(pvr,1)} WU, erhöht ab >2 WU). "
+                "Das Muster spricht eher für eine Ursache im Lungenkreislauf selbst oder im Zusammenhang mit einer Lungenerkrankung."
+            )
+        elif hemo_cat in {"ipcph", "cpcph"} and pawp is not None:
+            lines.append(
+                f"Der Druck vor der linken Herzhälfte ist erhöht (PAWP {_fmt(pawp,0)} mmHg). "
+                "Das kann einen Rückstau in die Lunge begünstigen und wird bei der Einordnung mit berücksichtigt."
+            )
+        elif hemo_cat:
+            # Muster bekannt, Werte teils nicht
+            if hemo_cat == "precap":
+                lines.append("Das Messmuster passt eher zu einer Form, bei der die Lungengefäße oder die Lunge selbst im Vordergrund stehen.")
+            else:
+                lines.append("Das Messmuster passt eher zu einer Form, bei der die linke Herzseite mitbeteiligt sein kann.")
+
+        # 2) Pumpfunktion / Rückstau – nur wenn Werte vorhanden
+        if ci is not None:
+            qci = _qual("CI", ci)
+            if qci in {"niedrig", "grenzwertig"}:
+                lines.append(
+                    f"Die Pumpleistung des Herzens ist dabei eher reduziert (CI {_fmt(ci,2)} l/min/m²). "
+                    "Das kann erklären, warum Belastung schneller schwerfällt oder Schwindel auftreten kann."
+                )
+            else:
+                lines.append(f"Die Pumpleistung ist im Rahmen der Messung nicht klar vermindert (CI {_fmt(ci,2)} l/min/m²).")
+
+        if rap is not None:
+            qrap = _qual("RAP", rap)
+            if qrap in {"erhöht", "deutlich erhöht"}:
+                lines.append(
+                    f"Der Druck im rechten Vorhof (RAP) liegt bei {_fmt(rap,0)} mmHg und ist erhöht. "
+                    "Das kann ein Hinweis auf eine stärkere Belastung der rechten Herzhälfte sein."
+                )
+
+        # 3) Biomarker – korrekt, fallbezogen, kurz
+        if bnp_val is not None and bio_qual:
+            if bio_qual == "niedrig":
+                lines.append(
+                    f"Der Blutwert {bnp_kind} ist bei Ihnen niedrig ({_fmt(bnp_val,0)} pg/ml). "
+                    "Das spricht eher gegen eine aktuell ausgeprägte Herzüberlastung – wichtig ist aber immer die Gesamtschau mit Beschwerden und Messwerten."
+                )
+            elif bio_qual == "erhöht":
+                lines.append(
+                    f"Der Blutwert {bnp_kind} ist bei Ihnen erhöht ({_fmt(bnp_val,0)} pg/ml). "
+                    "Das passt dazu, dass das Herz aktuell stärker arbeiten muss."
+                )
+            elif bio_qual == "deutlich erhöht":
+                lines.append(
+                    f"Der Blutwert {bnp_kind} ist bei Ihnen deutlich erhöht ({_fmt(bnp_val,0)} pg/ml). "
+                    "Das ist ein Warnsignal dafür, dass das Herz stärker belastet ist und wird im Verlauf eng beobachtet."
+                )
+
+    else:
+        lines.append(
+            "In Ruhe zeigen die Messwerte keinen Lungenhochdruck. Wenn Beschwerden vor allem unter Belastung auftreten, kann das trotzdem abgeklärt werden, "
+            "weil manche Veränderungen erst unter Belastung sichtbar werden."
+        )
+
+    # Archetyp-spezifische Fokusverschiebung (ohne neue Fakten, nur Schwerpunkt)
+    t_arch = _arch_text("measured")
+    if t_arch:
+        lines.append(t_arch)
+
+    lines.append("")
+
+
+    # Volumenchallenge / Vasoreaktivität (falls durchgeführt) – patientengerecht
+    if der.get("vol_challenge_done"):
+        lines.append("## Zusatztest: Volumenchallenge (Flüssigkeitsbelastung)")
+        t = _render_patient_text("PX_VOLUME_CHALLENGE", blocks, ctx, rng)
+        if t:
+            lines.append(t)
+
+        pawp_pre = _safe_float(der.get("vol_challenge_pawp_pre"))
+        pawp_post = _safe_float(der.get("vol_challenge_pawp_post"))
+        d_pawp = _safe_float(der.get("vol_challenge_delta_pawp"))
+        endp_ge18 = bool(der.get("vol_challenge_pawp_ge_18"))
+
+        # Nur wenige Kernwerte, verständlich
+        bits = []
+        if pawp_pre is not None and pawp_post is not None:
+            bits.append(f"PAWP vor/nach: {fmt_float(pawp_pre,0)} → {fmt_float(pawp_post,0)} mmHg")
+        if d_pawp is not None:
+            bits.append(f"Änderung: {fmt_float(d_pawp,0)} mmHg")
+        if bits:
+            lines.append("Orientierung: " + " | ".join(bits) + ".")
+        lines.append("Einordnung: " + ("Der Druck auf der linken Herzseite steigt dabei deutlich an. Das kann zu einem Rückstau in die Lunge beitragen."
+                                         if endp_ge18 else
+                                         "Der Druck auf der linken Herzseite bleibt dabei eher niedrig. Das spricht eher gegen eine ausgeprägte Druckerhöhung durch Flüssigkeit allein."))
+        lines.append("")
+
+    if der.get("vaso_test_done"):
+        lines.append("## Zusatztest: Vasoreaktivität")
+        t = _render_patient_text("PX_VASOREACTIVITY", blocks, ctx, rng)
+        if t:
+            lines.append(t)
+
+        agent = str(ui.get("vaso_agent") or "—")
+        resp_desc = str(ui.get("vaso_response_desc") or "").strip()
+        responder = der.get("vaso_responder")
+        # Sehr kurze, patientengerechte Aussage
+        if agent and agent != "—":
+            lines.append(f"Testmedikament: {agent}.")
+        if resp_desc:
+            lines.append(f"Beobachtung: {resp_desc}.")
+        if responder is True:
+            lines.append("Einordnung: Es gab eine deutliche Entspannung der Lungengefäße im Test. Das kann für die weitere Therapieplanung relevant sein.")
+        elif responder is False and resp_desc:
+            lines.append("Einordnung: Es zeigte sich im Test keine ausgeprägte Entspannung nach den klassischen Kriterien.")
+        lines.append("")
     # 2) Einordnung / Erklärung
     lines.append("## Was bedeutet das für Sie?")
 
-    # Hinweis: Mehrere Ursachen können parallel bestehen (Herz/Lunge/alte Embolien etc.)
     eti = der.get("ph_etiology") if isinstance(der, dict) else None
-    if isinstance(eti, dict) and isinstance(eti.get("candidates"), list) and len(eti.get("candidates")) > 1:
-        lines.append("Wichtig: Ein Lungenhochdruck kann **mehrere Ursachen gleichzeitig** haben, die sich gegenseitig verstärken können.")
-        lines.append("Daher wird die weitere Abklärung oft interdisziplinär geplant, um alle möglichen Beiträge gezielt zu behandeln.")
+    eti_patient_line = str(eti.get("patient_cause_line") or "").strip() if isinstance(eti, dict) else ""
+    cand_n = len(eti.get("candidates") or []) if isinstance(eti, dict) else 0
+    ambiguous = bool(cand_n > 1)
+
+    # Redundanz vermeiden: Die hämodynamische Grundlogik wurde oben bereits erklärt.
+    # Hier Fokus auf Einordnung, offene Punkte und Konsequenzen (ohne Procedere-Details).
+    if has_ph:
+        if hemo_cat == "precap":
+            lines.append("In der Zusammenschau ergibt sich eher ein präkapilläres Muster. Entscheidend ist nun, *warum* der Widerstand in den Lungengefäßen erhöht ist.")
+        elif hemo_cat in {"ipcph", "cpcph"}:
+            lines.append("In der Zusammenschau gibt es Hinweise auf eine Mitbeteiligung der linken Herzseite. Entscheidend ist nun, wie groß dieser Anteil ist und ob zusätzlich der Lungenkreislauf selbst betroffen ist.")
+        else:
+            lines.append("In der Zusammenschau ist die Einordnung möglich, aber nicht alle Teilaspekte sind eindeutig. Wir stützen uns deshalb auf mehrere Bausteine (Messwerte, Bildgebung, Belastbarkeit).")
         lines.append("")
-    ctx = {
-        "name": pname,
-        "salutation": salutation,
-    }
-
-    # Bausteine je nach Bundle (sparsam, um Redundanz zu vermeiden)
-    rendered_bids: set = set()
-
-    if bundle:
-        for bid in _bundle_patient_blocks(bundle):
-            t = _render_patient_text(bid, blocks, ctx, rng)
-            if t:
-                lines.append(t)
-                lines.append("")
-                rendered_bids.add(bid)
     else:
-        # Fallback: kurzer Standardtext
-        t = _render_patient_text("PX_INTERPRETATION", blocks, ctx, rng)
-        if t:
-            lines.append(t)
+        lines.append("Die Messwerte in Ruhe sind unauffällig. Wenn Beschwerden vor allem unter Belastung auftreten, kann das trotzdem weiter eingeordnet werden – manche Veränderungen zeigen sich erst dann.")
+        lines.append("")
+
+    # Archetyp-spezifische Fokusverschiebung (Einordnung) – nur, wenn verfügbar
+    t_arch2 = _arch_text("meaning")
+    if t_arch2:
+        lines.append(t_arch2)
+        lines.append("")
+
+    # Unsicherheit immer erklären (Frage 11a)
+    if ambiguous:
+        lines.append("Welche Ursache im Vordergrund steht, lässt sich anhand der vorliegenden Angaben noch nicht sicher festlegen.")
+        if leading_action:
+            lines.append(f"Als nächster Schritt klären wir deshalb gezielt {leading_action}. Damit wird klarer, welche Behandlung bei Ihnen am besten passt.")
+        else:
+            lines.append("Deshalb ergänzen wir weitere Untersuchungen. Ziel ist, die Hauptursache zu klären und die Behandlung gezielt auszurichten.")
+        lines.append("")
+
+    # Mögliche Ursachen in patientenfreundlicher Sprache (nur wenn vorhanden)
+    if eti_patient_line:
+        # vermeiden von doppelten Einleitungen wie "Hinweise auf ... Hinweise auf ..."
+        cleaned = eti_patient_line
+        cleaned = cleaned.replace("Hinweise auf:", "")
+        cleaned = re.sub(r"\bHinweise auf\b", "", cleaned).strip()
+        cleaned = re.sub(r"\s{2,}", " ", cleaned)
+        if cleaned:
+            lines.append(f"Mögliche Ursachen, die wir in Ihrem Fall prüfen: {cleaned}")
             lines.append("")
-            rendered_bids.add("PX_INTERPRETATION")
 
-    # Zusatz: Wenn mehrere Ursachen möglich sind, ergänzen wir kurze Hinweise (ohne Wiederholungen)
-    extra_hint_ids: List[str] = []
-
-    # Angeborener Herzfehler / Shunt (wenn explizit angegeben/auffällig)
+    # Shunt/Step up (wenn vorhanden)
     if bool(ui.get("chd_pos")) or bool(ui.get("step_up_present")):
-        extra_hint_ids.append("PX_SHUNT_HINT")
+        lines.append("Die Messungen geben Hinweise auf eine zusätzliche Verbindung zwischen Herzhöhlen. Das kann den Blutfluss beeinflussen und wird deshalb gezielt abgeklärt.")
+        lines.append("")
 
-    # Gruppenhinweise aus Kandidatenliste (max. 3 Ergänzungen)
-    group1_specific = bool(ui.get("immunology_pos") or ui.get("virology_pos") or ui.get("mutation_pos") or ui.get("chd_pos") or ui.get("step_up_present"))
-    group_to_bid = {
-        1: "PX_GROUP1_HINT",  # nur wenn wirklich Anhaltspunkte (Autoimmun/Virologie/Genetik/CHD)
-        2: "PX_GROUP2_HINT",
-        3: "PX_GROUP3_HINT",
-        4: "PX_GROUP4_HINT",
-    }
-
-    if isinstance(eti, dict) and isinstance(eti.get("candidates"), list):
-        for c in (eti.get("candidates") or [])[:5]:
-            try:
-                g = int(c.get("group"))
-            except Exception:
-                continue
-            if g == 1 and not group1_specific:
-                continue
-            bid = group_to_bid.get(g)
-            if bid:
-                extra_hint_ids.append(bid)
-
-    seen: set = set()
-    for bid in extra_hint_ids:
-        if bid in seen or bid in rendered_bids:
-            continue
-        seen.add(bid)
-        if bid not in blocks:
-            continue
-        t = _render_patient_text(bid, blocks, ctx, rng)
-        if t:
-            lines.append(t)
-            lines.append("")
-            rendered_bids.add(bid)
-        if len(seen) >= 3:
-            break
-
+    # Linke Herzseite (HFpEF Hinweis)
     if hf_txt:
         lines.append(hf_txt)
         lines.append("")
 
     # 3) Werte zur Orientierung (kompakt, aber konkret)
+
     lines.append("## Wichtige Werte zur Orientierung")
-    hemo_items: List[str] = []
+    hemo_items = []  # type: list[str]
+
     if mpap is not None:
-        hemo_items.append(f"- **Druck in den Lungengefäßen (mPAP):** { _fmt(mpap,0) } mmHg – {_qual('mPAP', mpap)} (Lungenhochdruck ab >20)")
+        hemo_items.append(
+            f"- **mPAP** (mittlerer Druck in den Lungengefäßen): {_fmt(mpap,0)} mmHg ({_qual('mPAP', mpap)}; Lungenhochdruck ab >20 mmHg)"
+        )
     if pawp is not None:
-        hemo_items.append(f"- **Füllungsdruck linkes Herz/Lungenvene (PAWP):** { _fmt(pawp,0) } mmHg – {_qual('PAWP', pawp)} (häufig erhöht ab >15)")
+        hemo_items.append(
+            f"- **PAWP** (Druck vor der linken Herzhälfte): {_fmt(pawp,0)} mmHg ({_qual('PAWP', pawp)}; häufig erhöht ab >15 mmHg)"
+        )
     if pvr is not None:
-        hemo_items.append(f"- **Widerstand in den Lungengefäßen (PVR):** { _fmt(pvr,1) } WU – {_qual('PVR', pvr)} (oft erhöht ab >2)")
+        hemo_items.append(
+            f"- **PVR** (Widerstand in den Lungengefäßen): {_fmt(pvr,1)} WU ({_qual('PVR', pvr)}; erhöht ab >2 WU)"
+        )
     if ci is not None:
-        hemo_items.append(f"- **Herzzeitvolumen-Index (CI):** { _fmt(ci,2) } l/min/m² – {_qual('CI', ci)}")
+        hemo_items.append(
+            f"- **CI** (Pumpleistung bezogen auf die Körpergröße): {_fmt(ci,2)} l/min/m² ({_qual('CI', ci)})"
+        )
     if rap is not None:
-        hemo_items.append(f"- **Druck im rechten Vorhof (RAP):** { _fmt(rap,0) } mmHg – {_qual('RAP', rap)}")
+        hemo_items.append(
+            f"- **RAP** (Druck im rechten Vorhof): {_fmt(rap,0)} mmHg ({_qual('RAP', rap)}; häufig erhöht ab >8 mmHg)"
+        )
+    if bnp_val is not None:
+        q = _bio_qual(str(bnp_kind), bnp_val)
+        q_txt = f"{q}" if q else ""
+        if q_txt:
+            q_txt = f" ({q_txt})"
+        hemo_items.append(
+            f"- **{bnp_kind}** (Blutwert bei Herzbelastung): {_fmt(bnp_val,0)} pg/ml{q_txt}"
+        )
+
     if hemo_items:
         lines.extend(hemo_items)
     else:
         lines.append("Keine Kernwerte verfügbar.")
+
     lines.append("")
 
-    # Kurz erklärt: Was bedeuten diese Werte?
-    t = _render_patient_text("PX_HEMO_EXPLAIN", blocks, ctx, rng)
-    if t:
-        lines.append(t)
-        lines.append("")
-
+    # Hinweis zur Einordnung (kurz, ohne Glossar)
+    lines.append("Wichtig: Entscheidend ist die Kombination dieser Werte und der Verlauf. Eine einzelne Zahl erklärt Beschwerden selten vollständig.")
+    lines.append("")
     # 4) Verlauf / Vergleich (wenn vorhanden)
     if trend_info.get("has_prev"):
         lines.append("## Verlauf im Vergleich")
@@ -2028,6 +3098,21 @@ def build_patient_report(case: Dict[str, Any]) -> str:
                 continue
 
     risk_cat_local = str(der.get("risk_category") or "").lower()
+
+    # "Stabil / nicht-hochrisikant" (für alltagsbezogene Studien-Hinweise)
+    # - High / intermediate-high: keine Lifestyle-Hinweise im Patientenbericht
+    # - sonst: erlaubt (inkl. intermediate-low/low)
+    def _is_high_risk(cat: str) -> bool:
+        c = (cat or "").strip().lower()
+        if not c:
+            return False
+        # robust gegen unterschiedliche Schreibweisen
+        return (
+            c.startswith("high") or "high" in c or "hoch" in c or
+            "intermediate-high" in c or "intermediate high" in c or "intermediatehigh" in c
+        )
+
+    lifestyle_allowed = not _is_high_risk(risk_cat_local)
 
     def _module_level(mid: str) -> int:
         try:
@@ -2094,7 +3179,7 @@ def build_patient_report(case: Dict[str, Any]) -> str:
         }
 
         lines.append(
-            "Die folgenden Schritte sind – je nach Gesamtbild – geplant oder sinnvoll. "
+            "Die folgenden Schritte sind, je nach Gesamtbild, geplant oder sinnvoll. "
             "Falls verfügbar, steht darunter kurz, warum das in Ihrer Situation relevant sein kann."
         )
         lines.append("")
@@ -2118,7 +3203,7 @@ def build_patient_report(case: Dict[str, Any]) -> str:
 
                 reason = _module_reason(mid)
                 if reason:
-                    lines.append(f"- {txt}  \n  _Warum bei Ihnen:_ {reason}.")
+                    lines.append(f"- {txt}  \n  Warum bei Ihnen: {reason}.")
                 else:
                     lines.append(f"- {txt}")
             lines.append("")
@@ -2129,26 +3214,67 @@ def build_patient_report(case: Dict[str, Any]) -> str:
             lines.append(t)
             lines.append("")
 
-# Wichtige Warnhinweise (z. B. Antikoag/ILD)
+    # Alltag & Sicherheit (fallbezogen, ohne Coaching-Floskeln)
+    lines.append("## Alltag und Sicherheit")
+
+    if leading_action:
+        lines.append(f"Der nächste Schwerpunkt in Ihrem Fall ist: {leading_action}.")
+        lines.append("")
+
+    # Therapiehistorie (nur Fakten, keine Empfehlung)
+    current_meds = ui.get("ph_current_meds") or []
+    prev_meds = ui.get("ph_prev_meds") or []
+    if isinstance(prev_meds, list) and prev_meds:
+        lines.append("Bisherige PH-Therapie (abgesetzt/wechselte): " + ", ".join([str(x) for x in prev_meds if str(x).strip()]) + ".")
+    if isinstance(current_meds, list) and current_meds:
+        lines.append("Aktuelle PH-Therapie: " + ", ".join([str(x) for x in current_meds if str(x).strip()]) + ".")
+    if (isinstance(prev_meds, list) and prev_meds) or (isinstance(current_meds, list) and current_meds):
+        lines.append("")
+
+    # Personalisierte Hinweise (nicht redundant, nicht belehrend)
+    syn = (ui.get("syncope") or "").strip().lower() in {"ja", "yes", "true", "gelegentlich", "manchmal"}
+    diz = (ui.get("dizziness") or "").strip().lower() in {"ja", "yes", "true"}
+
+    if syn:
+        lines.append("Da bei Ihnen Ohnmacht oder Beinahe Ohnmacht angegeben wurde, ist das ein besonders wichtiges Warnsignal. Bitte melden Sie sich bei erneuten Episoden zeitnah.")
+    elif diz:
+        lines.append("Da bei Ihnen Schwindel angegeben wurde, ist wichtig, Belastung so zu dosieren, dass keine Beinahe Ohnmacht auftritt. Bei deutlicher Zunahme bitte frühzeitig Rücksprache halten.")
+
+    if congestion:
+        lines.append("Es gibt Hinweise auf Rückstau. Neue Schwellungen oder eine rasche Gewichtszunahme über wenige Tage sollten zeitnah besprochen werden.")
+    else:
+        lines.append("Wenn neue Schwellungen, rasche Gewichtszunahme oder deutlich zunehmende Luftnot auftreten, sollte das frühzeitig abgeklärt werden.")
+
+    # Studienbasierte Alltagshinweise nur bei stabilen / nicht-hochrisikanten Konstellationen
+    if lifestyle_allowed:
+        lines.append("")
+        lines.append("### Evidenzbasierte Alltagshinweise")
+
+        lines.append(
+            "Studien bei Patient*innen mit Lungengefäßerkrankungen zeigen, dass regelmäßige, moderate Bewegung "
+            "die Belastbarkeit und Lebensqualität verbessern kann. Entscheidend ist nicht Tempo, sondern "
+            "eine gut verträgliche Regelmäßigkeit."
+        )
+        lines.append(
+            "Als alltagsnahe Orientierung kann ein tägliches Gehziel im Bereich von etwa 7.000 bis 10.000 Schritten "
+            "hilfreich sein, sofern dies ohne deutliche Luftnot, Schwindel oder Brustdruck möglich ist. "
+            "Wenn Beschwerden unter Belastung zunehmen, ist eine geringere Dosis oft besser verträglich als "
+            "ein seltener hoher Aufwand."
+        )
+
+        if congestion:
+            lines.append(
+                "Bei Hinweisen auf Rückstau kann eine individuell abgestimmte Trinkmenge und Salzaufnahme "
+                "zur Entlastung beitragen. Konkrete Zielwerte werden im Gespräch festgelegt, weil sie von Nierenfunktion, "
+                "Medikamenten und dem klinischen Verlauf abhängen."
+            )
+
     if warn_lines:
+        lines.append("")
         lines.append("**Wichtiger Hinweis:**")
         for w in warn_lines:
             lines.append(f"- {w}")
-        lines.append("")
 
-    # 6) Selbstmanagement (Stauung / Alltag)
-    lines.append("## Was Sie selbst beobachten oder tun können")
-    self_lines: List[str] = []
-    # immer sinnvoll
-    self_lines.append("- **Belastbarkeit notieren:** Was geht im Alltag gut, was nicht? (z. B. Treppen, Gehstrecke).")
-    self_lines.append("- **Medikamentenliste aktuell halten:** inkl. Dosierungen und Beginn/Änderungen.")
-    if congestion:
-        self_lines.append("- **Gewicht täglich kontrollieren** (morgens, nach dem Wasserlassen, ähnliche Kleidung) und Verlauf notieren.")
-        self_lines.append("- **Salz und Trinkmenge im Blick behalten:** Bei Wasseransammlung helfen oft Salzreduktion und eine individuell abgestimmte Trinkmenge. Die konkrete Empfehlung legen wir gemeinsam fest.")
-        self_lines.append("- Bei rascher Gewichtszunahme/Schwellungen bitte frühzeitig melden – manchmal muss die Entwässerung angepasst werden.")
-    else:
-        self_lines.append("- Bei neuen Schwellungen, rascher Gewichtszunahme oder deutlich zunehmender Luftnot bitte frühzeitig melden.")
-    lines.extend(self_lines)
     lines.append("")
 
     # 7) Safety net
@@ -2164,22 +3290,6 @@ def build_patient_report(case: Dict[str, Any]) -> str:
         lines.append("- rasche Gewichtszunahme oder stark zunehmende Schwellungen")
     lines.append("")
 
-    # 8) Glossar (kurz)
-    lines.append("## Begriffe kurz erklärt")
-    used_terms: List[str] = []
-    for term in ["mPAP", "PAWP", "PVR", "CI", "RAP", "Lungenhochdruck"]:
-        if term.lower() in " ".join(lines).lower():
-            used_terms.append(term)
-    # add from glossary if available
-    added = 0
-    for term in used_terms:
-        if term in glossary:
-            lines.append(f"- **{term}:** {glossary[term]}")
-            added += 1
-    if added == 0:
-        lines.append("Keine Begriffe zu erklären.")
-    lines.append("")
-
     # 9) Disclaimer
     t = _render_patient_text("PX_DISCLAIMER", blocks, ctx, rng)
     if t:
@@ -2188,11 +3298,15 @@ def build_patient_report(case: Dict[str, Any]) -> str:
     # Clean spacing
     out = "\n".join([ln.rstrip() for ln in lines]).strip()
     out = re.sub(r"\n{3,}", "\n\n", out)
-    return out
-
-
-
+    _res = out
+    _cache_set('patient_report', fp, _res)
+    return _res
 def build_internal_report(case: Dict[str, Any]) -> str:
+    fp = _case_fingerprint(case)
+    cached = _cache_get('internal_report', fp)
+    if cached is not None:
+        return cached
+
     env = case.get("env") or {}
     dec = case.get("decision") or {}
     debug = case.get("debug") or {}
@@ -2216,14 +3330,19 @@ def build_internal_report(case: Dict[str, Any]) -> str:
         lines.append("- keine")
     else:
         for w in warns[:12]:
-            try:
-                sev = str(w.get("severity") or "warn").upper()
-                msg = str(w.get("message") or "").strip()
-                flds = w.get("fields") or []
-                ftxt = f" (Felder: {', '.join([str(x) for x in flds])})" if flds else ""
-                lines.append(f"- [{sev}] {msg}{ftxt}")
-            except Exception:
-                continue
+            if isinstance(w, dict):
+                try:
+                    sev = str(w.get("severity") or "warn").upper()
+                    msg = str(w.get("message") or "").strip()
+                    flds = w.get("fields") or []
+                    ftxt = f" (Felder: {', '.join([str(x) for x in flds])})" if flds else ""
+                    lines.append(f"- [{sev}] {msg}{ftxt}")
+                except Exception:
+                    lines.append(f"- {_format_warning_item(w)}")
+            else:
+                msg = _format_warning_item(w)
+                if msg:
+                    lines.append(f"- {msg}")
         if len(warns) > 12:
             lines.append(f"- … weitere {len(warns) - 12} Warnungen")
 
@@ -2282,9 +3401,9 @@ def build_internal_report(case: Dict[str, Any]) -> str:
     ]
     for k in keys:
         lines.append(f"- {k}: {env.get(k)}")
-    return "\n".join(lines)
-
-
+    _res = "\n".join(lines)
+    _cache_set('internal_report', fp, _res)
+    return _res
 # =============================================================================
 # Random example generation (now with lab constellations)
 # =============================================================================
@@ -2415,6 +3534,20 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
     # --- Klinik/Funktion ---
     ui["who_fc"] = rng.choice(["II", "III"]) if scen != "no_ph" else rng.choice(["I", "II"])
     ui["six_mwd_m"] = rng.choice([240, 320, 420]) if scen != "no_ph" else rng.choice([420, 480, 520])
+
+    # --- EKG (Beispiele sollen fehlende vs vorhandene Daten demonstrieren) ---
+    # ekg_present: True/False/None (None = keine Angabe)
+    if rng.random() < 0.75:
+        ui["ekg_present"] = True
+        ui["ekg_rhs_signs"] = rng.sample(
+            ["P pulmonale", "Rechtsachsenabweichung", "RV-Hypertrophie", "RBBB/in kompletter RSB", "S1Q3T3"],
+            k=rng.choice([0, 1, 2]),
+        )
+        ui["ekg_other_text"] = ""
+    else:
+        ui["ekg_present"] = False
+        ui["ekg_rhs_signs"] = []
+        ui["ekg_other_text"] = ""
     ui["stairs_flights"] = rng.choice([0, 1, 2, 3])
     ui["syncope"] = rng.choices(["keine", "gelegentlich", "wiederholt"], weights=[0.83, 0.14, 0.03], k=1)[0]
     ui["hemoptysis"] = (scen == "cteph") and (rng.random() < 0.15)
@@ -2683,6 +3816,12 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
     if hb is not None and hb < hb_low:
         ui["modules"] = list(dict.fromkeys(ui["modules"] + ["P13"]))
 
+    # In der UI existieren Level-Gruppen (modules_lvl1/2/3). Beispiele sollen diese Logik sichtbar füllen.
+    # Wir legen die Vorselektion standardmäßig in Level 3 ab (robust, da Level-Policy fallabhängig variieren kann).
+    ui["modules_lvl1"] = []
+    ui["modules_lvl2"] = []
+    ui["modules_lvl3"] = list(ui.get("modules") or [])
+
     # --- Vor-RHK (gelegentlich) ---
     if rng.random() < 0.35:
         ui["prev_rhk_date"] = rng.choice(["03/21", "11/22", "06/23"])
@@ -2708,6 +3847,24 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
 # =============================================================================
 # JSON export/import helpers
 # =============================================================================
+
+
+# ---------------------------------------------------------------------------
+# Performance: cache expensive clipboard conversions (example loads / repeated generate)
+# ---------------------------------------------------------------------------
+
+@lru_cache(maxsize=256)
+def _markdown_to_plain_cached(s: str) -> str:
+    return markdown_to_plain(s)
+
+@lru_cache(maxsize=128)
+def _markdown_to_word_html_cached(s: str) -> str:
+    return markdown_to_word_html(s)
+
+@lru_cache(maxsize=256)
+def _extract_markdown_section_cached(md: str, start: str, end: str) -> str:
+    return extract_markdown_section(md, start, end)
+
 
 def markdown_to_plain(md: Any) -> str:
     """Best-effort Markdown -> plain text.
@@ -3100,11 +4257,26 @@ def markdown_to_docx_file(md: Any, out_path: str) -> str:
             prev_blank = True
             continue
 
-        # Bullet list
-        m_b = re.match(r"^\s*(?:[-•]\s+)(.+)$", ln)
+        # Bullet list (supports nesting via leading spaces: '  - item', '    - item', ...)
+        m_b = re.match(r"^(\s*)(?:[-•]\s+)(.+)$", ln)
         if m_b:
-            par = doc.add_paragraph(style="List Bullet")
-            _add_runs_with_bold(par, m_b.group(1).strip())
+            indent = len(m_b.group(1) or "")
+            # Common Markdown convention: 2 spaces per nesting level (cap at 2 for stability)
+            lvl = 0
+            if indent >= 2:
+                lvl = 1
+            if indent >= 4:
+                lvl = 2
+            style_name = "List Bullet"
+            if lvl == 1:
+                style_name = "List Bullet 2"
+            elif lvl == 2:
+                style_name = "List Bullet 3"
+            try:
+                par = doc.add_paragraph(style=style_name)
+            except Exception:
+                par = doc.add_paragraph(style="List Bullet")
+            _add_runs_with_bold(par, m_b.group(2).strip())
             prev_blank = False
             continue
 
@@ -3175,6 +4347,10 @@ def extract_markdown_section(md: Any, start_heading: str, end_heading: Optional[
 
 def build_summary_dict(case: Dict[str, Any], rulebook_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Structured, stable JSON summary for studies/registries/QA."""
+    fp = _case_fingerprint(case)
+    cached = _cache_get('summary_dict', fp)
+    if cached is not None:
+        return cached
     ui = case.get("ui") or {}
     der = case.get("derived") or {}
     scores = case.get("scores") or {}
@@ -3282,7 +4458,7 @@ def build_summary_dict(case: Dict[str, Any], rulebook_meta: Optional[Dict[str, A
         "procedere_free": ui.get("procedere_free") or "",
     }
 
-    return {
+    _res = {
         "schema": "rhk_summary_v1",
         "generated_at": today,
         "app_version": APP_VERSION,
@@ -3296,6 +4472,8 @@ def build_summary_dict(case: Dict[str, Any], rulebook_meta: Optional[Dict[str, A
         "procedere": procedere,
         "warnings": wslim,
     }
+    _cache_set('summary_dict', fp, _res)
+    return _res
 
 
 def export_json(case: Dict[str, Any], path: str) -> str:
@@ -3317,19 +4495,24 @@ def load_case_json(file_path: str) -> Dict[str, Any]:
 
 
 def build_echo_doctor_report_extended(case: Dict[str, Any]) -> str:
+    fp = _case_fingerprint(case)
+    cached = _cache_get('echo_doctor_report', fp)
+    if cached is not None:
+        return cached
+
     """Echo Expertenbericht (Arztbericht) – ausführlich, strukturiert, leitliniennah.
 
     Ziele
     - klinisch lesbarer Fließtext mit klarer Einordnung (keine reine Werteauflistung)
     - Einordnung der PH-Wahrscheinlichkeit (Echo = Screening, keine Diagnose)
-    - RV-Remodeling, RV-Funktion, RV-PA-Kopplung und Stauungszeichen werden konsistent abgebildet
-    - Linksherz-Kontext inkl. diastolischer Hinweise (für Differenzierung prä vs. postkapillär)
+    - RV Remodeling, RV Funktion, RV PA Kopplung und Stauungszeichen werden konsistent abgebildet
+    - Linksherz Kontext inkl. diastolischer Hinweise (für Differenzierung prä vs. postkapillär)
     - Verlauf: meaningful change statt reines mathematisches Delta
 
     Datenquellen
     - case["ui"]: Checkboxen/Flags (z.B. septal_flattening)
     - case["derived"]: abgeleitete Größe (z.B. echo_probability)
-    - case["echo"]: Werte (TAPSE, TRV, PASP, PAAT, RA-Fläche, IVC, …)
+    - case["echo"]: Werte (TAPSE, TRV, PASP, PAAT, RA Fläche, IVC, …)
 
     Hinweis
     Dieser Bericht ist für den Arztbericht gedacht (Expertenniveau). Patient*innen-Texte werden
@@ -3464,54 +4647,218 @@ def build_echo_doctor_report_extended(case: Dict[str, Any]) -> str:
         echo_prob = _compute_ph_probability()
 
     # --- Build report ----------------------------------------------------------
+    # --- Build report ----------------------------------------------------------
+    parts: list[str] = []
     parts: list[str] = []
     parts.append("## Echo Arztbefund (Expertenbericht)")
 
-    # 1) Executive summary
+    # 1) Bildqualität / Limitationen (immer explizit)
+    lim_bits: list[str] = []
+    trv = cur.get("trv_ms")
+    if trv is None:
+        lim_bits.append("TRV nicht messbar oder nicht dokumentiert")
+    # sPAP ohne TRV -> Ableitung eingeschränkt
+    if (cur.get("pasp_echo") is not None) and (trv is None):
+        lim_bits.append("sPAP angegeben, aber ohne TRV-Messung nur eingeschränkt ableitbar")
+    if afib:
+        lim_bits.append("Vorhofflimmern (beat-to-beat Variabilität)")
+    # generischer Hinweis, falls viele Kernparameter fehlen
+    core_keys = ["tapse_mm", "s_prime_cm_s", "rvfac_pct", "rv_3d_ef_pct", "rv_fwls_pct", "tapse_spap_ratio", "ivc_collapse_index_pct", "ivc_diam_mm"]
+    missing_core = [k for k in core_keys if cur.get(k) is None]
+    if len(missing_core) == len(core_keys):
+        lim_bits.append("keine RV/RA Funktionsparameter dokumentiert")
+
+    parts.append("\n\n### Bildqualität und Limitationen")
+    if lim_bits:
+        parts.append("- " + "\n- ".join(lim_bits))
+    else:
+        parts.append("- Keine relevanten Limitationen dokumentiert.")
+
+    # Helper: severity word for a parameter
+    def _sev_word(key: str, value):
+        s = severity(key, value) or ""
+        # g=normal, y=borderline, r=pathologic (directional wording is handled in short comments)
+        if s == "g":
+            return "normal"
+        if s == "y":
+            return "grenzwertig"
+        if s == "r":
+            return "deutlich pathologisch"
+        return ""
+
+    # Helper: short parameter comment (leitlinienorientiert, aber knapp)
+    _short_comment = {
+        "tapse_mm": "Marker der longitudinalen RV-Systolik",
+        "s_prime_cm_s": "Marker der longitudinalen RV-Systolik (Tissue Doppler)",
+        "rvfac_pct": "flächenbasierter RV-Systolikparameter (FAC)",
+        "rv_3d_ef_pct": "volumetrische RV-Systolik (3D)",
+        "rv_fwls_pct": "RV free wall strain (sensitiver Funktionsmarker)",
+        "tapse_spap_ratio": "Surrogat der RV–PA-Kopplung",
+        "ra_esa_cm2": "Remodeling-Marker des rechten Vorhofs",
+        "raai_cm2_m2": "indexierter Remodeling-Marker des rechten Vorhofs",
+        "sprime_raai_ratio": "kombinierter Marker (S′/RAAI)",
+        "ivc_collapse_index_pct": "Surrogat für RA-Druck / Stauungszeichen",
+        "ivc_diam_mm": "Surrogat für RA-Druck / Stauungszeichen",
+        "trv_ms": "PH-Screeningparameter (TRV)",
+        "pasp_echo": "PH-Surrogat (sPAP aus Echo)",
+        "paat_ms": "PH-Surrogat (PAAT)",
+    }
+
+    # 2) Linkes Herz (vollständig, falls dokumentiert)
+    parts.append("\n\n### Linkes Herz")
+    lh_lines: list[str] = []
+
+    # LV systolische Funktion
+    if cur.get("lvef") is not None:
+        v = cur.get("lvef")
+        lh_lines.append(f"- LVEF {fmt_value(v,0)} % – {_sev_word('lvef', v)} (LV systolische Pumpfunktion)")
+
+    # LV Füllungsdruck / Diastolik-Surrogate
+    if cur.get("ee_ratio") is not None:
+        v = cur.get("ee_ratio")
+        lh_lines.append(f"- E/e′ {fmt_value(v,1)} – {_sev_word('ee_ratio', v)} (LV Füllungsdrucksurrogat)")
+
+    # LA Größe (qualitativ und quantitativ)
+    if cur.get("lavi_ml_m2") is not None:
+        v = cur.get("lavi_ml_m2")
+        lh_lines.append(f"- LAVI {fmt_value(v,0)} ml/m² – {_sev_word('lavi_ml_m2', v)} (LA Volumenindex)")
+    if cur.get("la_vmax_ml") is not None:
+        v = cur.get("la_vmax_ml")
+        lh_lines.append(f"- LA Vmax {fmt_value(v,0)} ml (LA Volumen)")
+    if cur.get("la_esa_cm2") is not None:
+        v = cur.get("la_esa_cm2")
+        lh_lines.append(f"- LA ESA {fmt_value(v,0)} cm² (LA Fläche)")
+    if cur.get("la_enlarged") is not None:
+        lh_lines.append(f"- LA: {'erweitert' if bool(cur.get('la_enlarged')) else 'nicht erweitert'} (qualitativ)")
+
+    if lh_lines:
+        parts.append("\n".join(lh_lines))
+    else:
+        parts.append("- Keine Linksherzparameter dokumentiert.")
+
+    # 3) RV Funktion (parametergebunden, mit Begründung)
+    parts.append("\n\n### Rechte Kammer – systolische Funktion")
+    rv_lines: list[str] = []
+    if cur.get("tapse_mm") is not None:
+        v = cur.get("tapse_mm")
+        rv_lines.append(f"- TAPSE {fmt_value(v,0)} mm – {_sev_word('tapse_mm', v)} ({_short_comment['tapse_mm']})")
+    if cur.get("s_prime_cm_s") is not None:
+        v = cur.get("s_prime_cm_s")
+        rv_lines.append(f"- S′ {fmt_value(v,1)} cm/s – {_sev_word('s_prime_cm_s', v)} ({_short_comment['s_prime_cm_s']})")
+    if cur.get("rvfac_pct") is not None:
+        v = cur.get("rvfac_pct")
+        rv_lines.append(f"- RV FAC {fmt_value(v,0)} % – {_sev_word('rvfac_pct', v)} ({_short_comment['rvfac_pct']})")
+    if cur.get("rv_3d_ef_pct") is not None:
+        v = cur.get("rv_3d_ef_pct")
+        rv_lines.append(f"- 3D RVEF {fmt_value(v,0)} % – {_sev_word('rv_3d_ef_pct', v)} ({_short_comment['rv_3d_ef_pct']})")
+    if cur.get("rv_fwls_pct") is not None:
+        v = cur.get("rv_fwls_pct")
+        rv_lines.append(f"- RV FWLS {fmt_value(v,1)} % – {_sev_word('rv_fwls_pct', v)} ({_short_comment['rv_fwls_pct']})")
+
+    # RV Remodeling, wenn vorhanden (kurz)
+    if cur.get("rv_edd_mm") is not None:
+        v = cur.get("rv_edd_mm")
+        rv_lines.append(f"- RV Basaldiameter {fmt_value(v,0)} mm – {_sev_word('rv_edd_mm', v)}")
+    if cur.get("rv_wall_thickness_mm") is not None:
+        v = cur.get("rv_wall_thickness_mm")
+        rv_lines.append(f"- RV Wanddicke {fmt_value(v,0)} mm – {_sev_word('rv_wall_thickness_mm', v)}")
+
+    if rv_lines:
+        parts.append("\n".join(rv_lines))
+    else:
+        parts.append("- Keine RV-Systolikparameter dokumentiert.")
+
+    # 3) RV–PA Kopplung (immer, wenn berechenbar)
+    parts.append("\n\n### RV–PA-Kopplung")
+    coup_lines: list[str] = []
+    if cur.get("tapse_spap_ratio") is not None:
+        v = cur.get("tapse_spap_ratio")
+        coup_lines.append(f"- TAPSE/sPAP {fmt_value(v,2)} mm/mmHg – {_sev_word('tapse_spap_ratio', v)} ({_short_comment['tapse_spap_ratio']})")
+    else:
+        coup_lines.append("- TAPSE/sPAP nicht berechenbar (TAPSE oder sPAP fehlt).")
+    parts.append("\n".join(coup_lines))
+
+    # 4) Rechter Vorhof (prominent)
+    parts.append("\n\n### Rechter Vorhof")
+    ra_lines: list[str] = []
+    if cur.get("ra_esa_cm2") is not None:
+        v = cur.get("ra_esa_cm2")
+        ra_lines.append(f"- RA Fläche {fmt_value(v,0)} cm² – {_sev_word('ra_esa_cm2', v)} ({_short_comment['ra_esa_cm2']})")
+    # RAAI / S'/RAAI werden in der App typischerweise bereits berechnet und in cur hinterlegt
+    if cur.get("raai_cm2_m2") is not None:
+        v = cur.get("raai_cm2_m2")
+        ra_lines.append(f"- RAAI {fmt_value(v,1)} cm²/m² – {_sev_word('raai_cm2_m2', v)} ({_short_comment['raai_cm2_m2']})")
+    if cur.get("sprime_raai_ratio") is not None:
+        v = cur.get("sprime_raai_ratio")
+        ra_lines.append(f"- S′/RAAI {fmt_value(v,2)} – {_sev_word('sprime_raai_ratio', v)} ({_short_comment['sprime_raai_ratio']})")
+    if ra_lines:
+        parts.append("\n".join(ra_lines))
+    else:
+        parts.append("- Keine RA-Parameter dokumentiert.")
+
+    # 5) Stauungszeichen / Perikard
+    parts.append("\n\n### Stauungszeichen")
+    st_lines: list[str] = []
+    if cur.get("ivc_diam_mm") is not None:
+        v = cur.get("ivc_diam_mm")
+        st_lines.append(f"- VCI {fmt_value(v,0)} mm – {_sev_word('ivc_diam_mm', v)} ({_short_comment['ivc_diam_mm']})")
+    if cur.get("ivc_collapse_index_pct") is not None:
+        v = cur.get("ivc_collapse_index_pct")
+        st_lines.append(f"- VCI Kollapsindex {fmt_value(v,0)} % – {_sev_word('ivc_collapse_index_pct', v)} ({_short_comment['ivc_collapse_index_pct']})")
+    if str(cur.get("pericardial_effusion") or "").strip():
+        st_lines.append(f"- Perikarderguss {cur.get('pericardial_effusion')}")
+    if st_lines:
+        parts.append("\n".join(st_lines))
+    else:
+        parts.append("- Keine Stauungsparameter dokumentiert.")
+
+    # 6) Pulmonale Nachlast / PH-Surrogate (A, immer relativiert)
+    parts.append("\n\n### Pulmonale Nachlast und PH-Wahrscheinlichkeit")
+    ph_bits: list[str] = []
+    if cur.get("trv_ms") is not None:
+        v = cur.get("trv_ms")
+        ph_bits.append(f"- TRV max {fmt_value(v,2)} m/s – {_sev_word('trv_ms', v)} ({_short_comment['trv_ms']})")
+    if cur.get("pasp_echo") is not None:
+        v = cur.get("pasp_echo")
+        ph_bits.append(f"- sPAP (Echo) {fmt_value(v,0)} mmHg – {_sev_word('pasp_echo', v)} ({_short_comment['pasp_echo']})")
+    if cur.get("paat_ms") is not None:
+        v = cur.get("paat_ms")
+        ph_bits.append(f"- PAAT {fmt_value(v,0)} ms – {_sev_word('paat_ms', v)} ({_short_comment['paat_ms']})")
+    if str(cur.get("rvot_notch") or "").strip().lower() in ("ja", "true", "1"):
+        ph_bits.append("- RVOT mid-systolic notch")
+    if sept_flat:
+        ph_bits.append("- Septumflattening (D-shaped LV) als Druck-/Volumenbelastungszeichen")
+    if ph_bits:
+        parts.append("\n".join(ph_bits))
+    else:
+        parts.append("- Keine Nachlast-/PH-Surrogate dokumentiert.")
+
+    parts.append(f"\nEcho-Wahrscheinlichkeit für PH: {echo_prob} (Screening/Verlauf; im Kontext der Gesamtdaten interpretieren).")
+
+    # 7) Zusammenfassende Einordnung (untergeordnet zum RHK)
+    parts.append("\n\n### Zusammenfassende Einordnung")
+    # kurze, hybride Zusammenfassung ohne Floskeln
     rv_func_worst = _worst_severity(["tapse_mm", "s_prime_cm_s", "rvfac_pct", "rv_3d_ef_pct", "rv_fwls_pct"])
     coupling_worst = _worst_severity(["tapse_spap_ratio"])
-    stau_worst = _worst_severity(["ivc_collapse_index_pct", "ivc_diam_mm"])
-    afterload_worst = _worst_severity(["trv_ms", "pasp_echo", "paat_ms"])
+    stau_worst = _worst_severity(["ivc_collapse_index_pct", "ivc_diam_mm", "pericardial_effusion"])
+    afterload_worst = _worst_severity(["trv_ms", "pasp_echo", "paat_ms", "rvot_notch"])
 
-    # RV function headline
-    if rv_func_worst == "r":
-        rv_head = "deutlich eingeschränkte RV-Systolik"
-    elif rv_func_worst == "y":
-        rv_head = "grenzwertige bis leicht eingeschränkte RV-Systolik"
-    else:
-        rv_head = "RV-Systolik ohne sichere Einschränkung"
+    def _headline(worst: str, normal_txt: str, borderline_txt: str, path_txt: str) -> str:
+        if worst == "r":
+            return path_txt
+        if worst == "y":
+            return borderline_txt
+        return normal_txt
 
-    # Afterload headline
-    if afterload_worst == "r":
-        load_head = "ausgeprägte Hinweise auf erhöhte pulmonale Nachlast"
-    elif afterload_worst == "y":
-        load_head = "Hinweise auf erhöhte pulmonale Nachlast"
-    else:
-        load_head = "keine klaren Nachlastzeichen"
+    sum_bits = [
+        _headline(afterload_worst, "Pulmonale Nachlast: keine echokardiographischen Hinweise auf deutliche Erhöhung", "Pulmonale Nachlast: grenzwertige Hinweise", "Pulmonale Nachlast: deutliche Hinweise auf Erhöhung"),
+        _headline(rv_func_worst, "RV-Systolik: unauffällig im Rahmen der dokumentierten Parameter", "RV-Systolik: grenzwertig", "RV-Systolik: deutlich eingeschränkt"),
+        _headline(coupling_worst, "RV–PA-Kopplung: unauffällig", "RV–PA-Kopplung: grenzwertig", "RV–PA-Kopplung: reduziert"),
+        _headline(stau_worst, "Stauungszeichen: keine echokardiographischen Hinweise", "Stauungszeichen: möglich", "Stauungszeichen: wahrscheinlich"),
+    ]
+    parts.append("- " + "\n- ".join(sum_bits))
+    parts.append("\nDie echokardiographischen Befunde dienen der funktionellen Einordnung und Verlaufsbeurteilung. Die hämodynamische Diagnosesicherung erfolgt im Rechtsherzkatheter.")
 
-    # Congestion headline
-    if stau_worst == "r":
-        stau_head = "Stauungszeichen wahrscheinlich"
-    elif stau_worst == "y":
-        stau_head = "Stauungszeichen möglich"
-    else:
-        stau_head = "keine klaren Stauungszeichen"
-
-    # Coupling headline
-    if coupling_worst == "r":
-        coup_head = "RV-PA-Kopplung deutlich reduziert"
-    elif coupling_worst == "y":
-        coup_head = "RV-PA-Kopplung grenzwertig"
-    else:
-        coup_head = "RV-PA-Kopplung ohne klare Einschränkung"
-
-    parts.append(
-        "Zusammenfassung: "
-        f"{load_head}; {rv_head}; {coup_head}; {stau_head}. "
-        f"Echo-Wahrscheinlichkeit für PH: {echo_prob}. "
-        "Die Echo-Befunde dienen der Wahrscheinlichkeitseinschätzung und Verlaufsbeurteilung, "
-        "die hämodynamische Diagnosesicherung erfolgt im Rechtsherzkatheter."
-    )
 
     # 2) Nachlast / PH-Surrogate
     ph_bits: list[str] = []
@@ -3551,7 +4898,7 @@ def build_echo_doctor_report_extended(case: Dict[str, Any]) -> str:
         rem_bits.append(f"RV Wanddicke {fmt_value(cur.get('rv_wall_thickness_mm'),0)} mm ({_sev_tag('rv_wall_thickness_mm', cur.get('rv_wall_thickness_mm'))})")
 
     if rv_bits:
-        parts.append("Rechte Kammer – Funktion und RV-PA-Kopplung: " + ", ".join(rv_bits) + ".")
+        parts.append("Rechte Kammer – Funktion und RV PA Kopplung: " + ", ".join(rv_bits) + ".")
     if rem_bits:
         parts.append("Rechte Kammer – Remodeling: " + ", ".join(rem_bits) + ".")
 
@@ -3623,9 +4970,128 @@ def build_echo_doctor_report_extended(case: Dict[str, Any]) -> str:
                         f"{label_for(k)} {word} von {fmt_value(prev.get(k),digits)} auf {fmt_value(cur.get(k),digits)}"
                     )
         vtxt = "Verlauf: "
-        vtxt += f"Nachlastzeichen {ph_summary}; RV-Funktion/Kopplung {rv_summary}."
+        vtxt += f"Nachlastzeichen {ph_summary}; RV Funktion und Kopplung {rv_summary}."
         if tr_bits:
             vtxt += " Relevante Änderungen: " + "; ".join(tr_bits[:8]) + "."
         parts.append(vtxt)
 
-    return "\n\n".join(parts) + "\n"
+    # 8) Edukative Referenz: Physiologie, Messprinzip und Grenzwerte (kontextabhängig)
+    # Ziel: sehr tief, aber nicht redundant – bei unauffälligen Befunden keine lange Referenz.
+    edu_all_keys = [
+        "trv_ms", "pasp_echo", "paat_ms", "rvot_notch",
+        "tapse_mm", "s_prime_cm_s", "rvfac_pct", "rv_3d_ef_pct", "rv_fwls_pct", "tapse_spap_ratio",
+        "ra_esa_cm2", "ivc_diam_mm", "ivc_collapse_index_pct", "pericardial_effusion",
+        "lvef", "ee_ratio", "lavi_ml_m2",
+    ]
+
+    abnormal_keys: list[str] = []
+    for k in edu_all_keys:
+        v = cur.get(k)
+        if v is None:
+            continue
+        try:
+            s = severity(k, v)
+        except Exception:
+            s = ""
+        if s in ("y", "r"):
+            abnormal_keys.append(k)
+
+    inconsistency_keys: list[str] = []
+    # Beispiel: sPAP ohne TRV -> Ableitung eingeschränkt
+    if (cur.get("pasp_echo") is not None) and (cur.get("trv_ms") is None):
+        inconsistency_keys.extend(["pasp_echo", "trv_ms"])
+    # Diastolik-Interpretation ist bei Rhythmus besonders kontextabhängig
+    if afib and (cur.get("ee_ratio") is not None):
+        inconsistency_keys.append("ee_ratio")
+
+    edu_keys = list(dict.fromkeys(abnormal_keys + inconsistency_keys))
+    edu_needed = bool(edu_keys)
+
+    if edu_needed:
+        try:
+            from rhk_echo_guidelines import rule_for, note_for, guidelines_sources
+
+            def _band_txt(b: Dict[str, Any]) -> str:
+                if not isinstance(b, dict) or not b:
+                    return ""
+                if "min" in b and "max" in b:
+                    return f"{fmt_value(b.get('min'),2)} bis {fmt_value(b.get('max'),2)}"
+                if "max" in b:
+                    return f"bis {fmt_value(b.get('max'),2)}"
+                if "min" in b:
+                    return f"ab {fmt_value(b.get('min'),2)}"
+                if "min_abs" in b and "max_abs" in b:
+                    return f"Betrag {fmt_value(b.get('min_abs'),1)} bis {fmt_value(b.get('max_abs'),1)}"
+                if "min_abs" in b:
+                    return f"Betrag ab {fmt_value(b.get('min_abs'),1)}"
+                if "max_abs" in b:
+                    return f"Betrag bis {fmt_value(b.get('max_abs'),1)}"
+                return ""
+
+            edu_map: Dict[str, str] = {
+                "trv_ms": "TRV max ist die maximale Trikuspidal Regurgitationsgeschwindigkeit. Über die vereinfachte Bernoulli Gleichung (4 v²) ergibt sich der systolische Druckgradient zwischen RV und RA. Mit einer Abschätzung des RA Drucks kann daraus eine sPAP geschätzt werden. Limitierungen sind u. a. unzureichender Jet, Winkel, Signalqualität und die Unsicherheit der RA Druck Abschätzung.",
+                "pasp_echo": "sPAP (Echo) ist eine aus TRV und RA Druck geschätzte systolische Druckgröße. Sie ist ein Screening Surrogat und ersetzt keine hämodynamische Diagnostik. Ohne TRV Messung ist sPAP als Einzelwert nicht verlässlich ableitbar.",
+                "paat_ms": "PAAT ist die pulmonale Akzelerationszeit im RVOT Doppler. Kürzere PAAT spricht für höhere pulmonale Nachlast. Sie ist herzfrequenz und Schlagvolumen abhängig und sollte kontextualisiert werden.",
+                "rvot_notch": "Ein mid systolic notch im RVOT Doppler ist ein Hinweis auf erhöhte pulmonale Gefäßimpedanz und reflektierte Wellen, häufig bei präkapillärer PH.",
+                "tapse_mm": "TAPSE misst die longitudinale Verschiebung des Trikuspidal Anulus in M Mode. Sie ist einfach und reproduzierbar, aber lastabhängig und erfasst nur die longitudinale RV Funktion.",
+                "s_prime_cm_s": "S' ist die systolische Gewebegeschwindigkeit am lateralen Trikuspidal Anulus im Tissue Doppler. Sie reflektiert die longitudinale RV Kontraktilität, ist aber last und winkelabhängig.",
+                "rvfac_pct": "RVFAC ist die Flächenänderung der rechten Kammer in der A4C Ansicht. Sie integriert longitudinale und radiale Komponenten, ist jedoch bildqualitätsabhängig.",
+                "rv_3d_ef_pct": "3D RVEF ist die volumetrische systolische Funktion und kann gegenüber TAPSE oder S' robuster sein, erfordert aber gute 3D Bildqualität.",
+                "rv_fwls_pct": "RV free wall longitudinal strain beschreibt die Deformation der freien RV Wand. Strain ist sensitiv für frühe Funktionsstörungen, aber vendor und tracking abhängig. Grenzwerte beziehen sich auf den Betrag der negativen Werte.",
+                "tapse_spap_ratio": "TAPSE sPAP ist ein einfaches Kopplungs Surrogat für RV PA Kopplung. Niedrige Werte deuten auf eingeschränkte Adaptation der RV Funktion an die Nachlast.",
+                "ra_esa_cm2": "RA Fläche reflektiert rechtsatriales Remodeling und indirekt chronische Druck und Volumenbelastung. Sie ist kontextabhängig und sollte im Verlauf interpretiert werden.",
+                "ivc_diam_mm": "VCI Durchmesser und der Kollapsindex dienen der Abschätzung des RA Drucks. Die Aussage ist bei Beatmung, erhöhtem Bauchdruck und eingeschränkter Inspiration limitiert.",
+                "ivc_collapse_index_pct": "VCI Kollapsindex quantifiziert die respiratorische Variabilität. Niedrige Variabilität spricht für höheren RA Druck, die Interpretation ist situationsabhängig.",
+                "pericardial_effusion": "Ein Perikarderguss ist bei PH ein ungünstiges Begleitzeichen und kann mit höherem rechtsseitigem Füllungsdruck und fortgeschrittener Erkrankung assoziiert sein.",
+                "lvef": "LV EF beschreibt die systolische Pumpfunktion der linken Herzkammer. Bei PH Kontext ist eine normale LV EF häufig, dennoch kann eine diastolische Dysfunktion vorliegen.",
+                "ee_ratio": "E/e' ist ein Doppler Surrogat der LV Füllungsdrücke. Es ist ein Puzzlestein und muss zusammen mit LA Größe, Rhythmus, Mitralpathologie und klinischem Kontext interpretiert werden.",
+                "lavi_ml_m2": "LAVI beschreibt die chronische LA Belastung. Erhöhte Werte unterstützen die Annahme chronisch erhöhter LV Füllungsdrücke.",
+            }
+
+            ea_edu = (
+                "E/A Verhältnis ist der Quotient aus früher diastolischer Mitralinflow Geschwindigkeit (E) und atrialer Kontraktion (A). "
+                "Es unterstützt die Einordnung der diastolischen Funktion. Eine isolierte Interpretation ist nicht sinnvoll, insbesondere bei Vorhofflimmern, Tachykardie oder Mitralklappenvitien."
+            )
+
+            parts.append("\n\n### Edukative Referenz zu auffälligen Echo Parametern")
+            srcs = guidelines_sources() or []
+            if srcs:
+                parts.append("Orientierende Quellen: " + "; ".join(srcs) + ".")
+
+            for k in edu_keys:
+                r = rule_for(k) or {}
+                lab = str(r.get("label") or k)
+                unit = str(r.get("unit") or "").strip()
+                note = str(note_for(k) or "").strip()
+                sev = (r.get("severity") or {}) if isinstance(r, dict) else {}
+                gtxt = _band_txt(sev.get("g") or {})
+                ytxt = _band_txt(sev.get("y") or {})
+                rtxt = _band_txt(sev.get("r") or {})
+                cutoff_parts: List[str] = []
+                if gtxt:
+                    cutoff_parts.append(f"unauffällig: {gtxt}{(' ' + unit) if unit else ''}")
+                if ytxt:
+                    cutoff_parts.append(f"grenzwertig: {ytxt}{(' ' + unit) if unit else ''}")
+                if rtxt:
+                    cutoff_parts.append(f"deutlich pathologisch: {rtxt}{(' ' + unit) if unit else ''}")
+
+                parts.append(f"\n\n#### {lab}")
+                if note:
+                    parts.append(f"Kontext: {note}.")
+                expl = edu_map.get(k) or ""
+                if expl:
+                    parts.append(expl)
+                if cutoff_parts:
+                    parts.append("Grenzwerte in dieser App: " + "; ".join(cutoff_parts) + ".")
+
+            if ("ee_ratio" in edu_keys) or (cur.get("lavi_ml_m2") is not None):
+                parts.append("\n\n#### E/A Verhältnis")
+                parts.append(ea_edu)
+
+        except Exception:
+            # edukative Referenz ist optional und darf den Bericht nicht brechen
+            pass
+
+    _res = "\n\n".join(parts) + "\n"
+    _cache_set('echo_doctor_report', fp, _res)
+    return _res

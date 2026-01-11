@@ -89,6 +89,7 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
     # ---- Exercise hemodynamics (optional) ----
     spap_pk = _safe_float(ui.get("spap_peak"))
     dpap_pk = _safe_float(ui.get("dpap_peak"))
+    rap_pk = _safe_float(ui.get("rap_peak"))
     mpap_pk_in = _safe_float(ui.get("mpap_peak"))
     if (
         mpap_pk_in is not None
@@ -114,7 +115,14 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
     elif co_peak is not None and bsa is not None:
         ci_peak = co_peak / bsa
 
-    exercise_done = bool(ui.get("exercise_done")) or (co_peak is not None or mpap_peak is not None or pawp_peak is not None)
+    # Exercise hemodynamics should be interpreted ONLY if explicitly marked as performed.
+    # It is common that peak values are imported/typed although a true exercise protocol
+    # was not done; we must not silently include these into interpretation.
+    exercise_checked = bool(ui.get("exercise_done"))
+    exercise_values_present = any(
+        v is not None for v in [co_peak, mpap_peak, pawp_peak, spap_pk, dpap_pk, rap_pk]
+    )
+    exercise_done = exercise_checked
 
     # Slopes: robust against tiny numerical differences
     mpap_co_slope = None
@@ -320,6 +328,8 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
         "pvri": pvri,
         "hemo_category": hemo_cat,
         "exercise_done": exercise_done,
+        "exercise_checked": exercise_checked,
+        "exercise_values_present": exercise_values_present,
         "mpap_peak": mpap_peak,
         "co_peak": co_peak,
         "ci_peak": ci_peak,
@@ -440,18 +450,60 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
         derived["vasoreactivity_resp"] = "; ".join([x for x in [agent, vaso_resp] if x])
     else:
         derived["vasoreactivity_resp"] = ""
-# ---- Scores ----
+    # ---- Scores ----
     who_fc = ui.get("who_fc") or None
     sixmwd = _safe_float(ui.get("six_mwd_m"))
-    esc4 = calc_esc_ers_4_strata(who_fc, sixmwd, bnp_pg_ml, ntprobnp_pg_ml)
-    esc3 = calc_esc_ers_3_strata(who_fc, sixmwd, bnp_pg_ml, ntprobnp_pg_ml)
+
+    # ESC/ERS Follow-up Strata models: require a minimum of 2 of 3 parameters
+    # (WHO-FC, 6MWD, BNP/NT-proBNP) to avoid misleading classifications.
+    who_fc_val = (str(who_fc).strip() if who_fc is not None else "")
+    has_who = bool(who_fc_val)
+    has_6mwd = sixmwd is not None
+    has_bio = (bnp_pg_ml is not None) or (ntprobnp_pg_ml is not None)
+
+    esc_min_n = 2
+    esc_missing: List[str] = []
+    if not has_who:
+        esc_missing.append("WHO-FC")
+    if not has_6mwd:
+        esc_missing.append("6MWD")
+    if not has_bio:
+        esc_missing.append("BNP/NT-proBNP")
+
+    esc_n = int(has_who) + int(has_6mwd) + int(has_bio)
+
+    esc4 = calc_esc_ers_4_strata(who_fc, sixmwd, bnp_pg_ml, ntprobnp_pg_ml) if esc_n >= esc_min_n else None
+    esc3 = calc_esc_ers_3_strata(who_fc, sixmwd, bnp_pg_ml, ntprobnp_pg_ml) if esc_n >= esc_min_n else None
+
     reveal_lite2 = calc_reveal_lite2(ui)
     esc_comp = calc_esc_ers_comprehensive_3_strata(ui, derived)
     cpet = calc_cpet_scores(ui)
+    # CPET Spiro-Logic (deterministic expert patterns; does not change risk scoring)
+    try:
+        import spiro_logic as _spiro
+        spiro_res = _spiro.analyze(ui)
+        if spiro_res:
+            # Store only compact, rule-friendly signals (no long text blocks)
+            try:
+                derived.update(spiro_res.derived or {})
+            except Exception:
+                pass
+            derived["cpet_spiro_suspect_ph"] = bool(spiro_res.derived.get("cpet_pulm_vasc_pattern"))
+            derived["cpet_spiro_summary"] = spiro_res.overall_summary
+        else:
+            derived["cpet_spiro_suspect_ph"] = False
+            derived["cpet_spiro_summary"] = ""
+    except Exception:
+        derived["cpet_spiro_suspect_ph"] = False
+        derived["cpet_spiro_summary"] = ""
 
     scores: Dict[str, Any] = {
         "esc_ers_4s": esc4,
+        "esc_ers_4s_n": esc_n,
+        "esc_ers_4s_missing": esc_missing,
         "esc_ers_3s": esc3,
+        "esc_ers_3s_n": esc_n,
+        "esc_ers_3s_missing": esc_missing,
         "esc_ers_comprehensive": esc_comp.category if esc_comp else None,
         "esc_ers_comprehensive_mean": round(esc_comp.mean_grade, 2) if (esc_comp and esc_comp.mean_grade is not None) else None,
         "esc_ers_comprehensive_n": esc_comp.n_params if esc_comp else None,
@@ -553,6 +605,21 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
         ph_etiology = {}
     derived["ph_etiology"] = ph_etiology
     env["ph_etiology"] = ph_etiology
+
+    # ------------------------------------------------------------------
+    # Patientenbericht-Archetypen (strukturelle Vorbereitung)
+    # ------------------------------------------------------------------
+    # IMPORTANT:
+    # - This is a *purely structural* layer.
+    # - It must NOT change any existing report text or bundle selection.
+    # - Downstream usage is introduced in later steps.
+    try:
+        arch = classify_patient_archetype(ui=ui, derived=derived, decision=decision, env=env)
+    except Exception:
+        arch = {"p_archetype_id": "H0", "p_archetype_label": "Standard", "p_archetype_reason": ""}
+    # Store in derived + env for future use; no current templates rely on this.
+    derived.update(arch)
+    env.update(arch)
 
     # P-Module Policy: Priorisierung + nicht anwählbar
     derived["p_module_policy"] = compute_p_module_policy(ui, derived, decision)
@@ -982,6 +1049,120 @@ def infer_ph_etiology(env: Dict[str, Any], decision: Optional[Decision] = None) 
         "patient_cause_line": patient_cause_line,
     }
 
+
+# =============================================================================
+# Patientenbericht-Archetypen (strukturelle Vorbereitung)
+# =============================================================================
+
+def classify_patient_archetype(
+    *,
+    ui: Dict[str, Any],
+    derived: Dict[str, Any],
+    decision: Optional[Decision] = None,
+    env: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Return a patient-report archetype classification.
+
+    IMPORTANT (v28.9):
+    - This layer is intentionally conservative and *must not* change existing outputs.
+    - It only exposes a future-facing structure so downstream narrative selection can
+      be implemented incrementally without refactoring the whole report builder.
+
+    Output keys:
+    - p_archetype_id: "H0".."H6"
+    - p_archetype_label: short German label
+    - p_archetype_reason: short, internal explanation (no PHI)
+    """
+
+    d = derived or {}
+    u = ui or {}
+    e = env or {}
+
+    mpap = _safe_float(d.get("mpap_rest") if d.get("mpap_rest") is not None else d.get("mpap"))
+    pawp = _safe_float(d.get("pawp_rest") if d.get("pawp_rest") is not None else u.get("pawp_rest"))
+    pvr = _safe_float(d.get("pvr_rest") if d.get("pvr_rest") is not None else d.get("pvr"))
+    ci = _safe_float(d.get("ci_rest") if d.get("ci_rest") is not None else d.get("ci"))
+    rap = _safe_float(d.get("rap_rest") if d.get("rap_rest") is not None else u.get("rap_rest"))
+
+    has_ph = bool(mpap is not None and mpap > 20)
+    hemo_cat = str(d.get("hemo_category") or e.get("hemo_category") or "").strip().lower()
+
+    # --- context / risk flags ---
+    ph_known = bool(u.get("ph_known"))
+    ph_suspected = bool(u.get("ph_suspected"))
+    viro_pos = bool(u.get("virology_pos"))
+    immun_pos = bool(u.get("immunology_pos"))
+    chd_pos = bool(u.get("chd_pos"))
+    prev_meds = u.get("ph_prev_meds")
+    prev_meds_any = bool(isinstance(prev_meds, list) and len([x for x in prev_meds if x]) > 0)
+
+    clot_hint = bool(u.get("vq_defect") or u.get("ct_embolie") or u.get("ct_mosaic") or u.get("pe_history") or u.get("ct_pe"))
+
+    # --- archetype rules (conservative heuristics) ---
+    # H5: CTEPH / thromboembolic constellation
+    if clot_hint:
+        return {
+            "p_archetype_id": "H5",
+            "p_archetype_label": "Thromboembolische Konstellation",
+            "p_archetype_reason": "Trigger: V/Q/CT/Anamnese Hinweis auf Thromboembolie/CTEPH",
+        }
+
+    # H4: Postcap / combined PH
+    if pawp is not None and pawp > 15:
+        return {
+            "p_archetype_id": "H4",
+            "p_archetype_label": "Linksherz-Beteiligung",
+            "p_archetype_reason": "Trigger: PAWP > 15 mmHg (postkapilläre/kom. Komponente)",
+        }
+
+    # H3: Established precapillary PH
+    if has_ph and (pvr is not None and pvr > 2) and (pawp is None or pawp <= 15):
+        return {
+            "p_archetype_id": "H3",
+            "p_archetype_label": "Etablierte präkapilläre PH",
+            "p_archetype_reason": "Trigger: mPAP > 20 + PVR > 2 bei PAWP ≤ 15",
+        }
+
+    # H2: Borderline / early PH-like constellation
+    if (mpap is not None and 18 <= mpap <= 22) and (pvr is not None and 2 <= pvr <= 3) and (ci is None or ci >= 2.5):
+        return {
+            "p_archetype_id": "H2",
+            "p_archetype_label": "Grenzwerte / frühes Stadium",
+            "p_archetype_reason": "Trigger: mPAP 18–22 + PVR 2–3 (CI nicht niedrig)",
+        }
+
+    # H6: Right-heart impairment dominates despite moderate pressures
+    # Note: we only flag this if PH is not clearly severe and there are hints of RV/RA strain.
+    rv_strain = bool(
+        (rap is not None and rap >= 12)
+        or bool(d.get("tapse_spap_reduced"))
+        or bool(d.get("tapse_spap_reduced") is True)
+        or bool(d.get("echo_probability") == "hoch")
+        or (ci is not None and ci < 2.2)
+    )
+    if (mpap is not None and 20 < mpap <= 30) and rv_strain:
+        return {
+            "p_archetype_id": "H6",
+            "p_archetype_label": "Rechtsherz-Funktion im Vordergrund",
+            "p_archetype_reason": "Trigger: moderater Druck + Hinweise auf RA/RV-Belastung (RAP/CI/Echo)",
+        }
+
+    # H1: No PH at rest but elevated risk / prior context
+    no_ph_rest = bool(mpap is not None and mpap <= 20)
+    risk_context = bool(ph_known or ph_suspected or viro_pos or immun_pos or chd_pos or prev_meds_any)
+    if no_ph_rest and risk_context:
+        return {
+            "p_archetype_id": "H1",
+            "p_archetype_label": "Kein PH in Ruhe, aber Risiko",
+            "p_archetype_reason": "Trigger: mPAP ≤ 20 + Risiko-/Vorerkrankungs-Kontext",
+        }
+
+    return {
+        "p_archetype_id": "H0",
+        "p_archetype_label": "Standard",
+        "p_archetype_reason": "",
+    }
+
 def build_dashboard_html(case: Optional[Dict[str, Any]]) -> str:
     if not case:
         return f"""
@@ -1009,18 +1190,41 @@ def build_dashboard_html(case: Optional[Dict[str, Any]]) -> str:
     if sc.get("reveal_lite2"):
         cat = sc.get("reveal_lite2")
         pts = sc.get("reveal_lite2_points")
+        missing = sc.get("reveal_lite2_missing") or []
+        tip = None
+        if isinstance(missing, list) and missing:
+            tip = "Fehlend: " + ", ".join([str(x) for x in missing]) + " | Mindestparameter: 6/6 (WHO-FC, 6MWD, BNP/NT-proBNP, RR syst, HF, eGFR)"
         if cat == "nicht berechenbar":
-            missing = sc.get("reveal_lite2_missing") or []
-            miss_txt = ", ".join(missing) if missing else "Parameter unvollständig"
-            risk_badges.append(badge(f"REVEAL Lite 2: nicht berechenbar (fehlend: {miss_txt})", "badge badge-orange"))
+            risk_badges.append(badge("REVEAL Lite 2: nicht berechenbar", "badge badge-na", tip))
         else:
             cat_de = {"low": "niedrig", "intermediate": "intermediär", "high": "hoch"}.get(str(cat), str(cat))
             pts_txt = f"{pts} Pkt." if pts is not None else "—"
-            risk_badges.append(badge(f"REVEAL Lite 2: {pts_txt} ({cat_de})", "badge badge-purple"))
-    if sc.get("esc_ers_4s"):
-        risk_badges.append(badge(f"ESC/ERS 4-Strata: {sc['esc_ers_4s']}", "badge badge-blue"))
-    if sc.get("esc_ers_3s"):
-        risk_badges.append(badge(f"ESC/ERS 3-Strata: {sc['esc_ers_3s']}", "badge badge-blue"))
+            cls = {"low": "badge badge-low", "intermediate": "badge badge-intermediate", "high": "badge badge-high"}.get(str(cat), "badge badge-na")
+            risk_badges.append(badge(f"REVEAL Lite 2: {pts_txt} ({cat_de})", cls, tip))
+    # ESC/ERS Follow-up strata badges with hover missing-parameter info
+    esc4 = sc.get("esc_ers_4s")
+    esc4_missing = sc.get("esc_ers_4s_missing") or []
+    if esc4:
+        tip = None
+        if isinstance(esc4_missing, list) and esc4_missing:
+            tip = "Nicht eingeflossen (fehlend): " + ", ".join([str(x) for x in esc4_missing]) + " | Mindestparameter: 2/3 (WHO-FC, 6MWD, BNP/NT-proBNP)"
+        cls = {"low": "badge badge-low", "intermediate-low": "badge badge-intermediate", "intermediate-high": "badge badge-intermediate-high", "high": "badge badge-high"}.get(str(esc4), "badge badge-na")
+        risk_badges.append(badge(f"ESC/ERS 4-Strata: {esc4}", cls, tip))
+    elif isinstance(esc4_missing, list) and esc4_missing:
+        tip = "Fehlend: " + ", ".join([str(x) for x in esc4_missing]) + " | Mindestparameter: 2/3 (WHO-FC, 6MWD, BNP/NT-proBNP)"
+        risk_badges.append(badge("ESC/ERS 4-Strata: nicht berechenbar", "badge badge-na", tip))
+
+    esc3 = sc.get("esc_ers_3s")
+    esc3_missing = sc.get("esc_ers_3s_missing") or []
+    if esc3:
+        tip = None
+        if isinstance(esc3_missing, list) and esc3_missing:
+            tip = "Nicht eingeflossen (fehlend): " + ", ".join([str(x) for x in esc3_missing]) + " | Mindestparameter: 2/3 (WHO-FC, 6MWD, BNP/NT-proBNP)"
+        cls = {"low": "badge badge-low", "intermediate": "badge badge-intermediate", "high": "badge badge-high"}.get(str(esc3), "badge badge-na")
+        risk_badges.append(badge(f"ESC/ERS 3-Strata: {esc3}", cls, tip))
+    elif isinstance(esc3_missing, list) and esc3_missing:
+        tip = "Fehlend: " + ", ".join([str(x) for x in esc3_missing]) + " | Mindestparameter: 2/3 (WHO-FC, 6MWD, BNP/NT-proBNP)"
+        risk_badges.append(badge("ESC/ERS 3-Strata: nicht berechenbar", "badge badge-na", tip))
     if der.get("hfpef_percent") is not None and der.get("hfpef_category"):
         risk_badges.append(badge(f"HFpEF (H2FPEF): {der['hfpef_category']} ({_fmt(der['hfpef_percent'],0)}%)", "badge badge-purple"))
 
@@ -1043,14 +1247,32 @@ def build_dashboard_html(case: Optional[Dict[str, Any]]) -> str:
         risk_badges.append(badge(f"Warnungen: {len(warns)}", cls, tooltip))
 
     if der.get("exercise_pattern"):
-        risk_badges.append(badge(f"Belastungsmuster: {describe_exercise_pattern(der['exercise_pattern'])}", "badge badge-teal"))
+        # Belastungsmuster ist ein klinischer Risikoindikator:
+        # - postkapilläre Demaskierung oder linksatrialer Druckanstieg unter Belastung: rot
+        # - präkapilläre Auffälligkeit unter Belastung: orange
+        # - regelhafte Reaktion: grün
+        patt = str(der.get("exercise_pattern") or "")
+        cls = {
+            "postcap_pattern": "badge badge-high",
+            "left_pressure_pattern": "badge badge-high",
+            "precap_pattern": "badge badge-intermediate-high",
+            "normal_pattern": "badge badge-low",
+        }.get(patt, "badge badge-na")
+        risk_badges.append(badge(f"Belastungsmuster: {describe_exercise_pattern(patt)}", cls))
 
     if der.get("adaptation_type"):
         ad = str(der.get("adaptation_type"))
         ad_de = "homeometrisch" if ad == "homeometric" else "heterometrisch" if ad == "heterometric" else ad
         d_spap = der.get("delta_spap")
         d_txt = f" (ΔsPAP {_fmt(d_spap,0)} mmHg)" if d_spap is not None else ""
-        risk_badges.append(badge(f"Adaptionstyp: {ad_de}{d_txt}", "badge badge-teal"))
+        # Adaptionstyp:
+        # - homeometrisch: grün
+        # - heterometrisch: rot
+        cls = {
+            "homeometric": "badge badge-low",
+            "heterometric": "badge badge-high",
+        }.get(ad, "badge badge-na")
+        risk_badges.append(badge(f"Adaptionstyp: {ad_de}{d_txt}", cls))
 
     # Echo-Prognosemarker
     if der.get("s_prime_raai_low") is True:
@@ -1221,12 +1443,19 @@ def build_render_ctx(case: Dict[str, Any]) -> Dict[str, Any]:
     pv_stauung_phrase = "Hinweise auf pulmonalvenöse Stauung." if env.get("pawp_gt15") else "Keine Hinweise auf pulmonalvenöse Stauung."
 
     sbp = _safe_float(ui.get("bp_sys"))
+    dbp = _safe_float(ui.get("bp_dia"))
     hr = _safe_float(ui.get("hr"))
     systemic_sentence = ""
-    if sbp is not None or hr is not None:
+    if sbp is not None or dbp is not None or hr is not None:
         parts = []
-        if sbp is not None:
-            parts.append(f"RR {_fmt(sbp,0)} mmHg")
+        if sbp is not None or dbp is not None:
+            # Prefer RR syst/diast if available; otherwise keep single value.
+            if sbp is not None and dbp is not None:
+                parts.append(f"RR {_fmt(sbp,0)}/{_fmt(dbp,0)} mmHg")
+            elif sbp is not None:
+                parts.append(f"RR {_fmt(sbp,0)} mmHg")
+            else:
+                parts.append(f"RR {_fmt(dbp,0)} mmHg")
         if hr is not None:
             parts.append(f"HF {_fmt(hr,0)}/min")
         systemic_sentence = "Systemische Hämodynamik: " + ", ".join(parts) + "."
@@ -1458,5 +1687,3 @@ def filter_module_text(text: str, env: Dict[str, Any]) -> str:
             continue
         out_lines.append(ln)
     return "\n".join(out_lines).strip()
-
-

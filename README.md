@@ -1,5 +1,4 @@
-# RHK Befundassistent – v27.4.5
-
+# RHK Befundassistent – v28.6
 ## Neu in v27.0.4
 
 - Regressionfix Belastungshämodynamik: mPAP/CO Slope und PAWP/CO Slope werden wieder automatisch berechnet und erscheinen im Arztbefund.

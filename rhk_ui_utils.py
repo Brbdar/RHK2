@@ -170,20 +170,36 @@ def build_sticky_summary_html(case: Optional[Dict[str, Any]], flags: Optional[Di
     rap = der.get("rap_rest")
     pvr = der.get("pvr_rest")
     ci = der.get("ci_rest")
-    # Risk badge: prioritize ESC/ERS 4-strata if present, else REVEAL Lite 2
+    # Risk chips: show ESC/ERS 4-Strata (if available)
     esc4 = scores.get("esc_ers_4s")
-    rl2 = scores.get("reveal_lite2")
-    risk_txt = "–"
-    risk_tone = "warn"
-    if isinstance(esc4, str) and esc4:
-        risk_txt = f"ESC/ERS 4-Strata: {esc4}"
-        risk_tone = "good" if esc4 == "low" else ("bad" if esc4 == "high" else "warn")
-    elif isinstance(rl2, str) and rl2:
-        risk_txt = f"REVEAL Lite 2: {rl2}"
-        _l = rl2.strip().lower()
-        risk_tone = "good" if _l.startswith("nied") else ("bad" if _l.startswith("hoch") else "warn")
+    esc4_missing = scores.get("esc_ers_4s_missing") or []
 
-    # Optional compare hint
+    esc4_chip = ""
+    if isinstance(esc4, str) and esc4:
+        if esc4 == "low":
+            tone = "good"
+        elif esc4 == "high":
+            tone = "bad"
+        elif esc4 == "intermediate-high":
+            tone = "orange"
+        else:
+            tone = "warn"
+        tattr = ""
+        if isinstance(esc4_missing, list) and esc4_missing:
+            tattr = ' title="' + html_escape(
+                "Nicht eingeflossen (fehlend): " + ", ".join([str(x) for x in esc4_missing]) +
+                " | Mindestparameter: 2/3 (WHO-FC, 6MWD, BNP/NT-proBNP)"
+            ) + '"'
+        esc4_chip = f"<span class='rhk-schip rhk-schip--{tone}'{tattr}>ESC/ERS 4-Strata: {html_escape(esc4)}</span>"
+    elif isinstance(esc4_missing, list) and esc4_missing:
+        tattr = ' title="' + html_escape(
+            "Fehlend: " + ", ".join([str(x) for x in esc4_missing]) +
+            " | Mindestparameter: 2/3 (WHO-FC, 6MWD, BNP/NT-proBNP)"
+        ) + '"'
+        esc4_chip = f"<span class='rhk-schip rhk-schip--warn'{tattr}>ESC/ERS 4-Strata: –</span>"
+
+    risk_chips = esc4_chip or "<span class='rhk-schip rhk-schip--warn'>ESC/ERS 4-Strata: –</span>"
+
     prev_mpap = ui.get("prev_mpap")
     prev_pvr = ui.get("prev_pvr")
     cmp_hint = ""
@@ -225,7 +241,7 @@ def build_sticky_summary_html(case: Optional[Dict[str, Any]], flags: Optional[Di
         f"<span class='rhk-schip'>PAWP: {_fmt_or_dash(pawp,0)}</span>"
         f"<span class='rhk-schip'>PVR: {_fmt_or_dash(pvr,1)}</span>"
         f"<span class='rhk-schip'>CI: {_fmt_or_dash(ci,2)}</span>"
-        f"<span class='rhk-schip rhk-schip--{risk_tone}'>Risiko: {html_escape(risk_txt)}</span>"
+        f"{risk_chips}"
         f"{wchip}"
         f"{cmp_hint}"
         f"{status_chips}"

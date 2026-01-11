@@ -18,7 +18,7 @@ import os
 
 from rhk_base import gr  # type: ignore
 
-from rhk_echo_pdf_import import extract_echo_from_file, extract_echo_from_pdf
+from rhk_echo_pdf_import import extract_echo_from_file, extract_echo_from_pdf, extract_echo_from_text
 from rhk_echo_guidelines import severity as guideline_severity, guidelines_sources
 
 IS_RENDER_NATIVE = bool(os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER"))
@@ -383,29 +383,115 @@ def build_echo_section(add) -> Dict[str, Any]:
     gr.Markdown("### Echokardiographie")
 
     # --- Import block ---------------------------------------------------------
-    with gr.Accordion("Echo Import (PDF; Screenshot nur lokal)", open=True):
-        if IS_RENDER_NATIVE:
-            gr.Markdown(
-                "Online-Version (Render): Bitte ein PDF mit Textlayer hochladen. Screenshot und Scan OCR ist hier deaktiviert. Für Screenshots nutze die App lokal.",
-            )
-        else:
-            gr.Markdown(
-                "Datei hochladen. Unterstützt werden Textlayer PDFs sowie Screenshots als Bilddatei (PNG, JPG, WEBP, BMP, TIF). Wenn kein Textlayer vorhanden ist oder ein Screenshot genutzt wird, erfolgt die Extraktion per OCR, sofern Tesseract verfügbar ist.\n\nHinweis: Für Screenshot OCR muss Tesseract installiert sein. Falls Tesseract nicht im PATH ist, setze TESSERACT_CMD auf den Pfad zur tesseract.exe.",
-            )
+    with gr.Accordion("Echo Import (PDF oder Screenshot)", open=True):
+        gr.Markdown(
+            "Browser Import ist die Standard Route (kein Upload): PDF Textlayer wird im Browser extrahiert, Scan PDFs werden auf Seite 1 per Browser OCR erkannt. Screenshots können per Datei oder direkt aus der Zwischenablage importiert werden.\n\nLegacy Upload bleibt verfügbar, ist aber nicht empfohlen.",
+        )
 
-        with gr.Row():
-            import_pdf_cur = gr.File(
-                label="Echo Datei (aktuell)",
-                file_types=_SUPPORTED_IMPORT_TYPES,
-                type="filepath",
-                file_count="single",
-            )
-            import_pdf_prev = gr.File(
-                label="Vor Echo Datei (optional)",
-                file_types=_SUPPORTED_IMPORT_TYPES,
-                type="filepath",
-                file_count="single",
-            )
+        # "Hidden" OCR text fields (filled by Browser OCR via JS)
+        # IMPORTANT: visible=False may prevent Gradio from rendering the DOM nodes at all.
+        # We render them (visible=True) but hide via CSS class, so JS can reliably set values.
+        echo_ocr_text_cur = add(
+            "echo_ocr_text_cur",
+            gr.Textbox(
+                label="Echo OCR Text (aktuell, browser)",
+                visible=True,
+                elem_id="echo_ocr_text_cur",
+                elem_classes=["rhk-hidden"],
+            ),
+        )
+        echo_ocr_text_prev = add(
+            "echo_ocr_text_prev",
+            gr.Textbox(
+                label="Echo OCR Text (Vor, browser)",
+                visible=True,
+                elem_id="echo_ocr_text_prev",
+                elem_classes=["rhk-hidden"],
+            ),
+        )
+
+        # "Hidden" PDF text fields (filled by Browser PDF text extraction via JS)
+        echo_pdf_text_cur = add(
+            "echo_pdf_text_cur",
+            gr.Textbox(
+                label="Echo PDF Text (aktuell, browser)",
+                visible=True,
+                elem_id="echo_pdf_text_cur",
+                elem_classes=["rhk-hidden"],
+            ),
+        )
+        echo_pdf_text_prev = add(
+            "echo_pdf_text_prev",
+            gr.Textbox(
+                label="Echo PDF Text (Vor, browser)",
+                visible=True,
+                elem_id="echo_pdf_text_prev",
+                elem_classes=["rhk-hidden"],
+            ),
+        )
+
+        
+        # Import UI (slim): Tabs for PDF vs Screenshot. Keep Legacy server upload (Option B).
+        with gr.Accordion("Import", open=True):
+            with gr.Tabs():
+                with gr.Tab("PDF"):
+                    gr.Markdown(
+                        "PDF hochladen (Server, nicht gespeichert). Textlayer wird extrahiert, bei Scan automatisch OCR von Seite 1."
+                    )
+                    with gr.Row():
+                        import_pdf_cur = gr.File(
+                            label="Aktuell",
+                            file_types=_SUPPORTED_IMPORT_TYPES,
+                            type="filepath",
+                            file_count="single",
+                        )
+                        import_pdf_prev = gr.File(
+                            label="Vor Echo (optional)",
+                            file_types=_SUPPORTED_IMPORT_TYPES,
+                            type="filepath",
+                            file_count="single",
+                        )
+
+                with gr.Tab("Screenshot"):
+                    gr.Markdown(
+                        "Screenshot OCR im Browser. Datei wählen oder Zwischenablage. Es wird nur Text übergeben."
+                    )
+                    gr.HTML(
+                        """
+                        <div style='display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;padding:6px 0'>
+                          <div style='min-width:280px'>
+                            <div style='font-size:12px;color:rgba(0,0,0,.65);margin-bottom:4px'>Aktuell</div>
+                            <input id='rhk_echo_ocr_file_cur' type='file' accept='image/*' />
+                            <button type='button' style='margin-left:6px' onclick='window.rhkRunEchoOcr && window.rhkRunEchoOcr("cur")'>OCR</button>
+                            <button type='button' style='margin-left:6px' onclick='window.rhkRunEchoClipboard && window.rhkRunEchoClipboard("cur")'>Zwischenablage</button>
+                            <span id='rhk_echo_ocr_status_cur' style='margin-left:8px;color:rgba(0,0,0,.55);font-size:12px'></span>
+                          </div>
+                          <div style='min-width:280px'>
+                            <div style='font-size:12px;color:rgba(0,0,0,.65);margin-bottom:4px'>Vor Echo</div>
+                            <input id='rhk_echo_ocr_file_prev' type='file' accept='image/*' />
+                            <button type='button' style='margin-left:6px' onclick='window.rhkRunEchoOcr && window.rhkRunEchoOcr("prev")'>OCR</button>
+                            <button type='button' style='margin-left:6px' onclick='window.rhkRunEchoClipboard && window.rhkRunEchoClipboard("prev")'>Zwischenablage</button>
+                            <span id='rhk_echo_ocr_status_prev' style='margin-left:8px;color:rgba(0,0,0,.55);font-size:12px'></span>
+                          </div>
+                        </div>
+                        """
+                    )
+
+        # Legacy server upload remains available (Option B) but stays collapsed to avoid overload.
+        with gr.Accordion("Legacy: Server Upload (nicht empfohlen)", open=False):
+            with gr.Row():
+                legacy_pdf_cur = gr.File(
+                    label="Echo Datei (aktuell) – Upload",
+                    file_types=_SUPPORTED_IMPORT_TYPES,
+                    type="filepath",
+                    file_count="single",
+                )
+                legacy_pdf_prev = gr.File(
+                    label="Vor Echo Datei (optional) – Upload",
+                    file_types=_SUPPORTED_IMPORT_TYPES,
+                    type="filepath",
+                    file_count="single",
+                )
 
         with gr.Row():
             btn_apply = gr.Button("Werte übernehmen (nur leere Felder)", variant="primary")
@@ -531,6 +617,12 @@ def build_echo_section(add) -> Dict[str, Any]:
     return {
         "import_pdf_cur": import_pdf_cur,
         "import_pdf_prev": import_pdf_prev,
+        "legacy_pdf_cur": legacy_pdf_cur,
+        "legacy_pdf_prev": legacy_pdf_prev,
+        "echo_ocr_text_cur": echo_ocr_text_cur,
+        "echo_ocr_text_prev": echo_ocr_text_prev,
+        "echo_pdf_text_cur": echo_pdf_text_cur,
+        "echo_pdf_text_prev": echo_pdf_text_prev,
         "import_preview_cur_html": import_preview_cur_html,
         "import_preview_prev_html": import_preview_prev_html,
         "compare_html": compare_html,
@@ -589,6 +681,12 @@ def bind_echo_import(echo_ui: Dict[str, Any], *,
 
     import_pdf_cur = echo_ui["import_pdf_cur"]
     import_pdf_prev = echo_ui["import_pdf_prev"]
+    legacy_pdf_cur = echo_ui.get("legacy_pdf_cur")
+    legacy_pdf_prev = echo_ui.get("legacy_pdf_prev")
+    echo_ocr_text_cur = echo_ui.get("echo_ocr_text_cur")
+    echo_ocr_text_prev = echo_ui.get("echo_ocr_text_prev")
+    echo_pdf_text_cur = echo_ui.get("echo_pdf_text_cur")
+    echo_pdf_text_prev = echo_ui.get("echo_pdf_text_prev")
     preview_cur = echo_ui["import_preview_cur_html"]
     preview_prev = echo_ui["import_preview_prev_html"]
     compare_html = echo_ui["compare_html"]
@@ -781,6 +879,148 @@ def bind_echo_import(echo_ui: Dict[str, Any], *,
         prev_meta_json = json.dumps(prev_state.get("meta") or {}, ensure_ascii=False)
         return prev_state, prev_html, cmp_html, d, btnu, prev_json, prev_meta_json
 
+    def _parse_ocr_cur(text, cur_state_in, prev_state, *current_vals):
+        """Parse Browser OCR text for current echo and auto-apply.
+
+        IMPORTANT: Never raise on missing text (otherwise Gradio shows error toasts).
+        We keep the previous state unchanged if the payload is empty.
+        """
+        prev_state = prev_state or {"parsed": {}, "meta": {}, "has_file": False}
+        cur_state_in = cur_state_in or {"parsed": {}, "meta": {}, "has_file": False}
+
+        if not text or not str(text).strip():
+            cur_html, prev_html, cmp_html, d, btnu = _update_all(prev_state, cur_state_in)
+            return ("", cur_state_in, cur_html, cmp_html, d, btnu, *list(current_vals))
+
+        try:
+            parsed, meta = extract_echo_from_text(str(text), source="browser_ocr")
+            cur_state = {"parsed": parsed or {}, "meta": meta or {}, "has_file": True}
+        except Exception as e:
+            cur_state = {
+                "parsed": {},
+                "meta": {"ok": False, "hint": f"Browser OCR Import fehlgeschlagen: {e}"},
+                "has_file": True,
+            }
+
+        cur_html, prev_html, cmp_html, d, btnu = _update_all(prev_state, cur_state)
+
+        updated_vals = list(current_vals)
+        try:
+            if (cur_state.get("parsed") or {}):
+                updated_vals = _apply_values(cur_state, prev_state, *current_vals)
+        except Exception:
+            updated_vals = list(current_vals)
+
+        # mark auto-filled
+        try:
+            applied: Dict[str, Any] = {}
+            for k, old_v, new_v in zip(apply_keys, current_vals, updated_vals):
+                if old_v != new_v:
+                    applied[k] = new_v
+            if applied:
+                cur_state["_ui_autofill_values"] = applied
+                cur_state["_ui_autofill_keys"] = sorted(list(applied.keys()))
+        except Exception:
+            pass
+
+        # clear the OCR textbox after processing to allow repeated triggers
+        return ("", cur_state, cur_html, cmp_html, d, btnu, *updated_vals)
+
+    def _parse_ocr_prev(text, prev_state_in, cur_state):
+        """Parse Browser OCR text for previous echo (no auto-fill)."""
+        import json
+        prev_state_in = prev_state_in or {"parsed": {}, "meta": {}, "has_file": False}
+        cur_state = cur_state or {"parsed": {}, "meta": {}, "has_file": False}
+
+        if not text or not str(text).strip():
+            cur_html, prev_html, cmp_html, d, btnu = _update_all(prev_state_in, cur_state)
+            prev_json = json.dumps(prev_state_in.get("parsed") or {}, ensure_ascii=False)
+            prev_meta_json = json.dumps(prev_state_in.get("meta") or {}, ensure_ascii=False)
+            return "", prev_state_in, prev_html, cmp_html, d, btnu, prev_json, prev_meta_json
+
+        try:
+            parsed, meta = extract_echo_from_text(str(text), source="browser_ocr")
+            prev_state = {"parsed": parsed or {}, "meta": meta or {}, "has_file": True}
+        except Exception as e:
+            prev_state = {
+                "parsed": {},
+                "meta": {"ok": False, "hint": f"Browser OCR Import fehlgeschlagen: {e}"},
+                "has_file": True,
+            }
+
+        cur_html, prev_html, cmp_html, d, btnu = _update_all(prev_state, cur_state)
+        prev_json = json.dumps(prev_state.get("parsed") or {}, ensure_ascii=False)
+        prev_meta_json = json.dumps(prev_state.get("meta") or {}, ensure_ascii=False)
+        return "", prev_state, prev_html, cmp_html, d, btnu, prev_json, prev_meta_json
+
+    def _parse_pdftext_cur(text, cur_state_in, prev_state, *current_vals):
+        """Parse Browser PDF text for current echo and auto-apply (no upload)."""
+        prev_state = prev_state or {"parsed": {}, "meta": {}, "has_file": False}
+        cur_state_in = cur_state_in or {"parsed": {}, "meta": {}, "has_file": False}
+
+        if not text or not str(text).strip():
+            cur_html, prev_html, cmp_html, d, btnu = _update_all(prev_state, cur_state_in)
+            return ("", cur_state_in, cur_html, cmp_html, d, btnu, *list(current_vals))
+
+        try:
+            parsed, meta = extract_echo_from_text(str(text), source="browser_pdf")
+            cur_state = {"parsed": parsed or {}, "meta": meta or {}, "has_file": True}
+        except Exception as e:
+            cur_state = {
+                "parsed": {},
+                "meta": {"ok": False, "hint": f"Browser PDF Import fehlgeschlagen: {e}"},
+                "has_file": True,
+            }
+
+        cur_html, prev_html, cmp_html, d, btnu = _update_all(prev_state, cur_state)
+
+        updated_vals = list(current_vals)
+        try:
+            if (cur_state.get("parsed") or {}):
+                updated_vals = _apply_values(cur_state, prev_state, *current_vals)
+        except Exception:
+            updated_vals = list(current_vals)
+
+        try:
+            applied: Dict[str, Any] = {}
+            for k, old_v, new_v in zip(apply_keys, current_vals, updated_vals):
+                if old_v != new_v:
+                    applied[k] = new_v
+            if applied:
+                cur_state["_ui_autofill_values"] = applied
+                cur_state["_ui_autofill_keys"] = sorted(list(applied.keys()))
+        except Exception:
+            pass
+
+        return ("", cur_state, cur_html, cmp_html, d, btnu, *updated_vals)
+
+    def _parse_pdftext_prev(text, prev_state_in, cur_state):
+        """Parse Browser PDF text for previous echo (no auto-fill)."""
+        import json
+        prev_state_in = prev_state_in or {"parsed": {}, "meta": {}, "has_file": False}
+        cur_state = cur_state or {"parsed": {}, "meta": {}, "has_file": False}
+
+        if not text or not str(text).strip():
+            cur_html, prev_html, cmp_html, d, btnu = _update_all(prev_state_in, cur_state)
+            prev_json = json.dumps(prev_state_in.get("parsed") or {}, ensure_ascii=False)
+            prev_meta_json = json.dumps(prev_state_in.get("meta") or {}, ensure_ascii=False)
+            return "", prev_state_in, prev_html, cmp_html, d, btnu, prev_json, prev_meta_json
+
+        try:
+            parsed, meta = extract_echo_from_text(str(text), source="browser_pdf")
+            prev_state = {"parsed": parsed or {}, "meta": meta or {}, "has_file": True}
+        except Exception as e:
+            prev_state = {
+                "parsed": {},
+                "meta": {"ok": False, "hint": f"Browser PDF Import fehlgeschlagen: {e}"},
+                "has_file": True,
+            }
+
+        cur_html, prev_html, cmp_html, d, btnu = _update_all(prev_state, cur_state)
+        prev_json = json.dumps(prev_state.get("parsed") or {}, ensure_ascii=False)
+        prev_meta_json = json.dumps(prev_state.get("meta") or {}, ensure_ascii=False)
+        return "", prev_state, prev_html, cmp_html, d, btnu, prev_json, prev_meta_json
+
     # Bind upload/change for both (independent)
     out_cur = [state_cur, preview_cur, compare_html, details_html, btn_apply] + apply_components
     in_cur = [import_pdf_cur, state_prev] + apply_components
@@ -813,6 +1053,72 @@ def bind_echo_import(echo_ui: Dict[str, Any], *,
         )
     except Exception:
         pass
+
+
+    # Legacy upload inputs (optional). Bind to same parsers for compatibility.
+    if legacy_pdf_cur is not None:
+        try:
+            legacy_pdf_cur.change(_parse_cur, inputs=[legacy_pdf_cur, state_prev] + apply_components, outputs=out_cur, queue=False)
+        except Exception:
+            pass
+        try:
+            legacy_pdf_cur.upload(_parse_cur, inputs=[legacy_pdf_cur, state_prev] + apply_components, outputs=out_cur, queue=False)
+        except Exception:
+            pass
+
+    if legacy_pdf_prev is not None:
+        try:
+            legacy_pdf_prev.change(
+                _parse_prev,
+                inputs=[legacy_pdf_prev, state_cur],
+                outputs=[state_prev, preview_prev, compare_html, details_html, btn_apply, prev_json_comp, prev_meta_comp],
+                queue=False,
+            )
+        except Exception:
+            pass
+        try:
+            legacy_pdf_prev.upload(
+                _parse_prev,
+                inputs=[legacy_pdf_prev, state_cur],
+                outputs=[state_prev, preview_prev, compare_html, details_html, btn_apply, prev_json_comp, prev_meta_comp],
+                queue=False,
+            )
+        except Exception:
+            pass
+
+    # Browser OCR inputs (textboxes filled by JS). Works on Render/online.
+    if echo_ocr_text_cur is not None:
+        out_ocr_cur = [echo_ocr_text_cur, state_cur, preview_cur, compare_html, details_html, btn_apply] + apply_components
+        in_ocr_cur = [echo_ocr_text_cur, state_cur, state_prev] + apply_components
+        try:
+            echo_ocr_text_cur.change(_parse_ocr_cur, inputs=in_ocr_cur, outputs=out_ocr_cur, queue=False)
+        except Exception:
+            pass
+
+    if echo_ocr_text_prev is not None:
+        out_ocr_prev = [echo_ocr_text_prev, state_prev, preview_prev, compare_html, details_html, btn_apply, prev_json_comp, prev_meta_comp]
+        in_ocr_prev = [echo_ocr_text_prev, state_prev, state_cur]
+        try:
+            echo_ocr_text_prev.change(_parse_ocr_prev, inputs=in_ocr_prev, outputs=out_ocr_prev, queue=False)
+        except Exception:
+            pass
+
+    # Browser PDF inputs (textboxes filled by JS). Works on Render/online.
+    if echo_pdf_text_cur is not None:
+        out_pdf_cur = [echo_pdf_text_cur, state_cur, preview_cur, compare_html, details_html, btn_apply] + apply_components
+        in_pdf_cur = [echo_pdf_text_cur, state_cur, state_prev] + apply_components
+        try:
+            echo_pdf_text_cur.change(_parse_pdftext_cur, inputs=in_pdf_cur, outputs=out_pdf_cur, queue=False)
+        except Exception:
+            pass
+
+    if echo_pdf_text_prev is not None:
+        out_pdf_prev = [echo_pdf_text_prev, state_prev, preview_prev, compare_html, details_html, btn_apply, prev_json_comp, prev_meta_comp]
+        in_pdf_prev = [echo_pdf_text_prev, state_prev, state_cur]
+        try:
+            echo_pdf_text_prev.change(_parse_pdftext_prev, inputs=in_pdf_prev, outputs=out_pdf_prev, queue=False)
+        except Exception:
+            pass
 
     # Remove imported echo payloads + revert auto-filled values
     if btn_wipe_echo_fields is not None:

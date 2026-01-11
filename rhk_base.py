@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RHK Befundassistent (Web) – v27.4.2
+RHK Befundassistent (Web) – v27.4.44
 
 - Ultra-interaktiver Gradio-Assistenzbogen für RHK-/PH-Befunde
 - Deklaratives Regelwerk (YAML) zur Guideline-nahen Klassifikation, Modulen & Empfehlungen
@@ -37,18 +37,19 @@ except Exception:  # pragma: no cover
 # =============================================================================
 
 APP_NAME = "RHK Befundassistent"
-APP_VERSION = "v27.4.5"
+# Versioning: ab v28.x nur noch eine Dezimalstelle (z.B. v28.5)
+APP_VERSION = "v28.10"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
-WHATS_NEW = (
-    "Echo: Expertenbericht erweitert und klarer strukturiert · Fix: eGFR wird automatisch berechnet (auch nach DOCX Import/Laden) · "
-    "UX: Sticky Header Pre-Cath ist identisch zum Hämodynamik Header · "
-    "Neu: P Module P26–P30 (Trinkmenge, Risikofaktoren, Gewicht, LTOT, CT Konferenz) · "
-    "Neu: Klinik Feld Relevante Vorerkrankungen direkt unter Kurz-Anamnese · "
-    "Neu: DOCX Import für GE MacLab RHK Tabellen (Base 2 priorisiert, Fließtext ignoriert) · "
-    "Neu: Vor RHK DOCX Import für Verlauf Vergleich · "
-    "Neu: Visualisierung (mPAP und PAWP gegen CO, Volumenchallenge, Verlauf Delta) · "
-    "Sicherheit: Plausibilitätschecks und Import Ampel"
-)
+FIX_LOG = [
+    "Fix. v28.10: Patientenbericht nutzt Archetypen H1–H6 für horizontale Schwerpunkt-Varianten (ohne Sub-Layer), Standardtext bleibt Fallback",
+    "Fix. v28.9: Patientenbericht-Archetypen H1–H6 als strukturelle Ebene vorbereitet, keine Textänderungen, bestehende Logik bleibt Default",
+    "Fix. v28.8: Patientenbericht erweitert um evidenzbasierte Alltagshinweise nur bei stabil und nicht hochrisikant",
+]
+
+def _render_whats_new() -> str:
+    return "<br>".join(FIX_LOG[:3])
+
+WHATS_NEW = _render_whats_new()
 
 
 
@@ -1911,6 +1912,20 @@ def compute_p_module_policy(ui: Dict[str, Any],
     # --------- Disable-Logik (konservativ, aber nützlich) ----------
     disabled: Dict[str, str] = {}
 
+    # -----------------------------------------------------------------
+    # Volumen-/Stauungs-Module (P02, P26) nur bei plausibler Stauung
+    # -----------------------------------------------------------------
+    # Ziel: Wenn im Beurteilungs-/Ätiologie-Modul explizit "keine Hinweise auf Kongestion"
+    # ausgegeben werden, sollen Diurese/Trinkmengenrestriktion nicht gleichzeitig im Procedere
+    # als auswählbare Standardmodule erscheinen.
+    congestion_likely = bool(derived.get("congestion_likely"))
+    pawp = _safe_float(ui.get("pawp_rest"))
+    pv_stauung_likely = bool(pawp is not None and pawp > 15)
+
+    if not congestion_likely and not pv_stauung_likely:
+        disabled["P02"] = "Nicht passend: Keine Hinweise auf zentrale/pulmonalvenöse Stauung in den vorliegenden Angaben."
+        disabled["P26"] = "Nicht passend: Keine Hinweise auf Volumenüberladung/Stauung in den vorliegenden Angaben."
+
     # ---- Modul-spezifische "nicht anwählbar"-Regeln (konservativ, aber praxisnah) ----
     # P21 Schwangerschaft/Verhütung:
     # - nur sinnvoll bei "weiblich" und reproduktivem Alter
@@ -2342,7 +2357,21 @@ def _compare_rhk_trend(ui: Dict[str, Any], derived: Dict[str, Any]) -> Dict[str,
     under_txt = f" unter Therapieanpassung ({tx_txt})" if tx_txt else ""
 
     # Sätze
-    sentence_doc = f"Verlauf im Vergleich zu RHK {prev_date} ({ctx_txt}){under_txt}: insgesamt **{trend}**."
+    # Doc sentence: keep the short trend, but make "gemischt" etc. clinically interpretable
+    # by repeating the most relevant deltas (max 3) to avoid vague wording.
+    delta_bits: List[str] = []
+    for label, (pv, cv, c, unit, digits) in comps.items():
+        if pv is None or cv is None:
+            continue
+        if c in ("better", "worse"):
+            arr = arrow_map.get(c, "")
+            pair = _fmt_pair(pv, cv, unit, digits)
+            if pair:
+                delta_bits.append(f"{label} {pair} {arr}".strip())
+    delta_txt = "; ".join(delta_bits[:3])
+    delta_suffix = f" ({delta_txt})" if delta_txt else ""
+
+    sentence_doc = f"Verlauf im Vergleich zu RHK {prev_date} ({ctx_txt}){under_txt}: insgesamt **{trend}**{delta_suffix}."
     sentence_pat = f"Im Vergleich zu Ihrer früheren Herzkatheter-Untersuchung ({prev_date}) sind die Werte insgesamt **{trend}**."
 
     # Konsequenz (kurz + praxisnah)

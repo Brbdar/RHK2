@@ -1,3 +1,37 @@
+## v27.4.23
+
+- Fix: Übergabe von Browser-Text an Gradio über stabile elem_id Root-IDs der versteckten Textfelder (Echo PDF/OCR, aktuell/vor).
+- Ursache: aria-label basierte Selektion war offline/auf Render/Gradio-Versionen nicht stabil.
+
+## v27.4.22
+- Fix: Echo Screenshot/PDF Text konnte in einigen Gradio-Versionen nicht in Hidden-Textboxes geschrieben werden (aria-label mismatch). Jetzt robust via elem_id (Root-ID) + Fallback.
+
+## v27.4.21
+
+- Bugfix Echo Import: `extract_echo_from_text()` war durch falsche Key-Referenzen defekt (OCR/PDF-Text-Pfade konnten Werte nicht übernehmen). Jetzt identisch zum PDF-Pfad: stabil, kein Crash, korrektes Mapping auf UI-Keys.
+
+## v27.4.20
+
+- Echo Import: "Screenshot aus Zwischenablage" (Ctrl+V/Snipping Tool) ohne Upload. OCR läuft vollständig im Browser; Server erhält weiterhin nur extrahierten Text.
+- UI: Import bleibt kompakt, nur ein zusätzlicher Button im bestehenden Import-Header.
+
+## v27.4.17
+
+- Echo Import: Screenshot Import jetzt auch online nutzbar (Browser OCR via tesseract.js, PHI bleibt im Browser). Ergebnisse fließen wie beim PDF Import in Vor und Aktuell Echo und überschreiben keine manuellen Felder.
+- Stabilität: sitecustomize Import Hook deaktiviert Gradio Analytics Summary (verhindert pandas/pyarrow Imports und NumPy ABI Crashes auf Anaconda).
+
+## v27.4.11
+
+- Bugfix UI: Spiroergometrie/CPET Bereich visuell stabilisiert (kein Pulsieren/Transparenz bei Live-Updates).
+- CSS: neue Klasse `rhk-cpet-card` erzwingt volle Opazität und deaktiviert Transition/Animation innerhalb des CPET Cards.
+
+## v27.4.9
+
+- Spiro-Logic: Feldtooltips (Hover/Info) in allen CPET Wizard Modulen inkl. 9-Felder Grafik.
+- Spiro-Logic: Befundausgabe in drei Ebenen: Kurzheadline (Briefkopf), klinische Zusammenfassung, technische Details (Appendix).
+- Spiro-Logic: Übernahmebutton übernimmt Kurzheadline + klinische Zusammenfassung (nur wenn Zieltext leer).
+- Spiro-Logic: Missing-Guard: physiologisch unmögliche 0-Werte werden als "nicht erhoben" behandelt.
+
 ## v27.4.4
 
 - Bugfix: LSB Chip wird nun im Pre-Cath Sticky Header korrekt angezeigt (nur wenn aktiv) und steht direkt neben Krea.
@@ -274,3 +308,57 @@ Hinweis OCR
 - Pre Cath Safety: LSB Checkbox plus Warn Chip im Sticky Header nur wenn aktiv.
 - Medikation: Nitrate NO Donor als Sicherheitsabfrage plus PDE 5 Härtefall Begründung im Tab Medikation.
 - Reports: Arztbericht erweitert um EKG Angaben LSB Nitrate und Therapie Verlauf Felder.
+
+## v27.4.6 (2026-01-09)
+- CPET: Neuer Spiro-Logic Wizard als deterministisches Expertensystem mit Modul 1 bis 4, Live Plausibilitätschecks, edukativen Erklärungen und automatisch generiertem Befundtext.
+- CPET: Wizard fragt zusätzliche Parameter ab (HF Prozent Soll, RR Peak, PETCO2 Ruhe und Peak, Atemreserve, O2 Puls Slope).
+- Reports: Optionaler Abschnitt "Spiro-Logic Interpretation" im Arztbericht (Checkbox).
+- Stabilität: Übernahme des Spiro-Logic Textes in den CPET Kommentar nur wenn das Feld leer ist.
+
+## v27.4.7 (2026-01-09)
+- CPET: Neues Modul "9 Felder Grafik" im Spiro-Logic Wizard mit kurvenbasierten Pattern Entscheidungen (VT1, RCP, EOV, Flow Volume Loop, VO2 Work Muster, Ventilatorische Äquivalente).
+- CPET: Live Edukation und Nachfragen für die 9 Felder Interpretation.
+- Reports: 9 Felder Grafik Befunde werden in den Spiro-Logic Befundtext übernommen (wenn dokumentiert).
+
+## v27.4.9 (2026-01-09)
+- CPET: Spiro-Logic erweitert um leitliniennahe Pflichtbausteine für eine vollständige ärztliche CPET Befundung.
+- Neu: Modul 0 Testqualität/Validität (Abbruchgrund, Borg, Maximalitätskriterien, Safety Stop).
+- Neu: Modul 5 Mechanik (V'E Peak, MVV, V'E/MVV, berechnete Atemreserve) als objektiver Nachweis einer ventilatorischen Limitation.
+- Neu: Modul 6 Gasaustausch (SpO2 Ruhe/Peak/Nadir, ΔSpO2, O2 Gabe) inkl. Desaturation Red Flags.
+- Neu: Modul 7 Sicherheit (RR Ruhe/Peak, hypertensive Antwort, Hypotonie, Arrhythmie, ST/T, Symptome) – dokumentiert sicherheitslimitierte Tests.
+- Neu: Modul 8 Limitationstyp/Next Steps mit deterministischer Klassifikation, leitliniennahen Empfehlungen und optionalem ärztlichen Override inkl. Begründung.
+- Reports: Spiro-Logic Befundtext strukturiert erweitert (Qualität, Kernergebnisse, Mechanik, SpO2/O2, Sicherheit, 9 Felder, Limitation/Next Steps).
+
+## v27.4.9
+
+- Spiro-Logic: Tooltips (Hover/Info) an allen CPET Wizard Feldern inkl. 9-Felder Grafik.
+- Spiro-Logic: Befundtext in drei Ebenen (Kurzheadline, klinische Zusammenfassung, technische Details).
+- Spiro-Logic: Übernahmebutton übernimmt Kurzheadline + klinische Zusammenfassung (nur wenn Zieltext leer).
+- Spiro-Logic: 0-Werte werden als fehlend behandelt (Missing-Guard), um irreführende Texte zu verhindern.
+
+## v27.4.10 (2026-01-09)
+- Fix: Gradio Start-Crash behoben, wenn UI-Helfer `add()` mit `info=` aufgerufen wird (Tooltips). `add()` akzeptiert jetzt `info` und setzt es sicher auf dem Component.
+
+## v27.4.12
+- Arztbericht: neues Muster-Layout (wie befundmuster.docx) mit fester Gliederung, deutlich weniger Redundanz.
+- Spiroergometrie/CPET im Arztbericht: nur Kurzheadline + klinische Zusammenfassung (arztadressiert), keine technischen Doppellungen.
+- DOCX Export: Download-Workflow stabilisiert (Button erzeugt DOCX, Datei wird als Download-Link ausgegeben); Export nutzt Muster-Layout.
+- DOCX Generator: Markdown-Bullet-Listen unterstützen jetzt verschachtelte Ebenen (List Bullet 2/3).
+
+## v27.4.13
+- Fix: Belastungshämodynamik/Provokation/Volumenchallenge werden nur übernommen, wenn das jeweilige Modul als durchgeführt markiert ist (Checkbox). Bei vorhandenen Belastungswerten ohne aktiviertes Modul wird ein Hinweis ausgegeben.
+- Fix: Stufenoxymetrie wird nur bewertet, wenn mindestens 4 von 6 Sättigungswerten vorliegen.
+- Fix: Empfehlungstexte mit Transplantationsbezug werden bei Alter ≥70 Jahre unterdrückt.
+- Fix: Residualvolumen-Hinweis korrigiert (Units-Mismatch): Bewertung nur bei deutlich erhöhtem RV (% Soll) und passender Konstellation.
+- Fix: Arztbericht enthält im Abschnitt „Beurteilung“ wieder eine kompakte numerische Ruhehämodynamik-Zusammenfassung.
+
+## v27.4.16 (2026-01-09)
+
+- Echo Screenshot Import: OCR ohne Tesseract. Lokal (Windows) wird jetzt zuerst Windows Built in OCR (WinRT via PowerShell) verwendet. Tesseract bleibt optionaler Fallback.
+
+## v27.4.15 (2026-01-09)
+- Fix: NumPy 2.x ABI-Crash durch Gradio Analytics/Queueing endgültig verhindert (Analytics-Guard läuft bereits beim Import; Queueing wird zusätzlich in `launch()` deaktiviert, wenn unterstützt).
+- Fix: Belastungshämodynamik Peak RAP NameError behoben (`rap_peak` wird korrekt als `rap_pk` gelesen).
+
+- v27.4.19: Echo Import UI merged (single control), unified JS handler, still client-side only.
+

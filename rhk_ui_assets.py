@@ -48,6 +48,67 @@ HEAD_HTML = "".join(
         _VIEWPORT_META,
         '<meta name="color-scheme" content="light">',
         '<meta name="supported-color-schemes" content="light">',
+        # Client-side PDF text extraction (Echo PDFs) – keeps PHI on the client.
+        # Offline-first strategy: try local vendor files via Gradio /file= route, then CDN fallback.
+        r"""
+<script>
+(function(){
+  const PDFJS_URLS = [
+    '/file=assets/vendor/pdf/pdf.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.js',
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.js',
+    'https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.min.js'
+  ];
+  const WORKER_URLS = [
+    '/file=assets/vendor/pdf/pdf.worker.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.js',
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.js',
+    'https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.min.js'
+  ];
+
+  function loadScript(src){
+    return new Promise((resolve,reject)=>{
+      const s=document.createElement('script');
+      s.src=src; s.async=true;
+      s.onload=()=>resolve(true);
+      s.onerror=()=>reject(new Error('Failed to load '+src));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function ensurePdfJs(){
+    if(window.pdfjsLib && window.pdfjsLib.getDocument) return;
+    var loadedIdx = -1;
+    for(var i=0;i<PDFJS_URLS.length;i++){
+      var url = PDFJS_URLS[i];
+      try{
+        await loadScript(url);
+        if(window.pdfjsLib && window.pdfjsLib.getDocument){
+          loadedIdx = i;
+          console.log('RHK: PDF.js loaded from', url);
+          break;
+        }
+      }catch(e){ /* try next */ }
+    }
+    if(!(window.pdfjsLib && window.pdfjsLib.getDocument)){
+      throw new Error('PDF.js nicht geladen. (Lokal + CDN fehlgeschlagen)');
+    }
+    try{
+      if(window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions){
+        // match worker to the source we loaded (local first, then CDN).
+        var wi = (loadedIdx >= 0 && loadedIdx < WORKER_URLS.length) ? loadedIdx : 0;
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER_URLS[wi];
+      }
+    }catch(e){}
+  }
+
+  window.rhkEnsurePdfJs = ensurePdfJs;
+})();
+</script>
+""",
+        # Client-side OCR for screenshot imports (keeps PHI on the client)
+        # Uses tesseract.js (WebAssembly) loaded from CDN.
+        '<script src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>',
         r"""
 <script>
 (function(){
@@ -311,6 +372,11 @@ HEAD_HTML = "".join(
     try {
       var nav = document.querySelector('.gradio-container .tab-nav, .gradio-container .tabs > .tab-nav');
       if(!nav) return;
+      // Keep a stable spacer for tab content below sticky tab-nav (prevents overlap)
+      try {
+        var h = nav.offsetHeight || 60;
+        document.documentElement.style.setProperty('--rhk-tabnav-h', h + 'px');
+      } catch(e) {}
       var buttons = nav.querySelectorAll('button');
       if(!buttons || !buttons.length) return;
 
@@ -378,6 +444,303 @@ HEAD_HTML = "".join(
   }
 })();
 </script>
+<script>
+// ---------------------------------------------------------------
+// RHK: Browser OCR helpers (Echo screenshots)
+// - Runs fully client-side via tesseract.js.
+// - Writes extracted text into hidden Gradio Textboxes which then
+//   trigger Python parsing logic.
+// ---------------------------------------------------------------
+(function(){
+  // Gradio often renders inputs inside a WebComponent with a shadowRoot.
+  // Also: components with visible=False may not exist in the DOM.
+  // We therefore set values by stable elem_id and search both light DOM and shadow DOM.
+  var _ECHO_LABEL_TO_ID = {
+    'Echo OCR Text (aktuell, browser)': 'echo_ocr_text_cur',
+    'Echo OCR Text (Vor, browser)': 'echo_ocr_text_prev',
+    'Echo PDF Text (aktuell, browser)': 'echo_pdf_text_cur',
+    'Echo PDF Text (Vor, browser)': 'echo_pdf_text_prev'
+  };
+
+  // Robust selector that also searches inside shadow roots (Gradio renders in a shadow DOM).
+  function _deepQuerySelector(sel){
+    try {
+      var direct = document.querySelector(sel);
+      if(direct) return direct;
+    } catch(e) {}
+
+    var roots = [];
+    try {
+      roots.push(document);
+      // Collect shadow roots recursively
+      var all = document.querySelectorAll('*');
+      for(var i=0;i<all.length;i++){
+        try {
+          if(all[i] && all[i].shadowRoot) roots.push(all[i].shadowRoot);
+        } catch(e) {}
+      }
+    } catch(e) {}
+
+    for(var r=0;r<roots.length;r++){
+      try {
+        var hit = roots[r].querySelector(sel);
+        if(hit) return hit;
+      } catch(e) {}
+    }
+    return null;
+  }
+
+  function _safeCssId(id){
+    try { return CSS && CSS.escape ? CSS.escape(id) : id; } catch(e) { return id; }
+  }
+
+  function findGradioInput(elemId, label){
+    if(!elemId && !label) return null;
+
+    // 1) Prefer elem_id (stable)
+    if(elemId){
+      var esc = _safeCssId(elemId);
+      var wrapper = _deepQuerySelector('#' + esc);
+      if(wrapper){
+        var tag = (wrapper.tagName || '').toLowerCase();
+        if(tag === 'textarea' || tag === 'input') return wrapper;
+        try {
+          var inner = wrapper.querySelector('textarea, input');
+          if(inner) return inner;
+        } catch(e) {}
+      }
+      // Sometimes Gradio puts the textarea adjacent, but keeps the elem_id on a higher wrapper.
+      // Best-effort: find any textarea/input with a closest ancestor matching the elem_id.
+      try {
+        var cand = _deepQuerySelector('#' + esc + ' textarea') || _deepQuerySelector('#' + esc + ' input');
+        if(cand) return cand;
+      } catch(e) {}
+    }
+
+    // 2) Fallback: aria-label equals component label (less stable)
+    if(label){
+      try {
+        var aria = _deepQuerySelector('textarea[aria-label="' + label.replace(/"/g, '\\"') + '"]') ||
+                   _deepQuerySelector('input[aria-label="' + label.replace(/"/g, '\\"') + '"]');
+        if(aria) return aria;
+      } catch(e) {}
+    }
+
+    return null;
+  }
+
+  function setGradioTextbox(label, value){
+    var elemId = _ECHO_LABEL_TO_ID[label] || label; // allow passing elem_id directly
+    var el = findGradioInput(elemId, label);
+    if(!el) return false;
+    var tag = (el.tagName || '').toLowerCase();
+    if(!(tag === 'textarea' || tag === 'input')) return false;
+    el.value = value;
+    try { el.dispatchEvent(new Event('input', { bubbles:true })); } catch(e) {}
+    try { el.dispatchEvent(new Event('change', { bubbles:true })); } catch(e) {}
+    return true;
+  }
+  function setStatus(id, msg){
+    var el = document.getElementById(id);
+    if(!el) return;
+    el.textContent = msg;
+  }
+
+  async function runOcr(kind){
+    // NOTE: IDs must match the HTML inputs in rhk_ui_echo.py
+    var inputId = (kind === 'prev') ? 'rhk_echo_ocr_file_prev' : 'rhk_echo_ocr_file_cur';
+    var statusId = (kind === 'prev') ? 'rhk_echo_ocr_status_prev' : 'rhk_echo_ocr_status_cur';
+    var tbLabel = (kind === 'prev') ? 'Echo OCR Text (Vor, browser)' : 'Echo OCR Text (aktuell, browser)';
+
+    var fi = document.getElementById(inputId);
+    if(!fi || !fi.files || !fi.files[0]){
+      setStatus(statusId, 'Bitte Screenshot wählen.');
+      return;
+    }
+    var file = fi.files[0];
+    if(!window.Tesseract || !window.Tesseract.recognize){
+      setStatus(statusId, 'OCR Engine lädt noch... bitte erneut versuchen.');
+      return;
+    }
+    setStatus(statusId, 'OCR läuft...');
+    try {
+      var res = await window.Tesseract.recognize(file, 'deu+eng', {
+        logger: function(m){
+          if(m && m.status === 'recognizing text' && typeof m.progress === 'number'){
+            setStatus(statusId, 'OCR läuft... ' + Math.round(m.progress*100) + '%');
+          }
+        }
+      });
+      var txt = (res && res.data && res.data.text) ? String(res.data.text) : '';
+      if(!txt.trim()){
+        setStatus(statusId, 'Kein Text erkannt.');
+        return;
+      }
+      var ok = setGradioTextbox(tbLabel, txt);
+      setStatus(statusId, ok ? 'Text übernommen.' : 'Konnte Text nicht an Gradio übergeben.');
+    } catch(e) {
+      setStatus(statusId, 'OCR Fehler: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  async function runPdf(kind){
+    var inputId = (kind === 'prev') ? 'rhk_echo_pdf_file_prev' : 'rhk_echo_pdf_file_cur';
+    var statusId = (kind === 'prev') ? 'rhk_echo_pdf_status_prev' : 'rhk_echo_pdf_status_cur';
+    var tbLabel = (kind === 'prev') ? 'Echo PDF Text (Vor, browser)' : 'Echo PDF Text (aktuell, browser)';
+
+    var fi = document.getElementById(inputId);
+    if(!fi || !fi.files || !fi.files[0]){
+      setStatus(statusId, 'Bitte PDF wählen.');
+      return;
+    }
+    var file = fi.files[0];
+    if(!file || !String(file.name || '').toLowerCase().endsWith('.pdf')){
+      setStatus(statusId, 'Bitte eine PDF Datei wählen.');
+      return;
+    }
+
+    // Ensure pdf.js
+    try {
+      setStatus(statusId, 'PDF Engine laden...');
+      if(window.rhkEnsurePdfJs) await window.rhkEnsurePdfJs();
+    } catch(e) {
+      setStatus(statusId, 'PDF Fehler: pdf.js nicht geladen. Offline? Nutze Screenshot OCR oder Legacy Upload.');
+      return;
+    }
+    if(!(window.pdfjsLib && window.pdfjsLib.getDocument)){
+      setStatus(statusId, 'PDF Fehler: pdf.js nicht verfügbar.');
+      return;
+    }
+    if(!window.Tesseract || !window.Tesseract.recognize){
+      // We can still do textlayer extraction.
+      // OCR fallback (scan PDFs) will be unavailable without Tesseract.
+    }
+
+    try {
+      setStatus(statusId, 'PDF Text extrahieren...');
+      var ab = await file.arrayBuffer();
+      var loadingTask = window.pdfjsLib.getDocument({data: ab});
+      var doc = await loadingTask.promise;
+      var maxPages = Math.min(doc.numPages || 1, 3);
+      var allText = [];
+      for(var p=1; p<=maxPages; p++){
+        var page = await doc.getPage(p);
+        var tc = await page.getTextContent();
+        var items = (tc && tc.items) ? tc.items : [];
+        for(var i=0;i<items.length;i++){
+          if(items[i] && items[i].str) allText.push(String(items[i].str));
+        }
+        allText.push('\n');
+      }
+      var txt = allText.join(' ').replace(/\s+/g,' ').trim();
+
+      // If textlayer is empty-ish, treat as scan and OCR page 1.
+      if((!txt || txt.length < 40) && window.Tesseract && window.Tesseract.recognize){
+        setStatus(statusId, 'Scan PDF erkannt. OCR Seite 1 läuft...');
+        var page1 = await doc.getPage(1);
+        var viewport = page1.getViewport({scale: 2.0});
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        var ctx = canvas.getContext('2d');
+        await page1.render({canvasContext: ctx, viewport: viewport}).promise;
+        var blob = await new Promise(function(resolve){
+          try { canvas.toBlob(resolve, 'image/png'); } catch(e) { resolve(null); }
+        });
+        if(!blob){
+          setStatus(statusId, 'OCR Fehler: Canvas Export fehlgeschlagen.');
+          return;
+        }
+        var res = await window.Tesseract.recognize(blob, 'deu+eng', {
+          logger: function(m){
+            if(m && m.status === 'recognizing text' && typeof m.progress === 'number'){
+              setStatus(statusId, 'OCR läuft... ' + Math.round(m.progress*100) + '%');
+            }
+          }
+        });
+        txt = (res && res.data && res.data.text) ? String(res.data.text) : '';
+        txt = txt.replace(/\s+/g,' ').trim();
+      }
+
+      if(!txt || !txt.trim()){
+        setStatus(statusId, '0 Werte. Kein verwertbarer Textlayer. Nutze Screenshot OCR oder Legacy Upload.');
+        return;
+      }
+
+      var ok = setGradioTextbox(tbLabel, txt);
+      setStatus(statusId, ok ? 'Text übernommen.' : 'Konnte Text nicht an Gradio übergeben.');
+    } catch(e) {
+      setStatus(statusId, 'PDF Fehler: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  async function runClipboardOcr(kind){
+    var statusId = (kind === 'prev') ? 'rhk_echo_ocr_status_prev' : 'rhk_echo_ocr_status_cur';
+    var tbLabel = (kind === 'prev') ? 'Echo OCR Text (Vor, browser)' : 'Echo OCR Text (aktuell, browser)';
+
+    if(!navigator.clipboard || !navigator.clipboard.read){
+      setStatus(statusId, 'Zwischenablage nicht verfügbar (Browser/HTTPS).');
+      return;
+    }
+    if(!window.Tesseract || !window.Tesseract.recognize){
+      setStatus(statusId, 'OCR Engine lädt noch... bitte erneut versuchen.');
+      return;
+    }
+
+    setStatus(statusId, 'Zwischenablage lesen...');
+    try {
+      var items = await navigator.clipboard.read();
+      var blob = null;
+      for(const it of items){
+        for(const t of it.types){
+          if(t && t.startsWith('image/')){
+            blob = await it.getType(t);
+            break;
+          }
+        }
+        if(blob) break;
+      }
+      if(!blob){
+        setStatus(statusId, 'Kein Bild in der Zwischenablage.');
+        return;
+      }
+
+      setStatus(statusId, 'OCR läuft...');
+      var res = await window.Tesseract.recognize(blob, 'deu+eng', {
+        logger: function(m){
+          if(m && m.status === 'recognizing text' && typeof m.progress === 'number'){
+            setStatus(statusId, 'OCR läuft... ' + Math.round(m.progress*100) + '%');
+          }
+        }
+      });
+      var txt = (res && res.data && res.data.text) ? String(res.data.text) : '';
+      if(!txt.trim()){
+        setStatus(statusId, 'Kein Text erkannt.');
+        return;
+      }
+      var ok = setGradioTextbox(tbLabel, txt);
+      setStatus(statusId, ok ? 'Text übernommen.' : 'Konnte Text nicht an Gradio übergeben.');
+    } catch(e) {
+      setStatus(statusId, 'Clipboard Fehler: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  window.rhkRunEchoOcr = function(kind){
+    runOcr(kind === 'prev' ? 'prev' : 'cur');
+  };
+  // Clipboard OCR (image in clipboard) – name aligned with UI HTML
+  window.rhkRunEchoClipboard = function(kind){
+    runClipboardOcr(kind === 'prev' ? 'prev' : 'cur');
+  };
+  // Backward alias (if referenced elsewhere)
+  window.rhkRunEchoClipboardOcr = window.rhkRunEchoClipboard;
+
+  // Browser PDF import (no upload)
+  window.rhkRunEchoPdf = function(kind){
+    runPdf(kind === 'prev' ? 'prev' : 'cur');
+  };
+})();
+</script>
 """,
     ]
 )
@@ -386,6 +749,18 @@ CSS = ("""
 /* ------------------------------------------------------------------
    Light UI (robust): enforce readability even if browser/system prefers dark
    ------------------------------------------------------------------ */
+
+/* Hide but keep in DOM so browser-side JS can write into the input reliably */
+.rhk-hidden {
+  position: absolute !important;
+  left: -10000px !important;
+  top: auto !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
 
 /* Neutralize "Befund erstellen/aktualisieren" buttons (avoid persistent blue look) */
 #btn_generate_top button, #btn_generate_bottom button {
@@ -709,13 +1084,16 @@ button[title*="dark"],
 button[title*="Dark"] {
   display: none !important;
 }
-/* Tabs: immer sichtbar (wrap statt overflow) */
+/* Tabs: immer sichtbar, aber ohne Höhen-Drift → horizontal scroll (robust, verhindert Overlap) */
 [role="tablist"]{
-  flex-wrap: wrap !important;
-  overflow: visible !important;
-  white-space: normal !important;
-  gap: 4px 6px !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  white-space: nowrap !important;
+  gap: 6px !important;
+  scrollbar-width: none;
 }
+[role="tablist"]::-webkit-scrollbar{ display:none; }
 /* volle Tab-Titel (kein Ellipsis) */
 [role="tablist"] > button{
   flex: 0 0 auto !important;
@@ -739,6 +1117,15 @@ button[title*="Dark"] {
   display: none !important;
 }
 
+/* Tab-Content: Platzhalter unter sticky Tab-Leiste (verhindert, dass Überschriften/Progress-Bar "unter" die Tabs rutschen) */
+.gradio-container .tabs{
+  --rhk-tabnav-h: 60px;
+}
+.gradio-container .tabs > .tabitem{
+  padding-top: 6px !important;
+  scroll-margin-top: calc(74px + var(--rhk-tabnav-h, 60px) + 12px);
+}
+
 /* ------------------------------------------------------------------
    v27.2 Tabs: sticky + segmented control + subtitle + completion dots
    ------------------------------------------------------------------ */
@@ -755,7 +1142,14 @@ button[title*="Dark"] {
   padding: 10px 6px 14px 6px !important;
   margin: 0 0 6px 0 !important;
   border-bottom: none !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
 }
+.gradio-container .tab-nav::-webkit-scrollbar{display:none;}
 
 /* Divider under tab pills (prevents the line from visually "cutting" the buttons) */
 .gradio-container .tabs > .tab-nav::after,
@@ -882,6 +1276,12 @@ button[title*="Dark"] {
 .badge-orange { background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.25); }
 .badge-teal { background: rgba(20,184,166,0.12); border-color: rgba(20,184,166,0.25); }
 .badge-red { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.25); }
+
+.badge-low { background: rgba(34,197,94,0.14); border-color: rgba(34,197,94,0.30); }
+.badge-intermediate { background: rgba(234,179,8,0.16); border-color: rgba(234,179,8,0.32); }
+.badge-intermediate-high { background: rgba(249,115,22,0.16); border-color: rgba(249,115,22,0.32); }
+.badge-high { background: rgba(239,68,68,0.16); border-color: rgba(239,68,68,0.32); }
+.badge-na { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.10); }
 .muted { color: rgba(0,0,0,0.55); }
 .small { font-size: 12px; color: rgba(0,0,0,0.55); }
 .subhead { font-size: 13px; color: rgba(0,0,0,0.65); margin-top: -6px; }
@@ -953,6 +1353,7 @@ button[title*="Dark"] {
 }
 
 .gradio-container .tab-nav button{
+  flex: 0 0 auto !important;
   border-radius: 999px !important;
   padding: 8px 12px !important;
   font-size: 13px !important;
@@ -1152,10 +1553,49 @@ button[title*="Dark"] {
   line-height: 1.25;
 }
 
-.rhk-summarybar .rhk-schip--good{ background: rgba(20,184,166,0.12); border-color: rgba(20,184,166,0.22); color:#0f766e; }
-.rhk-summarybar .rhk-schip--warn{ background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.22); color:#c2410c; }
+.rhk-summarybar .rhk-schip--good{ background: rgba(34,197,94,0.14); border-color: rgba(34,197,94,0.26); color:#166534; }
+.rhk-summarybar .rhk-schip--warn{ background: rgba(234,179,8,0.16); border-color: rgba(234,179,8,0.28); color:#92400e; }
+.rhk-summarybar .rhk-schip--orange{ background: rgba(249,115,22,0.16); border-color: rgba(249,115,22,0.28); color:#9a3412; }
 .rhk-summarybar .rhk-schip--bad{ background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.22); color:#b91c1c; }
 .rhk-summarybar .rhk-schip--info{ background: rgba(37,99,235,0.12); border-color: rgba(37,99,235,0.22); color:#1d4ed8; }
+
+
+/* ------------------------------------------------------------------
+   Spiro-Logic Wizard (CPET live education)
+   ------------------------------------------------------------------ */
+.spiro-edu{
+  border: 1px solid rgba(0,0,0,0.06);
+  background: rgba(255,255,255,0.96);
+  border-radius: 18px;
+  padding: 12px 12px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+}
+.spiro-edu--overall{ background: rgba(168, 85, 247, 0.035); }
+.spiro-edu__title{
+  font-size: 13px;
+  font-weight: 850;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+.spiro-edu__sub{
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(15, 23, 42, 0.72);
+  margin-top: 10px;
+  margin-bottom: 4px;
+}
+.spiro-edu__feedback{
+  font-size: 13px;
+  line-height: 1.35;
+  color: rgba(15, 23, 42, 0.85);
+}
+.spiro-edu__teach{
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(15, 23, 42, 0.78);
+}
+.spiro-edu__follow ul{ margin: 6px 0 0 18px; }
+.spiro-edu__follow li{ margin: 4px 0; }
 
 
 /* ------------------------------------------------------------------
@@ -1243,6 +1683,30 @@ button[title*="Dark"] {
   animation: none !important;
   opacity: 1 !important;
   filter: none !important;
+}
+
+/* ------------------------------------------------------------------
+   CPET / Spiro-Logic Wizard: harden against "pulsing" / transparency
+   Some browsers show perceived flicker when Gradio toggles busy states
+   while cards use translucent backgrounds. We enforce full opacity and
+   disable transitions/animations inside the CPET card.
+   ------------------------------------------------------------------ */
+.rhk-cpet-card,
+.rhk-cpet-card * {
+  opacity: 1 !important;
+  filter: none !important;
+  animation: none !important;
+  transition: none !important;
+}
+.rhk-cpet-card{
+  background: #ffffff !important;
+}
+.rhk-cpet-card .rhk-sec-body{
+  background: #ffffff !important;
+}
+.rhk-cpet-card .rhk-sec-head{
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 .gradio-container .gr-row {
