@@ -1,0 +1,83 @@
+{
+  "contra_nitrates_pde5": {
+    "bundle": "K05",
+    "fired_rule_ids": [
+      "R_PRECAP_MILD",
+      "R_SUGGEST_P01_IF_INCOMPLETE",
+      "R_VQ_RECOMMENDED_UNEXPLAINED_PH",
+      "R_PAH_LIKELY_GROUP1_TAG",
+      "R_CONTRA_NITRATES_PDE5",
+      "R_EKG_MISSING_RECOMMEND"
+    ],
+    "modules": [
+      "P01"
+    ],
+    "primary_dx": "Präkapilläre PH (mild)",
+    "recommendations_short": [
+      "Bei neu/unexplained PH sollte ein Ventilations/Perfusions-Scan (oder Perfusionsscan) zum Ausschluss einer CTEPH/CTEPD durchgeführt werden.",
+      "Bei präkapillärer PH ohne Hinweise auf Gruppe 3/4 oder Shunt ist eine PAH (Gruppe 1) wahrscheinlich. Ätiologie-Abklärung nach Standardpfad (inkl. CTD, HIV, portopulmonal, Medikamente/Toxine, genetische Abklärung je nach Kontext) und Therapi…",
+      "Wichtige Arzneimittel-Kontraindikation: Gleichzeitige Gabe von Nitraten/NO-Donoren (z.B. Nitro, Isosorbid) und PDE‑5‑Hemmern ist kontraindiziert (Risiko schwerer Hypotonie). Bitte Medikation prüfen und Anpassung vornehmen.",
+      "Ein 12-Kanal-EKG sollte vor/bei RHK vorliegen. Bitte EKG nach typischen Rechtsherzbelastungszeichen beurteilen und dokumentieren."
+    ],
+    "tags": [
+      "präkapillär",
+      "V/Q-Szinti empfohlen",
+      "Gruppe 1 (PAH) wahrscheinlich",
+      "Kontraindikation: Nitrate + PDE‑5‑Hemmer",
+      "EKG fehlt"
+    ],
+    "warnings_count": 0
+  },
+  "nitrates_only": {
+    "bundle": "K05",
+    "fired_rule_ids": [
+      "R_PRECAP_MILD",
+      "R_SUGGEST_P01_IF_INCOMPLETE",
+      "R_VQ_RECOMMENDED_UNEXPLAINED_PH",
+      "R_PAH_LIKELY_GROUP1_TAG",
+      "R_EKG_MISSING_RECOMMEND"
+    ],
+    "modules": [
+      "P01"
+    ],
+    "primary_dx": "Präkapilläre PH (mild)",
+    "recommendations_short": [
+      "Bei neu/unexplained PH sollte ein Ventilations/Perfusions-Scan (oder Perfusionsscan) zum Ausschluss einer CTEPH/CTEPD durchgeführt werden.",
+      "Bei präkapillärer PH ohne Hinweise auf Gruppe 3/4 oder Shunt ist eine PAH (Gruppe 1) wahrscheinlich. Ätiologie-Abklärung nach Standardpfad (inkl. CTD, HIV, portopulmonal, Medikamente/Toxine, genetische Abklärung je nach Kontext) und Therapi…",
+      "Ein 12-Kanal-EKG sollte vor/bei RHK vorliegen. Bitte EKG nach typischen Rechtsherzbelastungszeichen beurteilen und dokumentieren."
+    ],
+    "tags": [
+      "präkapillär",
+      "V/Q-Szinti empfohlen",
+      "Gruppe 1 (PAH) wahrscheinlich",
+      "EKG fehlt"
+    ],
+    "warnings_count": 0
+  },
+  "pde5_only": {
+    "bundle": "K05",
+    "fired_rule_ids": [
+      "R_PRECAP_MILD",
+      "R_SUGGEST_P01_IF_INCOMPLETE",
+      "R_VQ_RECOMMENDED_UNEXPLAINED_PH",
+      "R_PAH_LIKELY_GROUP1_TAG",
+      "R_EKG_MISSING_RECOMMEND"
+    ],
+    "modules": [
+      "P01"
+    ],
+    "primary_dx": "Präkapilläre PH (mild)",
+    "recommendations_short": [
+      "Bei neu/unexplained PH sollte ein Ventilations/Perfusions-Scan (oder Perfusionsscan) zum Ausschluss einer CTEPH/CTEPD durchgeführt werden.",
+      "Bei präkapillärer PH ohne Hinweise auf Gruppe 3/4 oder Shunt ist eine PAH (Gruppe 1) wahrscheinlich. Ätiologie-Abklärung nach Standardpfad (inkl. CTD, HIV, portopulmonal, Medikamente/Toxine, genetische Abklärung je nach Kontext) und Therapi…",
+      "Ein 12-Kanal-EKG sollte vor/bei RHK vorliegen. Bitte EKG nach typischen Rechtsherzbelastungszeichen beurteilen und dokumentieren."
+    ],
+    "tags": [
+      "präkapillär",
+      "V/Q-Szinti empfohlen",
+      "Gruppe 1 (PAH) wahrscheinlich",
+      "EKG fehlt"
+    ],
+    "warnings_count": 0
+  }
+}
