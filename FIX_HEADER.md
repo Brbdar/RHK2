@@ -1,3 +1,3 @@
-Fix. v28.10: Patientenbericht nutzt Archetypen H1–H6 für horizontale Schwerpunkt-Varianten (ohne Sub-Layer), Standardtext bleibt Fallback
-Fix. v28.9: Patientenbericht-Archetypen H1–H6 als strukturelle Ebene vorbereitet, keine Textänderungen, bestehende Logik bleibt Default
-Fix. v28.8: Patientenbericht erweitert um evidenzbasierte Alltagshinweise nur bei stabil und nicht hochrisikant
+Fix. v28.13: Patientenbericht Beispiel-Load stabilisiert, Symptomfelder robust gegen bool statt Text (kein Absturz mehr)
+Fix. v28.12: App-Start repariert, ImportError in rhk_launch durch fehlendes _gradio_major_version behoben
+Fix. v28.11: Patientenbericht vertikal ausgebaut (Symptomgewichtung, Diskrepanz-Erklärungen, granularere Verlaufstypen), ohne Überschreiben manueller Eingaben

@@ -38,7 +38,7 @@ except Exception:  # pragma: no cover
 
 APP_NAME = "RHK Befundassistent"
 # Versioning: ab v28.x nur noch eine Dezimalstelle (z.B. v28.5)
-APP_VERSION = "v28.10"
+APP_VERSION = "v28.13"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 FIX_LOG = [
     "Fix. v28.10: Patientenbericht nutzt Archetypen H1–H6 für horizontale Schwerpunkt-Varianten (ohne Sub-Layer), Standardtext bleibt Fallback",
@@ -2388,6 +2388,53 @@ def _compare_rhk_trend(ui: Dict[str, Any], derived: Dict[str, Any]) -> Dict[str,
         rec_doc = "Hämodynamische Verschlechterung – zeitnahe Reevaluation (Therapieeskalation/Adhärenz/Komorbiditäten/Differenzialdiagnosen) erwägen."
         rec_pat = "Die Werte sind eher schlechter. Deshalb ist wichtig, dass wir die Behandlung zeitnah überprüfen und ggf. anpassen."
 
+    # ------------------------------------------------------------------
+    # Verlaufstypen (feiner als besser/stabil/gemischt) – nur Zusatzinfos
+    # ------------------------------------------------------------------
+    def _dir(param: str) -> str:
+        try:
+            return str(comps.get(param, (None, None, None, None, None))[2] or '')
+        except Exception:
+            return ''
+
+    d_mpap = _dir('mPAP')
+    d_pvr = _dir('PVR')
+    d_ci = _dir('CI')
+    d_pawp = _dir('PAWP')
+    d_rap = _dir('RAP')
+
+    subtype_id = ''
+    subtype_pat = ''
+    subtype_doc = ''
+
+    if d_mpap == 'better' and d_pvr == 'worse':
+        subtype_id = 'druck_besser_pvr_schlechter'
+        subtype_pat = 'Der Druck ist im Verlauf niedriger, der Widerstand in den Lungengefäßen aber höher. Das kann bedeuten, dass sich einzelne Teile verbessern, andere aber noch im Vordergrund stehen. Entscheidend ist dann, ob sich Belastbarkeit und das rechte Herz gleichzeitig stabilisieren.'
+        subtype_doc = 'mPAP verbessert, PVR verschlechtert – mögliche Verschiebung der Treiber (Volumenstatus, CO-Messmethode, Gefäßwiderstand) gezielt prüfen.'
+    elif d_mpap == 'same' and d_pvr == 'worse':
+        subtype_id = 'pvr_schlechter_druck_aehnlich'
+        subtype_pat = 'Der Widerstand in den Lungengefäßen ist höher geworden, obwohl der Druck ähnlich blieb. Das kann passieren, wenn die Durchblutung oder die Gefäßspannung sich verändert. Wichtig ist dann die Gesamtschau mit Pumpleistung und Beschwerden.'
+        subtype_doc = 'PVR verschlechtert bei stabilem mPAP – CO/VO2-Konsistenz, Messstreuung und klinischen Kontext prüfen.'
+    elif d_ci == 'same' and (d_mpap == 'worse' or d_pvr == 'worse'):
+        subtype_id = 'ci_stabil_haemodynamik_schlechter'
+        subtype_pat = 'Die Pumpleistung ist ähnlich, aber einzelne Druck oder Widerstandswerte sind ungünstiger. Dann prüfen wir, ob Faktoren wie Flüssigkeitshaushalt, Lunge oder die linke Herzseite mit hineinspielen.'
+        subtype_doc = 'CI stabil, Druck oder Widerstand ungünstiger – Trigger (Volumen, Komorbiditäten, Messstreuung) differenzieren.'
+    elif d_pawp == 'worse' and d_pvr in ('same','better'):
+        subtype_id = 'linker_druck_hoeher'
+        subtype_pat = 'Der Druck vor der linken Herzhälfte ist höher geworden. Das kann zu mehr Rückstau in die Lunge beitragen. Dann ist oft die Behandlung des linken Herzens und die Flüssigkeitsbalance besonders wichtig.'
+        subtype_doc = 'PAWP ansteigend – Volumenstatus, HFpEF/Linksherz und Diurese-Strategie prüfen.'
+    elif trend == 'gemischt':
+        subtype_id = 'therapieeffekt_unklar'
+        subtype_pat = 'Ein gemischtes Bild ist nicht ungewöhnlich. Wir schauen dann darauf, welche Werte am aussagekräftigsten sind und wie es Ihnen im Alltag geht, bevor wir daraus Konsequenzen ableiten.'
+        subtype_doc = 'Gemischter Verlauf – priorisiere klinisch führende Parameter und Kontext (Symptome, Echo, Biomarker).'
+
+
+    # subtype patient hint is appended to the general recommendation
+    if subtype_pat:
+        rec_pat = (rec_pat + ' ' + subtype_pat).strip()
+
+
+
     table_md = "\n".join([
         "| Parameter | Vorher | Jetzt | Trend |",
         "|---|---:|---:|:---:|",
@@ -2406,6 +2453,9 @@ def _compare_rhk_trend(ui: Dict[str, Any], derived: Dict[str, Any]) -> Dict[str,
         "table_md": table_md,
         "rec_doc": rec_doc,
         "rec_patient": rec_pat,
+        "subtype_id": subtype_id,
+        "subtype_patient": subtype_pat,
+        "subtype_doc": subtype_doc,
     }
 
 

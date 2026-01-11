@@ -47,6 +47,8 @@ from rhk_ui_rhk import build_rhk_tab  # noqa: F401
 import spiro_logic
 
 from rhk_ui_assets import CSS, JS_ON_LOAD, HEAD_HTML  # noqa: F401
+from rhk_ui_utils import _gradio_major_version  # re-export for rhk_launch
+
 from rhk_ui_utils import (  # noqa: F401
     load_rulebook_meta,
     build_sticky_summary_html,

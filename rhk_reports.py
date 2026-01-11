@@ -2618,6 +2618,81 @@ def build_patient_report(case: Dict[str, Any]) -> str:
         },
     }
 
+    
+
+    # ------------------------------------------------------------------
+    # Vertikale Verfeinerung (Sub-Layer): Symptomprofil und Diskrepanzen
+    # ------------------------------------------------------------------
+    def _symptom_profile() -> Dict[str, Any]:
+        """Return a lightweight symptom profile.
+
+        Robustness note:
+        - Example payloads (and occasionally UI integrations) may provide boolean values for symptom fields.
+        - We must never assume string input here, otherwise example-loading can crash the whole app.
+        """
+
+        who = str(ui.get("who_fc") or "").strip().upper()
+
+        def _to_bool(v: Any, truthy: set[str]) -> bool:
+            if v is None:
+                return False
+            if isinstance(v, bool):
+                return bool(v)
+            s = str(v).strip().lower()
+            return s in truthy
+
+        syn = _to_bool(ui.get("syncope"), {"ja", "yes", "true", "1", "gelegentlich", "manchmal"})
+        diz = _to_bool(ui.get("dizziness"), {"ja", "yes", "true", "1"})
+        # stairs_flights: grobe Belastungsdyspnoe-Orientierung
+        stairs = _safe_float(ui.get("stairs_flights"))
+
+        sev = "unknown"
+        if who in {"IV"}:
+            sev = "high"
+        elif who in {"III"}:
+            sev = "high"
+        elif who in {"II"}:
+            sev = "moderate"
+        elif who in {"I"}:
+            sev = "low"
+
+        # Wenn WHO fehlt, nutze Treppenangabe grob
+        if sev == "unknown" and stairs is not None:
+            if stairs <= 1:
+                sev = "low"
+            elif stairs <= 2:
+                sev = "moderate"
+            else:
+                sev = "high"
+
+        return {
+            "who_fc": who,
+            "syncope": syn,
+            "dizziness": diz,
+            "stairs_flights": stairs,
+            "severity": sev,
+        }
+
+    def _discordance_flags(symp: Dict[str, Any]) -> Dict[str, bool]:
+        # 1) hoher Druck + niedriger BNP
+        d1 = bool((mpap is not None and mpap > 30) and (bio_qual == "niedrig"))
+
+        # 2) eher niedriger Druck + starke Symptome
+        strong_symp = bool(symp.get("severity") == "high" or symp.get("syncope"))
+        d2 = bool((mpap is not None and mpap <= 25) and strong_symp)
+
+        # 3) Echo wirkt beruhigend, Katheter hoch
+        pasp_echo = _safe_float(ui.get("pasp_echo"))
+        trv = _safe_float(ui.get("trv_ms"))
+        echo_low = bool((pasp_echo is not None and pasp_echo < 40) or (trv is not None and trv < 2.8))
+        d3 = bool(echo_low and (mpap is not None and mpap > 30))
+
+        return {
+            "high_mpap_low_bnp": d1,
+            "low_pressure_high_symptoms": d2,
+            "echo_ok_cath_high": d3,
+        }
+
     def _arch_text(kind: str) -> str:
         """Optionaler Fokus-Text je Archetyp (Fallback: leer)."""
         bid = (_ARCH_BLOCKS.get(archetype_id) or {}).get(kind)
@@ -2729,6 +2804,13 @@ def build_patient_report(case: Dict[str, Any]) -> str:
         return "deutlich erhöht"
 
     bio_qual = _bio_qual(str(bnp_kind), bnp_val)
+
+    # Diskrepanz: hoher Druck, aber niedriger BNP/NT-proBNP
+    try:
+        _mp = _safe_float(der.get('mpap_rest') if der.get('mpap_rest') is not None else der.get('mpap'))
+        disc['high_mpap_low_bnp'] = bool(_mp is not None and _mp > 30 and bio_qual == 'niedrig')
+    except Exception:
+        pass
 
     # ------------------------------------------------------------------
     # Bericht zusammensetzen
@@ -2974,7 +3056,7 @@ def build_patient_report(case: Dict[str, Any]) -> str:
     # Hier Fokus auf Einordnung, offene Punkte und Konsequenzen (ohne Procedere-Details).
     if has_ph:
         if hemo_cat == "precap":
-            lines.append("In der Zusammenschau ergibt sich eher ein präkapilläres Muster. Entscheidend ist nun, *warum* der Widerstand in den Lungengefäßen erhöht ist.")
+            lines.append("In der Zusammenschau ergibt sich eher ein präkapilläres Muster. Entscheidend ist nun, warum der Widerstand in den Lungengefäßen erhöht ist.")
         elif hemo_cat in {"ipcph", "cpcph"}:
             lines.append("In der Zusammenschau gibt es Hinweise auf eine Mitbeteiligung der linken Herzseite. Entscheidend ist nun, wie groß dieser Anteil ist und ob zusätzlich der Lungenkreislauf selbst betroffen ist.")
         else:
@@ -2983,6 +3065,28 @@ def build_patient_report(case: Dict[str, Any]) -> str:
     else:
         lines.append("Die Messwerte in Ruhe sind unauffällig. Wenn Beschwerden vor allem unter Belastung auftreten, kann das trotzdem weiter eingeordnet werden – manche Veränderungen zeigen sich erst dann.")
         lines.append("")
+
+    # Sub-Layer: Symptom-Gewichtung (gleiche Fakten, andere Gewichtung)
+    symp = _symptom_profile()
+    if symp.get("syncope"):
+        t = _render_patient_text("PX_SYMPTOM_PROFILE_SYNCOPE", blocks, ctx, rng)
+        if t:
+            lines.append(t)
+            lines.append("")
+    else:
+        sev = symp.get("severity")
+        bid = {
+            "low": "PX_SYMPTOM_PROFILE_LOW",
+            "moderate": "PX_SYMPTOM_PROFILE_MODERATE",
+            "high": "PX_SYMPTOM_PROFILE_HIGH",
+        }.get(sev or "")
+        if bid:
+            t = _render_patient_text(bid, blocks, ctx, rng)
+            if t:
+                lines.append(t)
+                lines.append("")
+
+    disc = _discordance_flags(symp)
 
     # Archetyp-spezifische Fokusverschiebung (Einordnung) – nur, wenn verfügbar
     t_arch2 = _arch_text("meaning")
@@ -3064,6 +3168,26 @@ def build_patient_report(case: Dict[str, Any]) -> str:
     # Hinweis zur Einordnung (kurz, ohne Glossar)
     lines.append("Wichtig: Entscheidend ist die Kombination dieser Werte und der Verlauf. Eine einzelne Zahl erklärt Beschwerden selten vollständig.")
     lines.append("")
+    # Diskrepanz-Erklärungen (Sub-Layer)
+    disc_blocks: List[str] = []
+    if disc.get("high_mpap_low_bnp"):
+        disc_blocks.append("PX_DISCORDANCE_HIGH_MPAP_LOW_BNP")
+    if disc.get("low_pressure_high_symptoms"):
+        disc_blocks.append("PX_DISCORDANCE_LOW_PRESSURE_HIGH_SYMPTOMS")
+    if disc.get("echo_ok_cath_high"):
+        disc_blocks.append("PX_DISCORDANCE_ECHO_OK_CATH_HIGH")
+
+    if disc_blocks:
+        lines.append("## Wenn Werte und Beschwerden nicht gut zusammenpassen")
+        lines.append(
+            "Das kommt bei Herz und Lungenerkrankungen häufiger vor. Wichtig ist dann, dass wir gezielt erklären, welcher Teil des Befundes für Sie im Alltag entscheidend ist."
+        )
+        for bid in disc_blocks:
+            t = _render_patient_text(bid, blocks, ctx, rng)
+            if t:
+                lines.append(t)
+        lines.append("")
+
     # 4) Verlauf / Vergleich (wenn vorhanden)
     if trend_info.get("has_prev"):
         lines.append("## Verlauf im Vergleich")
@@ -3077,6 +3201,11 @@ def build_patient_report(case: Dict[str, Any]) -> str:
         if trend_info.get("detail_patient"):
             lines.append(trend_info.get("detail_patient"))
         recp = (trend_info.get("rec_patient") or "").strip()
+        subtype_pat = (trend_info.get("subtype_patient") or "").strip()
+        if subtype_pat:
+            lines.append("")
+            lines.append(subtype_pat)
+
         if recp:
             lines.append("")
             lines.append(f"**Was bedeutet das praktisch?** {recp}")
@@ -3232,8 +3361,17 @@ def build_patient_report(case: Dict[str, Any]) -> str:
         lines.append("")
 
     # Personalisierte Hinweise (nicht redundant, nicht belehrend)
-    syn = (ui.get("syncope") or "").strip().lower() in {"ja", "yes", "true", "gelegentlich", "manchmal"}
-    diz = (ui.get("dizziness") or "").strip().lower() in {"ja", "yes", "true"}
+    # Robust gegen bool / numerische Werte aus Beispielen oder externen Importen.
+    def _to_bool2(v: Any, truthy: set[str]) -> bool:
+        if v is None:
+            return False
+        if isinstance(v, bool):
+            return bool(v)
+        s = str(v).strip().lower()
+        return s in truthy
+
+    syn = _to_bool2(ui.get("syncope"), {"ja", "yes", "true", "1", "gelegentlich", "manchmal"})
+    diz = _to_bool2(ui.get("dizziness"), {"ja", "yes", "true", "1"})
 
     if syn:
         lines.append("Da bei Ihnen Ohnmacht oder Beinahe Ohnmacht angegeben wurde, ist das ein besonders wichtiges Warnsignal. Bitte melden Sie sich bei erneuten Episoden zeitnah.")

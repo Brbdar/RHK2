@@ -186,6 +186,92 @@ _add(
     ],
 )
 
+
+# ---------------------------------------------------------------------------
+# Vertikale Verfeinerung: Symptomgewichtung, Diskrepanz-Erklärungen, Verlaufstypen
+# ---------------------------------------------------------------------------
+
+_add(
+    "PX_SYMPTOMS_LOW",
+    "Symptome: eher mild",
+    [
+        "Ihre Beschwerden wirken eher mild. Das ist ein gutes Zeichen. Trotzdem achten wir auf den Verlauf, weil sich Lungengefäß-Erkrankungen auch schleichend verändern können.",
+        "Die aktuelle Belastbarkeit wirkt eher gut. Für die Einordnung ist dann besonders wichtig, ob sich etwas im Verlauf verändert und wie Sie Belastung im Alltag vertragen.",
+    ],
+)
+
+_add(
+    "PX_SYMPTOMS_MODERATE",
+    "Symptome: moderat",
+    [
+        "Ihre Beschwerden wirken spürbar, aber nicht maximal ausgeprägt. Für die Therapieplanung ist wichtig, ob Sie im Alltag stabil bleiben oder ob die Belastbarkeit weiter abnimmt.",
+        "Die Symptome passen zu einer moderaten Einschränkung. Wir nutzen Messwerte und Verlauf gemeinsam, um zu entscheiden, ob und wann Anpassungen nötig sind.",
+    ],
+)
+
+_add(
+    "PX_SYMPTOMS_HIGH",
+    "Symptome: deutlich",
+    [
+        "Ihre Beschwerden wirken deutlich. In solchen Situationen hat die klinische Situation oft das gleiche Gewicht wie einzelne Messwerte. Wir planen Kontrollen und Therapie so, dass Sie im Alltag sicher bleiben.",
+        "Bei deutlich eingeschränkter Belastbarkeit ist besonders wichtig, Warnzeichen ernst zu nehmen und Veränderungen früh zu besprechen. Dann kann man rechtzeitig gegensteuern.",
+    ],
+)
+
+_add(
+    "PX_SYMPTOMS_SYNCOPE",
+    "Symptome: Synkope",
+    [
+        "Ohnmacht oder Beinahe-Ohnmacht ist bei Lungengefäß-Erkrankungen ein wichtiges Warnsignal. Das bedeutet nicht automatisch Gefahr im Moment, sollte aber konsequent und zeitnah abgeklärt werden.",
+        "Wenn es zu Ohnmacht oder Beinahe-Ohnmacht kommt, kann das darauf hinweisen, dass Kreislauf und rechtes Herz unter Belastung an Grenzen kommen. Bitte sprechen Sie neue Episoden immer zeitnah an.",
+    ],
+)
+
+_add(
+    "PX_DISCORDANCE_HIGH_MPAP_LOW_BNP",
+    "Diskrepanz: hoher Druck, aber niedriger BNP",
+    [
+        "Manchmal sind die Druckwerte deutlich erhöht, während der Blutwert BNP oder NT-proBNP eher niedrig bleibt. Das kann passieren, wenn das rechte Herz die Situation noch gut kompensiert oder wenn der Blutwert durch andere Faktoren beeinflusst wird. Entscheidend ist dann die Gesamtschau aus Beschwerden, Belastbarkeit und Verlauf.",
+        "Ein niedriger BNP oder NT-proBNP Wert schließt eine relevante Druckerhöhung nicht aus. Umgekehrt bedeutet ein hoher Druck nicht immer, dass das Herz bereits überlastet ist. Deshalb betrachten wir Messwerte, Symptome und Verlauf gemeinsam.",
+    ],
+)
+
+_add(
+    "PX_DISCORDANCE_LOW_PRESSURE_HIGH_SYMPTOMS",
+    "Diskrepanz: eher niedriger Druck, aber deutliche Beschwerden",
+    [
+        "Es kann vorkommen, dass Druckwerte in Ruhe nur leicht erhöht oder unauffällig sind, Beschwerden aber deutlich sind. Häufig spielen dann Belastungssituationen, Begleiterkrankungen der Lunge oder des linken Herzens, Blutarmut oder der Trainingszustand eine Rolle. Deshalb ist die Abklärung oft breiter als nur die Druckwerte.",
+        "Wenn Symptome stärker sind als es eine einzelne Zahl erwarten lässt, schauen wir besonders auf Belastungstests, Lungenfunktion, Bildgebung und den Verlauf. So lässt sich meist erklären, welcher Faktor im Alltag den größten Anteil hat.",
+    ],
+)
+
+_add(
+    "PX_DISCORDANCE_ECHO_GOOD_CATH_HIGH",
+    "Diskrepanz: Echo wirkt unauffällig, Katheter zeigt höhere Werte",
+    [
+        "Ultraschall (Echo) und Herzkatheter messen unterschiedliche Dinge. Das Echo schätzt Druckwerte indirekt und kann unauffällig wirken, auch wenn der Katheter eine Druckerhöhung zeigt. Der Katheter ist für die Druckmessung der zuverlässigere Test.",
+        "Wenn Echo und Katheter nicht perfekt zusammenpassen, ist das nicht ungewöhnlich. Dann nutzen wir den Katheter als Referenz und schauen ergänzend, wie das rechte Herz im Echo arbeitet und wie sich die Belastbarkeit entwickelt.",
+    ],
+)
+
+_add(
+    "PX_TREND_SUBTYPE_PRESSURE_BETTER_PVR_WORSE",
+    "Verlaufstyp: Druck besser, Widerstand schlechter",
+    [
+        "Ein Teil der Werte ist besser, ein anderer ungünstiger. Wenn der Druck etwas fällt, der Widerstand aber steigt, kann das zum Beispiel an Messstreuung, dem Flüssigkeitshaushalt oder einer veränderten Durchblutung der Lunge liegen. Wichtig ist dann, welche Veränderung am besten zu Ihren Beschwerden passt.",
+        "Wenn Druck und Widerstand unterschiedliche Richtungen zeigen, schauen wir besonders auf Pumpleistung, Rückstau und Belastbarkeit. Daraus ergibt sich, welcher Teil klinisch entscheidend ist.",
+    ],
+)
+
+_add(
+    "PX_TREND_SUBTYPE_EFFECT_UNCLEAR",
+    "Verlaufstyp: Therapieeffekt unklar",
+    [
+        "Wenn sich einzelne Werte nur wenig verändern oder unterschiedliche Richtungen zeigen, kann der Therapieeffekt noch unklar sein. Dann hilft oft eine Verlaufskontrolle mit denselben Messmethoden und ein Blick auf Belastbarkeit und Symptome.",
+        "Nicht jede Veränderung ist sofort eindeutig. Entscheidend ist, ob Sie sich im Alltag stabiler fühlen und ob Warnzeichen auftreten. Das besprechen wir gezielt im Verlauf.",
+    ],
+)
+
 _add(
     "PX_INCOMPLETE",
     "Einordnung derzeit nicht eindeutig",
@@ -523,3 +609,75 @@ PATIENT_GLOSSARY: Dict[str, str] = {
     "PDE5": "Medikamentengruppe, die Lungengefäße entspannen kann (z. B. Sildenafil/Tadalafil).",
 }
 
+
+
+# ---------------------------------------------------------------------------
+# Vertikale Verfeinerung: Symptom-Gewichtung (Sub-Layer)
+# ---------------------------------------------------------------------------
+
+_add(
+    "PX_SYMPTOM_PROFILE_LOW",
+    "Symptomprofil: eher milde Beschwerden",
+    [
+        "Ihre Angaben sprechen eher für milde Einschränkungen im Alltag. Wichtig ist trotzdem, Veränderungen früh zu bemerken und nicht nur auf einzelne Messwerte zu schauen.",
+        "Die Belastbarkeit wirkt insgesamt eher stabil. Entscheidend ist, ob sich Luftnot oder Leistungsfähigkeit im Verlauf verändern.",
+    ],
+)
+
+_add(
+    "PX_SYMPTOM_PROFILE_MODERATE",
+    "Symptomprofil: mittlere Einschränkungen",
+    [
+        "Ihre Beschwerden wirken im Alltag spürbar. Wir richten die nächsten Schritte deshalb nicht nur nach Zahlen aus, sondern auch nach dem, was Sie im täglichen Leben belastet.",
+        "Bei mittleren Beschwerden ist oft die Kombination aus Messwerten, Belastbarkeit und Verlauf entscheidend. Genau darauf stützen wir die Planung der Kontrollen und Therapie.",
+    ],
+)
+
+_add(
+    "PX_SYMPTOM_PROFILE_HIGH",
+    "Symptomprofil: deutliche Einschränkungen",
+    [
+        "Sie berichten über deutliche Einschränkungen. Dann ist besonders wichtig, dass wir nicht nur die Messwerte betrachten, sondern gezielt klären, was Ihre Beschwerden antreibt und wie wir die Situation rasch stabilisieren.",
+        "Wenn Alltagstätigkeiten deutlich schwerfallen, hat das für die Therapieplanung ein hohes Gewicht. Wir besprechen deshalb engmaschig, welche Schritte am meisten helfen können.",
+    ],
+)
+
+_add(
+    "PX_SYMPTOM_PROFILE_SYNCOPE",
+    "Symptomprofil: Synkope als Warnsignal",
+    [
+        "Ohnmacht oder Beinahe Ohnmacht ist bei Lungengefäßerkrankungen ein wichtiges Warnsignal. Bitte melden Sie solche Episoden immer zeitnah, auch wenn einzelne Werte auf den ersten Blick nicht dramatisch wirken.",
+        "Synkopen sind ein ernstes Signal, weil kurzfristig weniger Blut im Kreislauf ankommen kann. Das beeinflusst, wie wir Risiko und Therapie einschätzen.",
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# Vertikale Verfeinerung: Diskrepanz-Erklärungen (Sub-Layer)
+# ---------------------------------------------------------------------------
+
+_add(
+    "PX_DISCORDANCE_HIGH_MPAP_LOW_BNP",
+    "Diskrepanz: hoher Druck, niedriger BNP",
+    [
+        "Manchmal ist der Druck im Lungenkreislauf deutlich erhöht, während der Blutwert BNP oder NT pro BNP niedrig bleibt. Das kann vorkommen, wenn das rechte Herz die Belastung noch gut kompensiert oder wenn der Blutwert durch andere Faktoren mit beeinflusst wird. Entscheidend ist dann die Gesamtschau mit Belastbarkeit und Echo.",
+        "Ein niedriger BNP oder NT pro BNP Wert schließt eine Druckerhöhung nicht aus. Wir nutzen den Wert als Verlaufspunkt, aber nicht als alleinige Erklärung Ihrer Situation.",
+    ],
+)
+
+_add(
+    "PX_DISCORDANCE_LOW_PRESSURE_HIGH_SYMPTOMS",
+    "Diskrepanz: eher niedriger Druck, aber starke Beschwerden",
+    [
+        "Starke Beschwerden können auch auftreten, wenn die Druckwerte nur moderat sind. Gründe können zum Beispiel eine eingeschränkte Pumpleistung, Rückstau, eine Lungenerkrankung, Blutarmut oder ein Zusammenspiel mehrerer Faktoren sein. Deshalb betrachten wir immer das Gesamtbild.",
+        "Wenn Symptome und Druckwerte nicht zusammenpassen, ist das kein Widerspruch. Dann prüfen wir gezielt andere Ursachen, die die Belastbarkeit im Alltag beeinflussen.",
+    ],
+)
+
+_add(
+    "PX_DISCORDANCE_ECHO_OK_CATH_HIGH",
+    "Diskrepanz: Echo wirkt beruhigend, Katheter zeigt hohe Werte",
+    [
+        "Das Echo kann manchmal unauffällig wirken, obwohl der Herzkatheter erhöhte Druckwerte zeigt. Das liegt daran, dass Echo Werte indirekt schätzt und nicht immer jede Konstellation sicher abbilden kann. Für die Einordnung ist der Katheter dann besonders wichtig.",
+        "Wenn Echo und Katheter unterschiedliche Signale geben, orientieren wir uns an den zuverlässigsten Messungen und schauen zusätzlich auf Verlauf und Beschwerden.",
+    ],
+)
