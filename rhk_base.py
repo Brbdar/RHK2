@@ -38,12 +38,12 @@ except Exception:  # pragma: no cover
 
 APP_NAME = "RHK Befundassistent"
 # Versioning: ab v28.x nur noch eine Dezimalstelle (z.B. v28.5)
-APP_VERSION = "v28.13"
+APP_VERSION = "v28.14"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 FIX_LOG = [
-    "Fix. v28.10: Patientenbericht nutzt Archetypen H1–H6 für horizontale Schwerpunkt-Varianten (ohne Sub-Layer), Standardtext bleibt Fallback",
-    "Fix. v28.9: Patientenbericht-Archetypen H1–H6 als strukturelle Ebene vorbereitet, keine Textänderungen, bestehende Logik bleibt Default",
-    "Fix. v28.8: Patientenbericht erweitert um evidenzbasierte Alltagshinweise nur bei stabil und nicht hochrisikant",
+    "Fix. v28.14: Render Deploy kompatibel gemacht (Python-Pinning + OCR-Dependencies nur für Python <3.13)",
+    "Fix. v28.13: Patientenbericht Beispiel-Load stabilisiert (typsichere Symptomfelder), kein Absturz mehr",
+    "Fix. v28.12: App-Start repariert (ImportError _gradio_major_version behoben)",
 ]
 
 def _render_whats_new() -> str:
