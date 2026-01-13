@@ -1227,19 +1227,17 @@ def build_doctor_report_template(case: Dict[str, Any], blocks: Dict[str, TextBlo
     # ------------------------------------------------------------------
     _par("Procedere:")
 
-    # Procedere muss die tatsächlich gewählten (und ggf. fallbasiert vorgeschlagenen) P Module abbilden.
-    # Keine generischen Standardblöcke ohne Modulbezug.
+    # Procedere muss ausschließlich die bewusst gewählten P-Module abbilden (Single Source of Truth).
     selected_mods = _normalize_module_ids(ui.get("modules") or [])
-    auto_mods = _normalize_module_ids(dec.get("modules") or [])
-    all_mods = list(dict.fromkeys(auto_mods + selected_mods))
 
     policy = der.get("p_module_policy") or {}
-    disabled_mods: Dict[str, str] = (policy.get("disabled") or {})
-    allowed_order: List[str] = policy.get("allowed") or list(_ALL_P_MODULE_IDS)
+    eff_policy = pmods_apply_overrides(policy, pmods_get_force_optional(ui))
+    disabled_mods: Dict[str, str] = (eff_policy.get("disabled") or {})
+    allowed_order: List[str] = eff_policy.get("allowed") or list(_ALL_P_MODULE_IDS)
 
     emitted_any = False
     for mid in allowed_order:
-        if mid not in all_mods:
+        if mid not in selected_mods:
             continue
         if mid in disabled_mods:
             # Modul ist nicht anwählbar oder klinisch nicht passend: im Bericht nicht ausgeben
@@ -1752,14 +1750,15 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
         risk_lines.append(_md_kv("HFpEF (H2FPEF)", f"{der['hfpef_category']} (~{_fmt(der.get('hfpef_percent'),0)}%)"))
     risk_block = "\n".join(risk_lines) if risk_lines else "Keine Risikostratifizierung möglich (Daten fehlen)."
 
-    # Modules (engine + user selected) – fallbasiert sortiert + ggf. gefiltert
+    # Modules – ausschließlich bewusst gewählte P-Module (Single Source of Truth)
     selected = _normalize_module_ids(ui.get("modules") or [])
-    auto_mods = _normalize_module_ids(dec.get("modules") or [])
-    all_mods = list(dict.fromkeys(auto_mods + selected))
 
     policy = der.get("p_module_policy") or {}
-    disabled_mods: Dict[str, str] = policy.get("disabled") or {}
-    allowed_order: List[str] = policy.get("allowed") or list(_ALL_P_MODULE_IDS)
+    eff_policy = pmods_apply_overrides(policy, pmods_get_force_optional(ui))
+    disabled_mods: Dict[str, str] = eff_policy.get("disabled") or {}
+    allowed_order: List[str] = eff_policy.get("allowed") or list(_ALL_P_MODULE_IDS)
+
+    all_mods = list(selected)
 
     skipped_mods = [m for m in all_mods if m in disabled_mods]
     all_mods = [m for m in all_mods if m not in disabled_mods]
@@ -2723,16 +2722,15 @@ def build_patient_report(case: Dict[str, Any]) -> str:
     # Verlaufstrend (optional)
     trend_info = _compare_rhk_trend(ui, der)
 
-    # Module: user-selected + auto (fallbasiert sortiert + ggf. gefiltert)
+    # Module: ausschließlich bewusst gewählte P-Module (Single Source of Truth)
     selected_mods = _normalize_module_ids(ui.get("modules") or [])
-    auto_mods = _normalize_module_ids(dec.get("modules") or [])
-    all_mods = list(dict.fromkeys(auto_mods + selected_mods))
 
     policy = der.get("p_module_policy") or {}
-    disabled_mods: Dict[str, str] = policy.get("disabled") or {}
-    allowed_order: List[str] = policy.get("allowed") or list(_ALL_P_MODULE_IDS)
+    eff_policy = pmods_apply_overrides(policy, pmods_get_force_optional(ui))
+    disabled_mods: Dict[str, str] = eff_policy.get("disabled") or {}
+    allowed_order: List[str] = eff_policy.get("allowed") or list(_ALL_P_MODULE_IDS)
 
-    all_mods = [m for m in all_mods if m not in disabled_mods]
+    all_mods = [m for m in selected_mods if m not in disabled_mods]
 
     order_index = {mid: i for i, mid in enumerate(allowed_order)}
     all_mods = sorted(all_mods, key=lambda m: order_index.get(m, 10_000))

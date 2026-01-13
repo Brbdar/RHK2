@@ -14,17 +14,22 @@ from __future__ import annotations
 from rhk_base import *  # noqa: F401,F403
 
 def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
-    # Normalize modules (UI-Labels -> IDs)
+    # Normalize modules (Single Source of Truth: ui['modules'])
     try:
-        # P-Module: Levels (v24) + Legacy-Feld "modules" zusammenführen
-        _mods: List[str] = []
-        for _k in ("modules_lvl1", "modules_lvl2", "modules_lvl3", "modules"):
-            _v = ui.get(_k)
-            if isinstance(_v, list):
-                _mods.extend([str(x) for x in _v if x])
-        ui["modules"] = _normalize_module_ids(_mods)
+        # If ui['modules'] already exists (e.g., loaded case), do NOT overwrite it from level fields.
+        _mods = ui.get("modules")
+        if isinstance(_mods, list) and _mods:
+            ui["modules"] = _normalize_module_ids(_mods)
+        else:
+            _acc: List[str] = []
+            for _k in ("modules_lvl1", "modules_lvl2", "modules_lvl3"):
+                _v = ui.get(_k)
+                if isinstance(_v, list):
+                    _acc.extend([str(x) for x in _v if x])
+            ui["modules"] = _normalize_module_ids(_acc)
     except Exception:
         pass
+
 
     # ---- basic anthropometrics ----
     height_cm = _safe_float(ui.get("height_cm"))

@@ -2062,7 +2062,8 @@ JS_ON_LOAD = r"""
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
         } catch (e) {}
-      }, 220);
+      // Performance: longer debounce to reduce server roundtrips while typing on slow clinic internet.
+      }, 450);
 
       const shouldIgnore = (target) => {
         try {

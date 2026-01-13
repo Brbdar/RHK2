@@ -44,7 +44,16 @@ from rhk_ui_echo import build_echo_section, bind_echo_import, render_echo_import
 from rhk_ui_rhk import build_rhk_tab  # noqa: F401
 
 # Deterministic CPET expert logic (Spiro-Logic wizard)
-import spiro_logic
+# Performance: lazy import to reduce cold-start time.
+import importlib
+
+_SPIRO_LOGIC = None
+
+def _get_spiro_logic():
+    global _SPIRO_LOGIC
+    if _SPIRO_LOGIC is None:
+        _SPIRO_LOGIC = importlib.import_module('spiro_logic')
+    return _SPIRO_LOGIC
 
 from rhk_ui_assets import CSS, JS_ON_LOAD, HEAD_HTML  # noqa: F401
 from rhk_ui_utils import _gradio_major_version  # re-export for rhk_launch
@@ -1041,22 +1050,26 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     # Nicht anwählbare Module inkl. medizinischer Begründung (Tooltip) – bleibt sichtbar
                     modules_disabled_html = gr.HTML(value="", elem_id="modules_disabled")
 
+                    
                     with gr.Accordion("P-Module auswählen / bearbeiten", open=False, elem_id="pmods_accordion"):
-                        gr.Markdown("### P-Module (optional)")
+                        gr.Markdown("### P-Module (Auswahl)")
                         gr.Markdown("**Level I – prioritäre Empfehlungen** · Level II – sinnvoll ergänzend · Level III – optional")
                         gr.Markdown(
-                            "Die P-Module werden automatisch nach Sinnhaftigkeit in **Level I–III** sortiert. "
-                            "Nicht passende Module werden **hellgrau** angezeigt und sind nicht anwählbar. "
-                            "Falls Sie dennoch Aspekte dokumentieren möchten, nutzen Sie den **Freitext** im Procedere."
+                            "Die P-Module werden nach Sinnhaftigkeit in **Level I–III** sortiert. "
+                            "Module können hier bewusst gewählt oder abgewählt werden. "
+                            "Nicht empfohlene Module bleiben separat sichtbar und können bei Bedarf wieder **optional** gemacht werden."
                         )
 
+                        # WICHTIG: Keine Checkboxen. Dropdowns sind reine View – die autoritative Quelle ist case_state['ui']['modules'].
                         with gr.Group(elem_id="pmods_lvl1"):
                             modules_lvl1_comp = add(
                                 "modules_lvl1",
-                                gr.CheckboxGroup(
-                                    label="Level I – prioritäre Empfehlungen",
+                                gr.Dropdown(
+                                    label="Level I – gewählte Module (Klick zum Abwählen)",
                                     choices=[],
                                     value=[],
+                                    multiselect=True,
+                                    interactive=True,
                                     elem_id="pmods_choice_lvl1",
                                 ),
                             )
@@ -1064,10 +1077,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                         with gr.Group(elem_id="pmods_lvl2"):
                             modules_lvl2_comp = add(
                                 "modules_lvl2",
-                                gr.CheckboxGroup(
-                                    label="Level II – sinnvoll ergänzend",
+                                gr.Dropdown(
+                                    label="Level II – gewählte Module (Klick zum Abwählen)",
                                     choices=[],
                                     value=[],
+                                    multiselect=True,
+                                    interactive=True,
                                     elem_id="pmods_choice_lvl2",
                                 ),
                             )
@@ -1075,12 +1090,28 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                         with gr.Group(elem_id="pmods_lvl3"):
                             modules_lvl3_comp = add(
                                 "modules_lvl3",
-                                gr.CheckboxGroup(
-                                    label="Level III – optional",
-                                    choices=base_module_choices,
+                                gr.Dropdown(
+                                    label="Level III – gewählte Module (Klick zum Abwählen)",
+                                    choices=[],
                                     value=[],
+                                    multiselect=True,
+                                    interactive=True,
                                     elem_id="pmods_choice_lvl3",
                                 ),
+                            )
+
+                        with gr.Row():
+                            pmods_disabled_dd = gr.Dropdown(
+                                label="Derzeit nicht empfohlen (bewusst wieder optional machen)",
+                                choices=[],
+                                value=None,
+                                interactive=True,
+                                elem_id="pmods_disabled_dd",
+                            )
+                            pmods_make_optional_btn = gr.Button(
+                                "Wieder optional machen",
+                                variant="secondary",
+                                elem_id="pmods_make_optional_btn",
                             )
 
                     add("procedere_free", gr.Textbox(label="Procedere – Freitext", lines=3, elem_id="procedere_free"))
@@ -1300,6 +1331,21 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 except TypeError:
                     comp.change(fn, inputs=inputs, outputs=outputs)
 
+        def _bind_blur(comp, fn, inputs=None, outputs=None):
+            """Bind callbacks on blur (focus loss) for text/number fields to avoid per-keystroke server roundtrips."""
+            try:
+                comp.blur(
+                    fn,
+                    inputs=inputs,
+                    outputs=outputs,
+                    queue=False,
+                    show_progress="hidden",
+                    scroll_to_output=False,
+                )
+            except Exception:
+                # Fallback: some Gradio versions/components do not expose .blur
+                _bind_change(comp, fn, inputs=inputs, outputs=outputs)
+
         # ------------------------------------------------------------------
         # Section header progress (non-sticky, Apple-like)
         # ------------------------------------------------------------------
@@ -1352,6 +1398,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         def _bind_section_progress(header_comp, title: str, comps: List[gr.components.Component], calc_fn):
             """Bind progress refresh to all comps in a section (no loading flicker)."""
+            # Performance: section progress is a classic "laggy typing" source because it binds events to
+            # dozens of text fields and triggers server roundtrips on every keystroke.
+            # Default is OFF. Enable explicitly via env var if needed.
+            if os.getenv("RHK_ENABLE_SECTION_PROGRESS", "0").strip() != "1":
+                return
             if not comps:
                 return
 
@@ -1361,7 +1412,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             for c in comps:
                 try:
-                    _bind_change(c, _cb, inputs=comps, outputs=[header_comp])
+                    cname = (c.__class__.__name__ or "").lower()
+                    # Text / numeric inputs: update on blur to avoid per-keystroke requests
+                    if cname in ("textbox", "number") and hasattr(c, "blur"):
+                        _bind_blur(c, _cb, inputs=comps, outputs=[header_comp])
+                    else:
+                        _bind_change(c, _cb, inputs=comps, outputs=[header_comp])
                 except Exception:
                     pass
 
@@ -1547,7 +1603,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "cpet_9panel_veeq_pattern": nine_veeq,
                 "cpet_9panel_comment": nine_comment,
             }
-            out = spiro_logic.build_wizard_outputs(ui_tmp)
+            out = _get_spiro_logic().build_wizard_outputs(ui_tmp)
 
             # Follow up block should remain visible if triggered OR already filled
             show_follow = bool(out.get("need_chrono_followups")) or bool(beta_blocker) or bool(sinus_node) or bool(hypervent) or bool((chrono_comment or "").strip())
@@ -1599,13 +1655,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         # eGFR (auto) – update on creatinine/age/sex changes
         # eGFR depends only on creatinine, age, sex (do not pass unrelated inputs).
-        _bind_change(
+        _bind_blur(
             field_components["creatinine_mg_dl"],
             _update_egfr,
             inputs=[field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]],
             outputs=[field_components["egfr_ml_min_1_73"]],
         )
-        _bind_change(
+        _bind_blur(
             field_components["age"],
             _update_egfr,
             inputs=[field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"]],
@@ -1643,7 +1699,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "cpet_spo2_nadir_pct", "cpet_rer_peak", "cpet_hr_peak_bpm",
                 "cpet_o2_pulse_pattern",
             ):
-                _bind_change(field_components[_k], _sync_post_load_cpet, inputs=_cpet_inputs, outputs=[cpet_details, cpet_risk_html])
+                # Performance: avoid per-keystroke server roundtrips on numeric inputs.
+                if _k in ("cpet_done", "cpet_o2_pulse_pattern"):
+                    _bind_change(field_components[_k], _sync_post_load_cpet, inputs=_cpet_inputs, outputs=[cpet_details, cpet_risk_html])
+                else:
+                    _bind_blur(field_components[_k], _sync_post_load_cpet, inputs=_cpet_inputs, outputs=[cpet_details, cpet_risk_html])
         except Exception:
             pass
 
@@ -2514,11 +2574,21 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         def _generate(flags_state, pmods_state, docx_cur_state, docx_prev_state, echo_cur_state, echo_prev_state, case_filename_state, *vals):
             flags = dict(flags_state or {})
 
+            # Optional lightweight profiling (console only). Enable with env var RHK_PERF=1.
+            perf_on = os.getenv("RHK_PERF", "0").strip() == "1"
+            t0 = time.perf_counter() if perf_on else 0.0
+            t_raw0 = t0
+            t_case0 = t0
+            t_rep0 = t0
+            t_ui0 = t0
+
             remembered_name = (case_filename_state or '').strip()
             # Normalize: ensure .json extension
             if remembered_name and not remembered_name.lower().endswith('.json'):
                 remembered_name = remembered_name + '.json'
 
+            if perf_on:
+                t_raw0 = time.perf_counter()
             raw = ui_get_raw(*vals)
 
             # --- eGFR: compute reliably (also after programmatic imports) ---
@@ -2552,10 +2622,14 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 raw["modules"] = seed_mods
             else:
                 raw["modules"] = ui_mods
+            if perf_on:
+                t_case0 = time.perf_counter()
             case = build_case(raw, rules)
 
             # Arztbericht: muss die vollständige Hämodynamik (Ruhe + Provokation), Slopes und Interpretation enthalten.
             # Das kompakte Template bleibt für DOCX-Layouts im Code, wird hier aber nicht als primärer Bericht verwendet.
+            if perf_on:
+                t_rep0 = time.perf_counter()
             doc = build_doctor_report(case, blocks)
             pat = build_patient_report(case)
             echo_doc = build_echo_doctor_report_extended(case)
@@ -2611,11 +2685,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     ci_calc = float(der.get("co")) / float(der.get("bsa_m2"))
                 except Exception:
                     ci_calc = None
-
-            # --- P-Module UI: fallbasiert sortieren + nicht anwählbare Module (hellgrau) anzeigen ---
+            # --- P-Module Policy (fallbasiert) ---
             policy = der.get("p_module_policy") or {}
-            mod_choices = build_p_module_choices(blocks, policy)
-            disabled_html = build_disabled_p_modules_html(blocks, policy)
 
             # --- Live preview layers ---
             # Status: report is now up-to-date
@@ -2628,6 +2699,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             except Exception:
                 flags["warnings"] = []
 
+            if perf_on:
+                t_ui0 = time.perf_counter()
             summary_html = build_sticky_summary_html(case, flags)
             compare_html = build_compare_overview_html(case)
             cards_html = build_p_module_cards_html(blocks, case)
@@ -2647,70 +2720,213 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             except Exception:
                 status_html = ""
             try:
-                plots_html = "" if fast_load else build_rhk_plots_html(case, docx_cur_state, docx_prev_state)
+                if fast_load:
+                    plots_html = ""
+                else:
+                    # Performance: cache plot HTML per-case/session (patient-safe: cache lives only in state_flags).
+                    def _plots_key(_case: dict, _docx: Any, _docx_prev: Any) -> str:
+                        try:
+                            _raw = (_case.get("raw") or {}) if isinstance(_case, dict) else {}
+                            _der = (_case.get("derived") or {}) if isinstance(_case, dict) else {}
+                            parts = []
+
+                            # Key hemodynamic signals that influence plot output
+                            for k in (
+                                "exercise_done", "volume_challenge_done",
+                                "prev_mpap", "prev_pawp", "prev_rap", "prev_ci", "prev_pvr",
+                                "pawp_pre", "pawp_post", "mpap_pre", "mpap_post",
+                            ):
+                                parts.append(_raw.get(k))
+
+                            for k in (
+                                "mpap", "pawp", "rap", "co", "ci", "pvr",
+                                "mpap_peak", "pawp_peak", "co_peak",
+                                "mpap_calc", "pvr_calc", "tpg", "dpg",
+                            ):
+                                parts.append(_der.get(k))
+
+                            def _phase_sig(d: Any):
+                                if not isinstance(d, dict):
+                                    return None
+                                ph = d.get("phases") or {}
+                                if not isinstance(ph, dict) or not ph:
+                                    return None
+                                out = []
+                                for pk in sorted(ph.keys()):
+                                    cur = ph.get(pk) or {}
+                                    if not isinstance(cur, dict):
+                                        continue
+
+                                    def g(path):
+                                        c = cur
+                                        for p in path:
+                                            c = c.get(p) if isinstance(c, dict) else None
+                                        return c if isinstance(c, (int, float, str, bool)) else None
+
+                                    out.extend([
+                                        pk,
+                                        g(("pressures", "pa", "mean")),
+                                        g(("pressures", "pcw", "mean")),
+                                        g(("pressures", "ra", "mean")),
+                                        g(("co", "td_co")),
+                                        g(("co", "fick_co")),
+                                        g(("resistance", "pvr", "wu")),
+                                        g(("resistance", "pvri", "wu")),
+                                    ])
+                                return out
+
+                            parts.append(_phase_sig(_docx))
+                            parts.append(_phase_sig(_docx_prev))
+
+                            s = json.dumps(parts, ensure_ascii=False, sort_keys=False, default=str)
+                            return hashlib.md5(s.encode("utf-8")).hexdigest()
+                        except Exception:
+                            return ""
+
+                    _rc = flags.get("_render_cache") if isinstance(flags, dict) else None
+                    if not isinstance(_rc, dict):
+                        _rc = {}
+                        flags["_render_cache"] = _rc
+
+                    key = _plots_key(case, docx_cur_state, docx_prev_state)
+                    cached_key = _rc.get("plots_key")
+                    if key and cached_key == key and isinstance(_rc.get("plots_html"), str):
+                        plots_html = _rc.get("plots_html") or ""
+                    else:
+                        plots_html = build_rhk_plots_html(case, docx_cur_state, docx_prev_state)
+                        _rc["plots_key"] = key
+                        _rc["plots_html"] = plots_html
             except Exception:
                 plots_html = ""
 
-            allowed_vals = {v for (_, v) in mod_choices}
+            
+            # --- P-Module Selection (Single Source of Truth: case['ui']['modules']) ---
+            # Auto-Vorschläge (decision.modules) sind nur Vorschläge und werden NICHT automatisch übernommen.
+            ui = case.get("ui") or {}
+            force_optional = pmods_get_force_optional(ui)
+            eff_policy = pmods_apply_overrides(policy, force_optional)
 
-            # Sichtbarkeit/Logik vereinheitlichen:
-            # - "Auto"-Module aus dem Regelwerk (case.decision.modules) werden im Bericht verwendet,
-            #   sollen aber auch in der UI als "vorselektiert" sichtbar sein.
-            auto_mods = _normalize_module_ids((case.get("decision") or {}).get("modules") or [])
-            sel_vals = _normalize_module_ids(case.get("ui", {}).get("modules") or [])
+            # Choices are built from the effective policy (allowed list). Disabled modules remain visible separately.
+            mod_choices = build_p_module_choices(blocks, eff_policy)
+            disabled_html = build_disabled_p_modules_html(blocks, eff_policy)
 
-            # Auto + User-Auswahl zusammenführen (dedup, Reihenfolge: Auto zuerst)
-            sel_vals = list(dict.fromkeys(auto_mods + sel_vals))
+            levels_map = (eff_policy.get("levels") or {}) if isinstance(eff_policy, dict) else {}
+            disabled_map = (eff_policy.get("disabled") or {}) if isinstance(eff_policy, dict) else {}
 
-            # Nur erlaubte Module behalten
-            sel_vals = [m for m in sel_vals if m in allowed_vals]
+            # Selected modules: ONLY from UI, keep user order stable.
+            sel_vals = _normalize_module_ids(ui.get("modules") or [])
 
-            # In den Case-State zurückschreiben, damit Save/Live-Update konsistent bleibt
-            try:
-                case.setdefault("ui", {})["modules"] = sel_vals
-            except Exception:
-                pass
+            # Ensure locked-but-selected modules stay removable: include them in choices.
+            locked_selected = [m for m in sel_vals if (m in disabled_map and m not in force_optional)]
 
-
-            # --- P-Module UI: robust gegen Gradio-Versionen ---
-            # Wir nutzen reine Label-Strings als Choices und Values.
-            # Label ohne '[I]/[II]/[III]' Prefix, da Level bereits durch getrennte Gruppen abgebildet wird.
-            import re
+            # Label helpers
+            import re as _re
             def _clean_pmod_label(lab: Any) -> str:
                 s = str(lab) if lab is not None else ""
-                s = re.sub(r"^\s*\[[^\]]+\]\s*", "", s).strip()
+                s = _re.sub(r"^\s*\[[^\]]+\]\s*", "", s).strip()
                 return s
-            
-            levels_map = (policy.get("levels") or {}) if isinstance(policy, dict) else {}
-            id_to_label = {mid: _clean_pmod_label(lab) for (lab, mid) in mod_choices}
-            id_to_level = {mid: int(levels_map.get(mid, 3)) for (_lab, mid) in mod_choices}
-            
-            choices_lvl1 = [id_to_label[mid] for (_lab, mid) in mod_choices if id_to_level.get(mid, 3) == 1]
-            choices_lvl2 = [id_to_label[mid] for (_lab, mid) in mod_choices if id_to_level.get(mid, 3) == 2]
-            choices_lvl3 = [id_to_label[mid] for (_lab, mid) in mod_choices if id_to_level.get(mid, 3) not in (1, 2)]
-            
-            allowed_lvl1_ids = {mid for (_lab, mid) in mod_choices if id_to_level.get(mid, 3) == 1}
-            allowed_lvl2_ids = {mid for (_lab, mid) in mod_choices if id_to_level.get(mid, 3) == 2}
-            allowed_lvl3_ids = {mid for (_lab, mid) in mod_choices if id_to_level.get(mid, 3) not in (1, 2)}
-            
-            selected_lvl1_ids = [m for m in sel_vals if m in allowed_lvl1_ids]
-            selected_lvl2_ids = [m for m in sel_vals if m in allowed_lvl2_ids]
-            selected_lvl3_ids = [m for m in sel_vals if m in allowed_lvl3_ids]
-            
-            selected_lvl1 = [id_to_label.get(mid) for mid in selected_lvl1_ids if id_to_label.get(mid)]
-            selected_lvl2 = [id_to_label.get(mid) for mid in selected_lvl2_ids if id_to_label.get(mid)]
-            selected_lvl3 = [id_to_label.get(mid) for mid in selected_lvl3_ids if id_to_label.get(mid)]
 
+            id_to_label: Dict[str, str] = {mid: _clean_pmod_label(lab) for (lab, mid) in mod_choices}
+            # fallback labels for locked-selected
+            for mid in locked_selected:
+                if mid not in id_to_label:
+                    try:
+                        title = blocks[mid].title if mid in blocks else ""
+                    except Exception:
+                        title = ""
+                    id_to_label[mid] = f"{mid} – {title}".strip(" –")
+
+            def _get_level(mid: str) -> int:
+                try:
+                    return int(levels_map.get(mid, 3) or 3)
+                except Exception:
+                    return 3
+
+            # Build per-level selected lists in stable order
+            selected_lvl1_ids = [m for m in sel_vals if _get_level(m) == 1]
+            selected_lvl2_ids = [m for m in sel_vals if _get_level(m) == 2]
+            selected_lvl3_ids = [m for m in sel_vals if _get_level(m) not in (1, 2)]
+
+            # Build per-level choices (label,value) from allowed + locked_selected
+            allowed_ids = [mid for (_lab, mid) in mod_choices]
+            def _choices_for_level(lvl: int):
+                ch = []
+                for mid in allowed_ids:
+                    if _get_level(mid) != lvl:
+                        continue
+                    lab = id_to_label.get(mid, mid)
+                    ch.append((lab, mid))
+                # Append locked selected values for this level (so the user can unselect them)
+                for mid in locked_selected:
+                    if _get_level(mid) != lvl:
+                        continue
+                    lab = id_to_label.get(mid, mid) + " (gesperrt)"
+                    if (lab, mid) not in ch:
+                        ch.append((lab, mid))
+                return ch
+
+            def _choices_for_level3():
+                ch = []
+                for mid in allowed_ids:
+                    if _get_level(mid) in (1, 2):
+                        continue
+                    lab = id_to_label.get(mid, mid)
+                    ch.append((lab, mid))
+                for mid in locked_selected:
+                    if _get_level(mid) in (1, 2):
+                        continue
+                    lab = id_to_label.get(mid, mid) + " (gesperrt)"
+                    if (lab, mid) not in ch:
+                        ch.append((lab, mid))
+                return ch
+
+            choices_lvl1 = _choices_for_level(1)
+            choices_lvl2 = _choices_for_level(2)
+            choices_lvl3 = _choices_for_level3()
+
+            modules_lvl1_update = gr.update(choices=choices_lvl1, value=selected_lvl1_ids)
+            modules_lvl2_update = gr.update(choices=choices_lvl2, value=selected_lvl2_ids)
+            modules_lvl3_update = gr.update(choices=choices_lvl3, value=selected_lvl3_ids)
+
+            # Disabled dropdown (only those still disabled)
+            disabled_dd_choices = []
+            for mid, reason in sorted(disabled_map.items(), key=lambda kv: kv[0]):
+                if mid in force_optional:
+                    continue
+                title = ""
+                try:
+                    title = blocks[mid].title if mid in blocks else ""
+                except Exception:
+                    title = ""
+                lab = f"{mid} – {title}".strip(" –")
+                if reason:
+                    lab = f"{lab} | {reason}"
+                disabled_dd_choices.append((lab, mid))
+            pmods_disabled_dd_update = gr.update(choices=disabled_dd_choices, value=None)
+
+            # State snapshot (for legacy load/save flows; UI still reads from case.ui.modules)
             pmods_sel_state = {
-                "lvl1": selected_lvl1,
-                "lvl2": selected_lvl2,
-                "lvl3": selected_lvl3,
+                "lvl1": selected_lvl1_ids,
+                "lvl2": selected_lvl2_ids,
+                "lvl3": selected_lvl3_ids,
+                "modules": sel_vals,
+                "force_optional": list(force_optional),
             }
 
-            
-            modules_lvl1_update = gr.update(choices=choices_lvl1, value=[])
-            modules_lvl2_update = gr.update(choices=choices_lvl2, value=[])
-            modules_lvl3_update = gr.update(choices=choices_lvl3, value=[])
+            if perf_on:
+                t_end = time.perf_counter()
+                try:
+                    print(
+                        "[PERF] Generate "
+                        f"total={(t_end - t0)*1000:.1f}ms | "
+                        f"raw={(t_case0 - t_raw0)*1000:.1f}ms | "
+                        f"case={(t_rep0 - t_case0)*1000:.1f}ms | "
+                        f"reports={(t_ui0 - t_rep0)*1000:.1f}ms | "
+                        f"ui={(t_end - t_ui0)*1000:.1f}ms"
+                    )
+                except Exception:
+                    pass
+
             return (
                 der.get("mpap_calc"), ci_calc, der.get("pvr_calc"), der.get("pvri"), der.get("tpg"), der.get("dpg"),
                 dash, doc, pat, echo_doc, echo_pat, internal,
@@ -2728,6 +2944,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 modules_lvl2_update,
                 modules_lvl3_update,
                 disabled_html,
+                pmods_disabled_dd_update,
                 summary_html,
                 compare_html,
                 plots_html,
@@ -2781,22 +2998,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 return (gr.update(value=[]), gr.update(value=[]), gr.update(value=[]))
 
         def _generate_with_pmods_apply(*args):
-            """Run _generate and apply p-module checkbox values in the SAME request.
+            """Run _generate without mutating P-Module UI state.
 
-            Motivation: avoid an extra Gradio roundtrip (performance).
+            Single Source of Truth is case_state["ui"]["modules"].
+            The dropdown updates are already part of _generate() outputs.
             """
-            outs = _generate(*args)
-            try:
-                # generate_outputs order: ... state_pmods_selected(23), modules_lvl1(26), lvl2(27), lvl3(28)
-                pmods_state = outs[23] if isinstance(outs, (list, tuple)) and len(outs) > 29 else None
-                lvl1_u, lvl2_u, lvl3_u = _apply_pmods_values(pmods_state)
-                outs = list(outs)
-                outs[26] = lvl1_u
-                outs[27] = lvl2_u
-                outs[28] = lvl3_u
-                return tuple(outs)
-            except Exception:
-                return outs
+            return _generate(*args)
 
         def _export_doctor_docx(case_state: Any):
             """Create a formatted DOCX for the doctor report.
@@ -2868,6 +3075,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             state_docx_prev,
             modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp,
             modules_disabled_html,
+            pmods_disabled_dd,
             sticky_summary_html,
             compare_overview_html,
             rhk_plots_html,
@@ -2899,8 +3107,14 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         def _on_dirty_ping(flags_state, case_state, _ping_val: str):
             flags = dict(flags_state or {})
 
+            # Performance: this callback can fire frequently while typing (client-side debounce).
+            # Keep it O(1) and avoid rebuilding large HTML unless the visible state actually changes.
+            was_dirty = bool(flags.get("dirty"))
+            was_stale = bool(flags.get("report_stale"))
+            has_report = bool(flags.get("has_report"))
+
             flags["dirty"] = True
-            if bool(flags.get("has_report")):
+            if has_report:
                 flags["report_stale"] = True
 
             # Keep warnings from last generation for visibility; do not recompute.
@@ -2911,6 +3125,10 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     flags["warnings"] = list(flags.get("warnings") or [])
             except Exception:
                 flags["warnings"] = []
+
+            # Only re-render sticky summary when transitioning to a new visible state.
+            if was_dirty and ((not has_report) or was_stale):
+                return flags, gr.update()
 
             case_for_ui = case_state if isinstance(case_state, dict) else None
             return flags, build_sticky_summary_html(case_for_ui, flags)
@@ -2955,11 +3173,51 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     None,         # state_case
                     dict(flags_state or {}),  # state_flags
                     build_sticky_summary_html(None, dict(flags_state or {})),
+                    gr.update(value=[]),  # modules_lvl1
+                    gr.update(value=[]),  # modules_lvl2
+                    gr.update(value=[]),  # modules_lvl3
                     gr.update(),  # modules_cards_html
                 )
             flags = dict(flags_state or {})
             try:
                 ui = dict(case_state.get("ui") or {})
+                # --- P-Module ordering: newest selection goes to top within its level group ---
+                try:
+                    policy = (case_state.get("derived") or {}).get("p_module_policy") or {}
+                    levels_map = policy.get("levels") or {}
+                except Exception:
+                    levels_map = {}
+
+                def _lvl(mid: str) -> int:
+                    try:
+                        return int(levels_map.get(mid, 3) or 3)
+                    except Exception:
+                        return 3
+
+                prev_all = _normalize_module_ids(ui.get("modules") or [])
+                prev_lvl1 = [x for x in prev_all if _lvl(x) == 1]
+                prev_lvl2 = [x for x in prev_all if _lvl(x) == 2]
+                prev_lvl3 = [x for x in prev_all if _lvl(x) not in (1, 2)]
+
+                def _reorder(prev_list, new_list):
+                    new_list = _normalize_module_ids(new_list or [])
+                    prev_set = set(prev_list or [])
+                    new_set = set(new_list or [])
+                    removed = [x for x in (prev_list or []) if x not in new_set]
+                    added = [x for x in new_list if x not in prev_set]
+                    kept = [x for x in (prev_list or []) if x in new_set]
+                    # Remove removed, then prepend newly added (latest should be on top)
+                    out = [x for x in kept if x not in removed]
+                    for a in reversed(added):
+                        if a not in out:
+                            out.insert(0, a)
+                    # Ensure nothing extra sneaks in
+                    out = [x for x in out if x in new_set]
+                    return out
+
+                m1 = _reorder(prev_lvl1, m1)
+                m2 = _reorder(prev_lvl2, m2)
+                m3 = _reorder(prev_lvl3, m3)
                 ui["modules_lvl1"] = m1 or []
                 ui["modules_lvl2"] = m2 or []
                 ui["modules_lvl3"] = m3 or []
@@ -3040,6 +3298,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     case_state,
                     flags,
                     sticky,
+                    gr.update(value=ui.get("modules_lvl1") or []),
+                    gr.update(value=ui.get("modules_lvl2") or []),
+                    gr.update(value=ui.get("modules_lvl3") or []),
                     cards_html,
                 )
             except Exception:
@@ -3063,6 +3324,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     case_state,   # state_case
                     flags,        # state_flags
                     sticky,       # sticky_summary_html
+                    gr.update(),  # modules_lvl1
+                    gr.update(),  # modules_lvl2
+                    gr.update(),  # modules_lvl3
                     gr.update(),  # modules_cards_html
                 )
 
@@ -3077,6 +3341,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             state_case,
             state_flags,
             sticky_summary_html,
+            modules_lvl1_comp,
+            modules_lvl2_comp,
+            modules_lvl3_comp,
             modules_cards_html,
         ]
 
@@ -3089,6 +3356,112 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             field_components["procedere_free"].submit(_update_procedere_only, inputs=_procedere_inputs, outputs=_procedere_outputs)
         except Exception:
             pass
+
+        # --- P-Module: "wieder optional machen" (ohne Auto-Auswahl) ---
+        def _pmods_make_optional(flags_state, case_state, disabled_mid):
+            flags = dict(flags_state or {})
+            if not isinstance(case_state, dict) or not disabled_mid:
+                return (
+                    case_state,
+                    flags,
+                    gr.update(), gr.update(), gr.update(),
+                    gr.update(), gr.update(), gr.update(),
+                    gr.update(),
+                )
+            ui = dict(case_state.get("ui") or {})
+            # persist override
+            cur = set(_normalize_module_ids(ui.get("pmods_force_optional") or []))
+            cur.add(str(disabled_mid).strip())
+            ui["pmods_force_optional"] = sorted(cur)
+            case_state["ui"] = ui
+
+            # rebuild effective policy views (no recomputation of derived here)
+            der = case_state.get("derived") or {}
+            policy = der.get("p_module_policy") or {}
+            force_optional = pmods_get_force_optional(ui)
+            eff_policy = pmods_apply_overrides(policy, force_optional)
+
+            mod_choices = build_p_module_choices(blocks, eff_policy)
+            disabled_html = build_disabled_p_modules_html(blocks, eff_policy)
+            cards_html = build_p_module_cards_html(blocks, case_state)
+
+            levels_map = (eff_policy.get("levels") or {}) if isinstance(eff_policy, dict) else {}
+            disabled_map = (eff_policy.get("disabled") or {}) if isinstance(eff_policy, dict) else {}
+
+            def _lvl(mid: str) -> int:
+                try:
+                    return int(levels_map.get(mid, 3) or 3)
+                except Exception:
+                    return 3
+
+            allowed_ids = [mid for (_lab, mid) in mod_choices]
+            sel_vals = _normalize_module_ids(ui.get("modules") or [])
+            locked_selected = [m for m in sel_vals if (m in disabled_map and m not in force_optional)]
+
+            # labels
+            import re as _re
+            def _clean_pmod_label(lab: Any) -> str:
+                s = str(lab) if lab is not None else ""
+                return _re.sub(r"^\s*\[[^\]]+\]\s*", "", s).strip()
+
+            id_to_label = {mid: _clean_pmod_label(lab) for (lab, mid) in mod_choices}
+            for mid in locked_selected:
+                if mid not in id_to_label:
+                    try:
+                        title = blocks[mid].title if mid in blocks else ""
+                    except Exception:
+                        title = ""
+                    id_to_label[mid] = f"{mid} – {title}".strip(" –")
+
+            def _choices_level(pred):
+                ch=[]
+                for mid in allowed_ids:
+                    if not pred(mid): 
+                        continue
+                    ch.append((id_to_label.get(mid, mid), mid))
+                for mid in locked_selected:
+                    if not pred(mid):
+                        continue
+                    ch.append((id_to_label.get(mid, mid) + " (gesperrt)", mid))
+                return ch
+
+            lvl1_choices = _choices_level(lambda mid: _lvl(mid)==1)
+            lvl2_choices = _choices_level(lambda mid: _lvl(mid)==2)
+            lvl3_choices = _choices_level(lambda mid: _lvl(mid) not in (1,2))
+
+            sel_lvl1 = [m for m in sel_vals if _lvl(m)==1]
+            sel_lvl2 = [m for m in sel_vals if _lvl(m)==2]
+            sel_lvl3 = [m for m in sel_vals if _lvl(m) not in (1,2)]
+
+            dd_choices=[]
+            for mid, reason in sorted(disabled_map.items(), key=lambda kv: kv[0]):
+                if mid in force_optional:
+                    continue
+                title = blocks[mid].title if mid in blocks else ""
+                lab = f"{mid} – {title}".strip(" –")
+                if reason:
+                    lab = f"{lab} | {reason}"
+                dd_choices.append((lab, mid))
+            disabled_dd_update = gr.update(choices=dd_choices, value=None)
+
+            return (
+                case_state,
+                flags,
+                gr.update(choices=lvl1_choices, value=sel_lvl1),
+                gr.update(choices=lvl2_choices, value=sel_lvl2),
+                gr.update(choices=lvl3_choices, value=sel_lvl3),
+                disabled_html,
+                disabled_dd_update,
+                cards_html,
+                build_sticky_summary_html(case_state, flags),
+            )
+
+        # Outputs: update only the P-Module-related UI + keep case/flags consistent
+        pmods_make_optional_btn.click(
+            _pmods_make_optional,
+            inputs=[state_flags, state_case, pmods_disabled_dd],
+            outputs=[state_case, state_flags, modules_lvl1_comp, modules_lvl2_comp, modules_lvl3_comp, modules_disabled_html, pmods_disabled_dd, modules_cards_html, sticky_summary_html],
+        )
 
         # --- Example loader ---
 

@@ -22,6 +22,7 @@ import math
 import os
 import random
 import re
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
 import gradio as gr
@@ -38,12 +39,12 @@ except Exception:  # pragma: no cover
 
 APP_NAME = "RHK Befundassistent"
 # Versioning: ab v28.x nur noch eine Dezimalstelle (z.B. v28.5)
-APP_VERSION = "v28.14"
+APP_VERSION = "v0.13"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 FIX_LOG = [
-    "Fix. v28.14: Render Deploy kompatibel gemacht (Python-Pinning + OCR-Dependencies nur für Python <3.13)",
-    "Fix. v28.13: Patientenbericht Beispiel-Load stabilisiert (typsichere Symptomfelder), kein Absturz mehr",
-    "Fix. v28.12: App-Start repariert (ImportError _gradio_major_version behoben)",
+    "Fix. v0.13: Performance: Section-Progress serverseitig deaktiviert, Dirty-Ping O(1), eGFR/CPET auf Blur, Dirty-Ping Debounce erhöht",
+    "Fix. v0.11: Performance: Rulebook- und SafeExpr-Parsing gecached, Plot-Rendering gecached",
+    "Fix. v0.10: P-Module stabilisiert (Single Source of Truth, keine Auto-Übernahme, robustes Optional-Override)",
 ]
 
 def _render_whats_new() -> str:
@@ -1616,17 +1617,35 @@ _ALLOWED_NODES = (
 )
 
 
-def safe_eval_bool(expr: str, env: Dict[str, Any]) -> bool:
+# Performance: cache parsed/validated ASTs for rule expressions.
+# Rulebook expressions are static strings; parsing/validating on every evaluation is expensive.
+@lru_cache(maxsize=4096)
+def _safe_parse_expr(expr: str):
     import ast
-
-    if not expr or not expr.strip():
-        return False
-
-    tree = ast.parse(expr, mode="eval")
-
+    e = (expr or "").strip()
+    if not e:
+        return None
+    tree = ast.parse(e, mode="eval")
     for node in ast.walk(tree):
         if node.__class__.__name__ not in _ALLOWED_NODES:
             raise SafeExprError(f"Node not allowed: {node.__class__.__name__}")
+    return tree
+
+# Performance: cache rulebooks by file mtime (avoid repeated YAML parse on cold/warm paths).
+_RULEBOOK_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+
+def safe_eval_bool(expr: str, env: Dict[str, Any]) -> bool:
+    import ast
+
+    e = (expr or "").strip()
+    if not e:
+        return False
+
+    tree = _safe_parse_expr(e)
+    if tree is None:
+        return False
 
     class _Eval(ast.NodeVisitor):
         def visit_Expression(self, node):  # type: ignore
@@ -1695,6 +1714,20 @@ def load_rulebook(path: str) -> List[Rule]:
         # Empty rulebook fallback
         return []
 
+
+    # Cache by file mtime to speed up repeated launches and avoid YAML parse churn.
+    try:
+        mtime = os.path.getmtime(path) if os.path.exists(path) else None
+    except Exception:
+        mtime = None
+
+    cached = _RULEBOOK_CACHE.get(path) if path else None
+    try:
+        if cached and cached.get("mtime") == mtime and isinstance(cached.get("rules"), tuple):
+            return list(cached["rules"])
+    except Exception:
+        pass
+
     with open(path, "r", encoding="utf-8") as f:
         doc = yaml.safe_load(f) or {}
 
@@ -1710,6 +1743,17 @@ def load_rulebook(path: str) -> List[Rule]:
         )
 
     rules.sort(key=lambda rr: rr.priority)
+
+    # Store in cache (rules + meta). Rules are treated as read-only by convention.
+    try:
+        _RULEBOOK_CACHE[path] = {
+            "mtime": mtime,
+            "rules": tuple(rules),
+            "meta": (doc.get("meta") or {}) if isinstance(doc, dict) else {},
+        }
+    except Exception:
+        pass
+
     return rules
 
 
@@ -2236,6 +2280,58 @@ def build_disabled_p_modules_html(blocks: Dict[str, "TextBlock"],
         + "</div></div>"
     )
 
+
+
+# ---------------------------------------------------------------------
+# P-Modules helpers (Single Source of Truth: case['ui']['modules'])
+# ---------------------------------------------------------------------
+def pmods_get_force_optional(ui: Optional[Dict[str, Any]]) -> set:
+    """Return a normalized set of module IDs that the user explicitly made optional again."""
+    ui = ui or {}
+    raw = ui.get("pmods_force_optional") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    out = set()
+    for x in (raw or []):
+        if x is None:
+            continue
+        s = str(x).strip()
+        if not s:
+            continue
+        # accept 'P01 – title' etc.
+        m = re.match(r"^(P\d{2})\b", s)
+        out.add(m.group(1) if m else s)
+    return out
+
+def pmods_apply_overrides(policy: Optional[Dict[str, Any]], force_optional: set) -> Dict[str, Any]:
+    """Apply user overrides: disabled modules become allowed again, but are NOT auto-selected."""
+    policy = dict(policy or {})
+    if not force_optional:
+        return policy
+    levels = dict(policy.get("levels") or {})
+    allowed = list(policy.get("allowed") or [])
+    disabled = dict(policy.get("disabled") or {})
+    # remove from disabled and add to allowed (level-preserving order)
+    for mid in list(force_optional):
+        if mid in disabled:
+            disabled.pop(mid, None)
+        if mid not in allowed:
+            allowed.append(mid)
+    # stable sort allowed by (level, numeric id)
+    def _key(mid: str):
+        try:
+            lvl = int(levels.get(mid, 3) or 3)
+        except Exception:
+            lvl = 3
+        try:
+            num = int(mid[1:]) if mid and mid[1:].isdigit() else 999
+        except Exception:
+            num = 999
+        return (lvl, num, mid)
+    allowed = sorted(dict.fromkeys(allowed), key=_key)
+    policy["allowed"] = allowed
+    policy["disabled"] = disabled
+    return policy
 
 def _compare_rhk_trend(ui: Dict[str, Any], derived: Dict[str, Any]) -> Dict[str, Any]:
     """Vergleicht aktuelle RHK-Ruhe-Hämodynamik mit einem optionalen Vor-RHK.

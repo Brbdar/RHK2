@@ -9,6 +9,7 @@ and wiring callbacks.
 from __future__ import annotations
 
 import html as _html
+from functools import lru_cache
 
 from rhk_base import *  # noqa: F401,F403
 from rhk_viz import svg_mpap_pawp_vs_co, svg_series_over_phases, svg_delta_bars, svg_compare_bars  # noqa: F401
@@ -39,6 +40,7 @@ def _fmt_or_dash(v: Any, nd: int = 0) -> str:
         return "–"
 
 
+@lru_cache(maxsize=16)
 def load_rulebook_meta(path: str) -> Dict[str, Any]:
     """Read meta info (version/updated) from YAML rulebook without changing rule loading."""
     try:
@@ -876,9 +878,8 @@ def build_p_module_cards_html(blocks: Dict[str, Any], case: Optional[Dict[str, A
     disabled = policy.get("disabled") or {}
 
     auto_mods = _normalize_module_ids(decision.get("modules") or [])
+    # Selected modules are ONLY what the user chose (single source of truth: ui['modules']).
     sel_mods = _normalize_module_ids(ui.get("modules") or [])
-    # Keep selection order stable (auto first)
-    sel_mods = list(dict.fromkeys(auto_mods + sel_mods))
 
     def lvl_chip(lvl: int) -> str:
         if lvl == 1:
@@ -919,13 +920,12 @@ def build_p_module_cards_html(blocks: Dict[str, Any], case: Optional[Dict[str, A
 
         is_auto = pid in auto_mods
         is_selected = pid in sel_mods
-        is_manual = (is_selected and not is_auto)
 
         meta = [lvl_chip(lvl)]
-        if is_auto:
-            meta.append("<span class='pmod-chip pmod-chip--auto'>Auto</span>")
-        elif is_manual:
-            meta.append("<span class='pmod-chip pmod-chip--manual'>Manuell</span>")
+        if is_selected:
+            meta.append("<span class='pmod-chip pmod-chip--manual'>Gewählt</span>")
+        if (is_auto and not is_selected):
+            meta.append("<span class='pmod-chip pmod-chip--auto'>Vorschlag</span>")
 
         tip = ""
         if is_locked and locked_reason:
@@ -940,7 +940,7 @@ def build_p_module_cards_html(blocks: Dict[str, Any], case: Optional[Dict[str, A
         )
 
     auto_n = len(auto_mods)
-    manual_n = len([m for m in sel_mods if (m not in auto_mods)])
+    manual_n = len(sel_mods)
     locked_n = len(disabled)
 
     shown_n = len(pids_to_show)
