@@ -14,6 +14,7 @@ Heavy inline assets and helper functions were split into:
 from __future__ import annotations
 
 import html
+import time
 
 from rhk_base import *  # noqa: F401,F403
 
@@ -50,9 +51,36 @@ import importlib
 _SPIRO_LOGIC = None
 
 def _get_spiro_logic():
+    """Lazy import Spiro-Logic.
+
+    MUST be fail-safe: example loading and bulk programmatic updates can trigger the CPET wizard.
+    If the module cannot be imported (packaging/env issues), we must not crash the UI.
+    """
     global _SPIRO_LOGIC
     if _SPIRO_LOGIC is None:
-        _SPIRO_LOGIC = importlib.import_module('spiro_logic')
+        try:
+            _SPIRO_LOGIC = importlib.import_module('spiro_logic')
+        except Exception:
+            class _FallbackSpiroLogic:
+                @staticmethod
+                def build_wizard_outputs(_ui: Dict[str, Any]):
+                    msg = "<div class='docx-muted'>Spiro-Logic ist in dieser Umgebung nicht verfügbar (Import fehlgeschlagen). CPET-Wizard-Ausgabe deaktiviert.</div>"
+                    return {
+                        "mod0_html": msg,
+                        "mod1_html": "",
+                        "mod2_html": "",
+                        "mod3_html": "",
+                        "mod4_html": "",
+                        "mod5_html": "",
+                        "mod6_html": "",
+                        "mod7_html": "",
+                        "mod9_html": "",
+                        "modfinal_html": "",
+                        "overall_html": msg,
+                        "report_text": "",
+                        "need_chrono_followups": False,
+                    }
+            _SPIRO_LOGIC = _FallbackSpiroLogic()
     return _SPIRO_LOGIC
 
 from rhk_ui_assets import CSS, JS_ON_LOAD, HEAD_HTML  # noqa: F401
@@ -1603,7 +1631,25 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "cpet_9panel_veeq_pattern": nine_veeq,
                 "cpet_9panel_comment": nine_comment,
             }
-            out = _get_spiro_logic().build_wizard_outputs(ui_tmp)
+            try:
+                out = _get_spiro_logic().build_wizard_outputs(ui_tmp)
+            except Exception:
+                msg = "<div class='docx-muted'>Spiro-Logic CPET-Wizard konnte nicht ausgeführt werden. Ausgabe deaktiviert.</div>"
+                out = {
+                    "mod0_html": msg,
+                    "mod1_html": "",
+                    "mod2_html": "",
+                    "mod3_html": "",
+                    "mod4_html": "",
+                    "mod5_html": "",
+                    "mod6_html": "",
+                    "mod7_html": "",
+                    "mod9_html": "",
+                    "modfinal_html": "",
+                    "overall_html": msg,
+                    "report_text": "",
+                    "need_chrono_followups": False,
+                }
 
             # Follow up block should remain visible if triggered OR already filled
             show_follow = bool(out.get("need_chrono_followups")) or bool(beta_blocker) or bool(sinus_node) or bool(hypervent) or bool((chrono_comment or "").strip())
@@ -3466,7 +3512,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         # --- Example loader ---
 
         def _load_example_ui():
-            ui = random_example()
+            # Ensure a fresh example on every click (avoid deterministic/cached outputs)
+            try:
+                seed = time.time_ns()
+            except Exception:
+                seed = int(time.time() * 1_000_000)
+            ui = random_example(seed=seed)
 
             # --- P-Module preselection (robust & leak-free) ---
             # Important: On example load we must NOT set CheckboxGroup values to non-existing choices.
@@ -3648,13 +3699,28 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         load_outputs = [*input_components, *generate_outputs, import_pdf_cur, import_preview_cur_html, state_echo_cur, import_pdf_prev, import_preview_prev_html, state_echo_prev, compare_echo_html, details_echo_html, btn_echo_apply, state_case_filename]
 
         def _clear_all():
-            # Inputs: build empty UI dict and let apply_ui_to_components normalize legacy/defaults.
-            empty_ui = {k: None for k in input_keys}
+
+            # Inputs: start from DEFAULT_UI (component-native defaults) and clear patient-specific content.
+            # This avoids "value not in choices" and type mismatches (e.g., CheckboxGroup expects list).
+            empty_ui = dict(DEFAULT_UI)
+            for k in input_keys:
+                # Keep structural defaults from DEFAULT_UI, but clear user-entered content.
+                if k not in empty_ui:
+                    empty_ui[k] = None
+
+            # Explicit empties for list-like fields
             for lk in ("meds", "comorbidities", "modules", "modules_lvl1", "modules_lvl2", "modules_lvl3"):
                 if lk in empty_ui:
                     empty_ui[lk] = []
+
+            # Common text fields: reset to empty string for a clean UI
+            for tk in ("firstname", "name", "story", "notes", "diagnosis_text", "therapy_text"):
+                if tk in empty_ui:
+                    empty_ui[tk] = ""
+
             # Dropdowns that must never be invalid (avoid "value not in choices" crashes)
-            empty_ui["anticoag_indication"] = "keine Angabe"
+            if "anticoag_indication" in empty_ui:
+                empty_ui["anticoag_indication"] = "keine Angabe"
 
             vals = apply_ui_to_components(empty_ui)
 
@@ -3664,32 +3730,36 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             modules_lvl1_update = gr.update(choices=[], value=[])
             modules_lvl2_update = gr.update(choices=[], value=[])
             modules_lvl3_update = gr.update(choices=base_module_choices, value=[])
+            pmods_disabled_dd_update = gr.update(choices=[], value=None)
 
-            # Outputs (mirror generate_outputs order)
-            cleared_outputs = (
-                None, None, None, None, None, None,  # auto_mpap..auto_dpg
-                build_dashboard_html(None),           # dashboard
-                "", "", "", "", "",                    # out_doc, out_pat, out_echo_doc, out_echo_pat, out_int
-                "{}",                                 # out_summary_json
-                "{}",                                 # out_json
-                "", "", "",                           # copy_*_plain
-                "", "", "",                           # copy_*_html
-                "",                                   # copy_feedback
-                None,                                 # state_case
-                flags0,                                # state_flags
-                {"lvl1": [], "lvl2": [], "lvl3": []},  # state_pmods_selected
-                None,                                 # state_docx_cur
-                None,                                 # state_docx_prev
+            # Outputs: MUST mirror generate_outputs order exactly
+            cleared_generate_outputs = (
+                None, None, None, None, None, None,           # auto_mpap..auto_dpg
+                build_dashboard_html(None),                    # dashboard
+                "", "", "", "", "",                            # out_doc, out_pat, out_echo_doc, out_echo_pat, out_int
+                "{}",                                          # out_summary_json
+                "{}",                                          # out_json
+                "", "", "",                                    # copy_*_plain
+                "", "", "",                                    # copy_*_html
+                "",                                            # copy_feedback
+                None,                                          # state_case
+                flags0,                                        # state_flags
+                {"lvl1": [], "lvl2": [], "lvl3": []},          # state_pmods_selected
+                None,                                          # state_docx_cur
+                None,                                          # state_docx_prev
                 modules_lvl1_update,
                 modules_lvl2_update,
                 modules_lvl3_update,
-                "",                                   # modules_disabled_html
-                build_sticky_summary_html(None, flags0),
-                "",                                   # compare_overview_html
-                "",                                   # rhk_plots_html
-                "",                                   # import_status_html
-                "",                                   # modules_cards_html
+                "",                                            # modules_disabled_html
+                pmods_disabled_dd_update,                      # pmods_disabled_dd
+                build_sticky_summary_html(None, flags0),       # sticky_summary_html
+                "",                                            # compare_overview_html
+                "",                                            # rhk_plots_html
+                "",                                            # import_status_html
+                "",                                            # modules_cards_html
             )
+
+            # Echo import widgets/state
             echo_pdf_cur_reset = gr.update(value=None)
             echo_preview_cur_reset = "<div class='docx-muted'>Noch kein Echo-PDF importiert.</div>"
             echo_state_cur_reset = {"parsed": None, "meta": None}
@@ -3704,7 +3774,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             return (
                 *vals,
-                *cleared_outputs,
+                *cleared_generate_outputs,
                 echo_pdf_cur_reset,
                 echo_preview_cur_reset,
                 echo_state_cur_reset,
@@ -3714,8 +3784,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 echo_compare_reset,
                 echo_details_reset,
                 btn_apply_reset,
-            "",
+                "",  # state_case_filename
             )
+
 
         try:
             btn_clear_top.click(_clear_all, inputs=[], outputs=load_outputs, queue=False)\

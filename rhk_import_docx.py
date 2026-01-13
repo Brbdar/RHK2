@@ -5,7 +5,8 @@ DOCX Importer für RHK-Befunde (GE MacLab Word Export).
 
 Designziele:
 - Nur Tabellen werden ausgewertet (Fließtext wird ignoriert).
-- Base 2 ist primär. Fehlende Werte werden feldweise aus Base 1 ergänzt.
+- Base 2 ist die einzige Quelle für die in der App zu berechnenden Hämodynamik-Ruhewerte.
+  Es werden niemals Ruhewerte aus Base 1 in berechnungsrelevante Felder übernommen.
 - Unterstützt zusätzliche Phasen: Ergometrie, Post-Intervention (z.B. Volumenchallenge), NO/O2 (falls als Spalte vorhanden).
 - Vollständige Rohdaten (Tabellen) werden gespeichert, UI wird jedoch nur schlank befüllt.
 - Hohe Robustheit bei Dezimaltrennzeichen (Komma/Punkt) und leicht variierenden Tabellen.
@@ -631,25 +632,17 @@ def parse_maclab_docx(path: str) -> Dict[str, Any]:
     _parse_flow()
 
     # 4) Derive a few canonical fields for UI mapping
-    def _best_rest_phase() -> str:
-        if "base2" in payload["phases"] and payload["phases"]["base2"].get("pressures"):
-            return "base2"
-        if "base1" in payload["phases"] and payload["phases"]["base1"].get("pressures"):
-            return "base1"
-        # fallback: any
-        return next(iter(payload["phases"].keys()), "base2")
+    # IMPORTANT: For patient safety and reproducibility, the app's calculable rest hemodynamics
+    # MUST come from Base 2 only (never from Base 1). Base 1 is kept in payload for transparency.
+    rest_pk = "base2"
 
-    rest_pk = _best_rest_phase()
-
-    # fieldwise rest with fallback base1 -> base2 depending
     def _get_phase(pk: str) -> Dict[str, Any]:
         return payload["phases"].get(pk) or {}
     base1 = _get_phase("base1")
     base2 = _get_phase("base2")
-    rest = _get_phase(rest_pk)
 
-    # helper to get a key with fallback (base2 primary)
-    def _pick(obj_path: Tuple[str, ...], prefer: str = "base2") -> Optional[float]:
+    # helper to get a key from Base 2 ONLY (no fallback)
+    def _pick_base2(obj_path: Tuple[str, ...]) -> Optional[float]:
         def _dig(phase_obj):
             cur = phase_obj
             for k in obj_path:
@@ -657,38 +650,26 @@ def parse_maclab_docx(path: str) -> Dict[str, Any]:
                     return None
                 cur = cur[k]
             return cur
-        if prefer == "base2":
-            v = _dig(base2)
-            if v is None:
-                v = _dig(base1)
-            return v
-        v = _dig(base1)
-        if v is None:
-            v = _dig(base2)
-        return v
+        return _dig(base2)
 
     # canonical rest values
-    pa_sys = _pick(("pressures","pa","sys"))
-    pa_dia = _pick(("pressures","pa","dia"))
-    pa_mean = _pick(("pressures","pa","mean"))
-    pcw_mean = _pick(("pressures","pcw","mean"))
-    ra_mean = _pick(("pressures","ra","mean"))
+    pa_sys = _pick_base2(("pressures","pa","sys"))
+    pa_dia = _pick_base2(("pressures","pa","dia"))
+    pa_mean = _pick_base2(("pressures","pa","mean"))
+    pcw_mean = _pick_base2(("pressures","pcw","mean"))
+    ra_mean = _pick_base2(("pressures","ra","mean"))
 
-    co_td = _pick(("co","td_co"))
-    ci_td = _pick(("co","td_ci"))
-    co_fick = _pick(("co","fick_co"))
-    ci_fick = _pick(("co","fick_ci"))
+    co_td = _pick_base2(("co","td_co"))
+    ci_td = _pick_base2(("co","td_ci"))
+    co_fick = _pick_base2(("co","fick_co"))
+    ci_fick = _pick_base2(("co","fick_ci"))
     pvr_wu = None
     pvr_dyn = None
-    # We'll pick base2 then base1
     def _pick_res(key: str) -> Tuple[Optional[float], Optional[float]]:
         r = base2.get("resistance", {}).get(key) if "base2" in payload["phases"] else None
         if not isinstance(r, dict):
             r = None
         if r and (r.get("wu") is not None or r.get("dyn") is not None):
-            return r.get("wu"), r.get("dyn")
-        r = base1.get("resistance", {}).get(key) if "base1" in payload["phases"] else None
-        if isinstance(r, dict):
             return r.get("wu"), r.get("dyn")
         return None, None
     pvr_wu, pvr_dyn = _pick_res("pvr")
@@ -706,6 +687,13 @@ def parse_maclab_docx(path: str) -> Dict[str, Any]:
 
     # 5) Quality checks (kept minimal; UI decides how to display)
     quality: Dict[str, Any] = {"status": "green", "reasons": [], "warnings": []}
+
+    # Base 2 policy (never backfill from Base 1)
+    if not ("base2" in payload.get("phases", {}) and (payload["phases"].get("base2") or {}).get("pressures")):
+        quality["status"] = "yellow"
+        quality["reasons"].append(
+            "Base 2 nicht gefunden oder unvollständig; es werden keine Hämodynamik-Ruhewerte aus Base 1 übernommen."
+        )
 
     # essential: mpap, pawp, co
     if payload["canonical"]["rest"]["mpap"] is None or payload["canonical"]["rest"]["pawp"] is None:
@@ -915,7 +903,7 @@ def map_payload_to_ui(payload: Dict[str, Any], target: str = "current") -> Dict[
                 ui["mpap_post"] = pa.get("mean")
 
     else:
-        # prev mapping: use Base 2 if exists, else Base 1
+        # prev mapping: use Base 2 only (never Base 1)
         if pat.get("exam_date"):
             ui["prev_rhk_date"] = pat.get("exam_date")
         if rest.get("mpap") is not None:

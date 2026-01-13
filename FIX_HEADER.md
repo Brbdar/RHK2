@@ -1,3 +1,3 @@
-Fix. v0.13: Performance: Section-Progress serverseitig deaktiviert, Dirty-Ping O(1), eGFR/CPET auf Blur, Dirty-Ping Debounce erhöht
-Fix. v0.11: Performance: Rulebook- und SafeExpr-Parsing gecached, Plot-Rendering gecached
-Fix. v0.10: P-Module stabilisiert (Single Source of Truth, keine Auto-Übernahme, robustes Optional-Override)
+Fix. v0.29: Beispiel laden – CPET Spiro-Logic ist fail-safe (kein Crash bei Trigger durch Bulk-Updates)
+Fix. v0.28: Beispiel laden (random) crash behoben (fehlender time-Import)
+Fix. v0.27: Befunde leeren setzt alle UI-Felder inkl. Module, States und Imports zuverlässig auf Defaults zurück

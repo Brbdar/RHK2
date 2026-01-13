@@ -64,6 +64,12 @@ def _cache_set(kind: str, fp: str, value):
 
 from rhk_base import *  # noqa: F401,F403
 
+# Optional: local phrase/rule DB (DSGVO-safe). App must run without it.
+try:
+    from rhk_report_db import select_phrases  # type: ignore
+except Exception:  # pragma: no cover
+    select_phrases = None  # type: ignore
+
 # Einige Render-Helpers liegen im Case-Modul (im Flat-Master waren sie vorher "weiter oben").
 from rhk_case import build_render_ctx, render_p01_dynamic, filter_module_text  # noqa: F401
 # ---------------------------------------------------------------------------
@@ -179,6 +185,67 @@ def _md_section(title: str, lines: List[str], *, add_colon: bool = False) -> str
     return f"### {title}\n" + "\n".join(lines)
 
 
+
+def _build_risk_lines(case: Dict[str, Any]) -> List[str]:
+    """Build risk stratification lines (doctor-facing) as markdown list items."""
+    sc = case.get("scores") or {}
+    der = case.get("derived") or {}
+    lines: List[str] = []
+    if sc.get("esc_ers_4s"):
+        lines.append(_md_kv("ESC/ERS 4-Strata", str(sc["esc_ers_4s"])))
+    if sc.get("esc_ers_3s"):
+        lines.append(_md_kv("ESC/ERS 3-Strata", str(sc["esc_ers_3s"])))
+    if sc.get("reveal_lite2"):
+        cat = sc.get("reveal_lite2")
+        pts = sc.get("reveal_lite2_points")
+        if cat == "nicht berechenbar":
+            missing = sc.get("reveal_lite2_missing") or []
+            miss_txt = ", ".join(missing) if missing else "Parameter unvollständig"
+            lines.append(_md_kv("REVEAL Lite 2", f"nicht berechenbar (fehlend: {miss_txt})"))
+        else:
+            cat_de = {"low": "niedrig", "intermediate": "intermediär", "high": "hoch"}.get(str(cat), str(cat))
+            pts_txt = str(pts) if pts is not None else "—"
+            lines.append(_md_kv("REVEAL Lite 2", f"{pts_txt} Punkte ({cat_de})"))
+    if der.get("hfpef_category"):
+        lines.append(_md_kv("HFpEF (H2FPEF)", f"{der['hfpef_category']} (~{_fmt(der.get('hfpef_percent'),0)}%)"))
+    return lines
+
+
+def _strip_procedere_from_text(text: str) -> str:
+    """Remove procedural / repetitive paragraphs from a narrative block used outside Procedere."""
+    if not isinstance(text, str):
+        return ""
+    raw = text.strip()
+    if not raw:
+        return ""
+    # Split by blank lines (markdown paragraphs)
+    paras = [p.strip() for p in re.split(r"\n\s*\n", raw) if p.strip()]
+    keep: List[str] = []
+    bad_kw = [
+        "Empfohlen:", "Empfohlen", "Procedere", "Vorstellung", "Board", "Mitbeurteilung",
+        "Therapieoptimierung", "Abklärung", "PH-Zentrum", "Autoimmun", "HIV", "Infektiologie",
+        "Genetik", "angeborene", "HRCT", "V/Q", "Pulmonalisangiographie", "Therapie",
+        "Diagnose/Einordnung", "ESC/ERS", "REVEAL",
+    ]
+    for p in paras:
+        if any(k.lower() in p.lower() for k in bad_kw):
+            continue
+        keep.append(p)
+    out = "\n\n".join(keep).strip()
+    return out
+
+
+def _sanitize_concluding(text: str) -> str:
+    """Keep etiological conclusion, strip explicit recommendations (belongs to Procedere)."""
+    if not isinstance(text, str):
+        return ""
+    t = text.strip()
+    if not t:
+        return ""
+    # Remove sentences containing 'empfehl' (recommendations) to avoid duplication
+    sents = re.split(r"(?<=[.!?])\s+", t)
+    keep = [s for s in sents if "empfehl" not in s.lower()]
+    return " ".join(keep).strip()
 
 def _build_relevante_vorerkrankungen_line(ui: Dict[str, Any]) -> str:
     """Build a single-line 'Relevante Vorerkrankungen' string for the Arztbericht.
@@ -528,6 +595,12 @@ def summarize_inputs(case: Dict[str, Any], *, mode: str = "default") -> str:
     if not klinik_lines:
         klinik_lines.append("Keine klinischen Angaben erfasst.")
 
+    if is_doctor:
+        _rl = _build_risk_lines(case)
+        if _rl:
+            klinik_lines.append("- **Risikostratifizierung:**")
+            klinik_lines.extend(_rl)
+
     parts.append(_md_section("Klinik", klinik_lines, add_colon=is_doctor))
 
     # ---------------------------------------------------------------------
@@ -871,6 +944,36 @@ def summarize_inputs(case: Dict[str, Any], *, mode: str = "default") -> str:
     return "\n\n".join([p for p in parts if p]).strip()
 
 
+
+# =============================================================================
+# Report DB phrase injection (optional)
+# =============================================================================
+
+def _report_db_text(case: Dict[str, Any], audience: str, section: str) -> str:
+    """Return deterministic DB phrases for a given report section.
+
+    - Never contains patient-identifiable data (DB is local + generic).
+    - If DB is missing/unavailable, returns empty string.
+    """
+    if select_phrases is None:
+        return ""
+    try:
+        env = case.get("env") or {}
+        tags0 = []
+        dec = case.get("decision") or {}
+        if isinstance(dec.get("tags"), list):
+            tags0 = [str(x) for x in (dec.get("tags") or []) if x]
+        phrases, _tags = select_phrases(
+            env=env,
+            tags=tags0,
+            audience=str(audience),
+            section=str(section),
+            safe_eval_bool_fn=safe_eval_bool,
+        )
+        phrases = [str(p).strip() for p in (phrases or []) if str(p).strip()]
+        return "\n\n".join(phrases).strip()
+    except Exception:
+        return ""
 # =============================================================================
 # Doctor report (Markdown)
 # =============================================================================
@@ -1435,51 +1538,47 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
                         "Die Volumenprovokation zeigt keinen Anstieg der PAWP auf ≥18 mmHg und ergibt damit keinen Hinweis auf eine okkulte HFpEF Konstellation."
                     )
 
-        # --- Exercise ---
+        # --- Exercise (optional; only if slopes are available) ---
+        # User requirement: Belastungsbefunde (mPAP/CO-Slope, PAWP/CO-Slope) nur dann interpretieren,
+        # wenn sie tatsächlich vorhanden sind. Keine "Leerstelle" im Text, nur weil die Checkbox gesetzt ist.
         if bool(d.get("exercise_done")):
             mpap_s = _safe_float(d.get("mpap_co_slope"))
             pawp_s = _safe_float(d.get("pawp_co_slope"))
 
-            # If slopes are missing, interpret as limited (e.g., abort)
-            if mpap_s is None and pawp_s is None:
-                lines.append(
-                    "Unter der vorliegenden Belastungssituation konnten keine belastungsinduzierten hämodynamischen Veränderungen verlässlich erfasst werden (z.B. frühzeitiger Abbruch/fehlende vollständige Messreihe)."
-                )
-            else:
-                # If we have both slopes, provide a single, readable statement.
+            # If both slopes are missing, stay silent (no optional block).
+            if not (mpap_s is None and pawp_s is None):
+                # Build a dedicated optional block that is clearly separated.
                 if mpap_s is not None and pawp_s is not None:
                     if mpap_s <= 3.0 and pawp_s <= 2.0:
                         lines.append(
-                            "Unter Belastung ergeben sich keine Kriterien für eine abnorme pulmonale Druck Flow Reaktion "
-                            "(mPAP/CO Slope ≤3 WU) und kein Hinweis auf eine belastungsassoziierte postkapilläre Komponente "
-                            "(PAWP/CO Slope ≤2 WU)."
+                            "Unter Belastung zeigt sich keine abnorme pulmonale Druck Flow Reaktion (mPAP/CO Slope ≤3 WU) "
+                            "und kein Hinweis auf eine belastungsassoziierte postkapilläre Komponente (PAWP/CO Slope ≤2 WU)."
                         )
                     else:
                         ex_bits: List[str] = []
                         if mpap_s > 3.0:
-                            ex_bits.append("abnorme pulmonale Druck Flow Reaktion (mPAP/CO Slope >3 WU)")
+                            ex_bits.append("eine abnorme pulmonale Druck Flow Reaktion (mPAP/CO Slope >3 WU)")
                         if pawp_s > 2.0:
-                            ex_bits.append("Hinweis auf belastungsassoziierte postkapilläre Komponente (PAWP/CO Slope >2 WU)")
+                            ex_bits.append("einen Hinweis auf eine belastungsassoziierte postkapilläre Komponente (PAWP/CO Slope >2 WU)")
                         if ex_bits:
-                            lines.append("Unter Belastung besteht " + " und ".join(ex_bits) + ".")
+                            lines.append("Unter Belastung zeigt sich " + " und ".join(ex_bits) + ".")
                 else:
-                    # One slope only – keep phrasing conservative.
+                    # One slope only – keep phrasing conservative, but still a clear optional block.
                     ex_bits: List[str] = []
                     if mpap_s is not None:
-                        if mpap_s > 3.0:
-                            ex_bits.append("mPAP/CO Slope >3 WU als Hinweis auf eine abnorme pulmonale Druck Flow Reaktion")
-                        else:
-                            ex_bits.append("mPAP/CO Slope ≤3 WU")
+                        ex_bits.append(
+                            "mPAP/CO Slope >3 WU als Hinweis auf eine abnorme pulmonale Druck Flow Reaktion"
+                            if mpap_s > 3.0
+                            else "mPAP/CO Slope ≤3 WU"
+                        )
                     if pawp_s is not None:
-                        if pawp_s > 2.0:
-                            ex_bits.append("PAWP/CO Slope >2 WU als Hinweis auf eine belastungsassoziierte postkapilläre Komponente")
-                        else:
-                            ex_bits.append("PAWP/CO Slope ≤2 WU")
+                        ex_bits.append(
+                            "PAWP/CO Slope >2 WU als Hinweis auf eine belastungsassoziierte postkapilläre Komponente"
+                            if pawp_s > 2.0
+                            else "PAWP/CO Slope ≤2 WU"
+                        )
                     if ex_bits:
-                        lines.append("Unter Belastung ergibt sich: " + "; ".join(ex_bits) + ".")
-        else:
-            # Only add if a fluid challenge is present? Keep silent otherwise.
-            pass
+                        lines.append("Unter Belastung zeigt sich: " + "; ".join(ex_bits) + ".")
 
         if not lines:
             return ""
@@ -1864,18 +1963,34 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     report.append("\n## Beurteilung\n")
     report.append(beurteilung.strip() + "\n")
 
-    # Interpretation is its own section (pathophysiology). Keep Beurteilung descriptive.
+    # Interpretation & Empfehlung (konsolidiert, ohne Procedere-Dopplung)
+    report.append("\n## Interpretation & Empfehlung:\n")
+    ie_parts: List[str] = []
     if interpretation:
-        report.append("\n## Interpretation\n")
-        report.append(interpretation.strip() + "\n")
+        ie_parts.append(interpretation.strip())
 
-    report.append("\n## Empfehlung\n")
-    report.append(_md_kv("Diagnose/Einordnung", dec.get("primary_dx", "—")))
-    report.append("\n" + risk_block + "\n")
-    report.append(empfehlung.strip() + "\n")
+    # Optional DB-driven Ergänzung (section-mirrored with patient report)
+    _db_ie = _report_db_text(case, audience="doctor", section="rhk_ie")
+    if _db_ie:
+        ie_parts.append(_db_ie)
 
-    report.append(concluding + "\n")
+    # Etiologische Einordnung (ohne konkrete Maßnahmen – siehe Procedere)
+    _conc = _sanitize_concluding(concluding)
+    if _conc:
+        ie_parts.append(_conc)
 
+    # Diagnostische Einordnung (nur einmal)
+    dx = dec.get("primary_dx", "—")
+    if dx and dx != "—":
+        ie_parts.append(_md_kv("Diagnostische Einordnung", dx))
+
+    # Optional: kurze narrative Ergänzung, aber ohne Procedere-Text
+    _empf = _strip_procedere_from_text(empfehlung)
+    if _empf:
+        ie_parts.append(_empf)
+
+    ie_parts.append("Therapeutische Konsequenzen und weiterführende Abklärung siehe Procedere.")
+    report.append("\n\n".join([p for p in ie_parts if p]).strip() + "\n")
     # PH therapy course (documented in UI) – placed between Empfehlung and Procedere
     ph_tx_block = _build_ph_therapieverlauf_block(ui)
     if ph_tx_block:
@@ -2911,6 +3026,12 @@ def build_patient_report(case: Dict[str, Any]) -> str:
         lines.append(s)
     lines.append("")
 
+    # Optional DB-driven Ergänzung (section-mirrored with doctor report)
+    _db_ie_p = _report_db_text(case, audience="patient", section="rhk_ie")
+    if _db_ie_p:
+        lines.append("### Ergänzende Einordnung")
+        lines.append(_db_ie_p)
+        lines.append("")
 
     # ------------------------------------------------------------------
     # Narrativer Kernteil (fallzentriert, nicht generisch)
@@ -3437,6 +3558,7 @@ def build_patient_report(case: Dict[str, Any]) -> str:
     _res = out
     _cache_set('patient_report', fp, _res)
     return _res
+
 def build_internal_report(case: Dict[str, Any]) -> str:
     fp = _case_fingerprint(case)
     cached = _cache_get('internal_report', fp)

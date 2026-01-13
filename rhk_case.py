@@ -1574,6 +1574,26 @@ def build_render_ctx(case: Dict[str, Any]) -> Dict[str, Any]:
         else:
             exercise_protocol_sentence = f"In der Ergometrie bis {fmt_int(exercise_peak_watts)} W."
 
+    # ------------------------------------------------------------------
+    # HFpEF-spezifische sprachliche Verfeinerung (nur wenn Konstellation passt)
+    # Kriterien (konservativ): PAWP erhöht + LA vergrößert + E/e′ erhöht
+    # Ziel: präzisere Interpretation ohne Therapie-/Procedere-Inhalte.
+    # ------------------------------------------------------------------
+    ee_ratio = _safe_float(ui.get("ee_ratio"))
+    ee_high = (ee_ratio is not None and ee_ratio >= 14)
+    hfpef_language = bool(env.get("pawp_gt15")) and bool(env.get("la_enlarged")) and ee_high
+
+    # Noun phrase used inside templates, e.g. "... bei {left_heart_context_desc}."
+    # Must be clinically clear and stand alone.
+    if hfpef_language:
+        left_heart_context_desc = (
+            "einer HFpEF typischen diastolischen Dysfunktion mit erhöhter linksatrialer Füllungsdrucklage, "
+            "vergrößertem linken Vorhof und erhöhtem E/e′"
+        )
+    else:
+        # Neutral default (keeps existing wording generic)
+        left_heart_context_desc = "einer linksherzbedingten Druckerhöhung"
+
     return {
         **env,
         "comparison_sentence": comparison_sentence,
@@ -1604,6 +1624,7 @@ def build_render_ctx(case: Dict[str, Any]) -> Dict[str, Any]:
         "oxygen_sentence": oxygen_sentence,
         "exam_type_desc": exam_type_desc,
         "exercise_protocol_sentence": exercise_protocol_sentence,
+        "left_heart_context_desc": left_heart_context_desc,
         "exercise_pattern_desc": exercise_pattern_desc,
         "provocation_sentence": provocation_sentence,
         "provocation_type_desc": provocation_type_desc,

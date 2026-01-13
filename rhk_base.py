@@ -39,16 +39,40 @@ except Exception:  # pragma: no cover
 
 APP_NAME = "RHK Befundassistent"
 # Versioning: ab v28.x nur noch eine Dezimalstelle (z.B. v28.5)
-APP_VERSION = "v0.13"
+APP_VERSION = "v0.29"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
-FIX_LOG = [
+_FALLBACK_FIX_LOG = [
+    "Fix. v0.23: HFpEF-spezifische sprachliche Verfeinerung bei passender Echo- und Hämodynamik-Konstellation ergänzt",
+    "Fix. v0.22: Belastungs-Interpretation wird nur ausgegeben, wenn belastungsbezogene Slopes (mPAP/CO, PAWP/CO) tatsächlich vorliegen",
+    "Fix. v0.14: DOCX Import: Hämodynamik-Ruhewerte strikt aus Base 2 (keine Übernahme aus Base 1)",
     "Fix. v0.13: Performance: Section-Progress serverseitig deaktiviert, Dirty-Ping O(1), eGFR/CPET auf Blur, Dirty-Ping Debounce erhöht",
-    "Fix. v0.11: Performance: Rulebook- und SafeExpr-Parsing gecached, Plot-Rendering gecached",
-    "Fix. v0.10: P-Module stabilisiert (Single Source of Truth, keine Auto-Übernahme, robustes Optional-Override)",
 ]
 
+
+def _load_fix_header_lines() -> List[str]:
+    """Load the public 'Fix' header from FIX_HEADER.md.
+
+    Single source of truth for the UI. Keeps the top bar 'Was ist neu?' in sync.
+    """
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        p = os.path.join(here, "FIX_HEADER.md")
+        if not os.path.exists(p):
+            return list(_FALLBACK_FIX_LOG)
+        with open(p, "r", encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f.readlines()]
+        lines = [ln for ln in lines if ln and ln.lower().startswith("fix.")]
+        return lines or list(_FALLBACK_FIX_LOG)
+    except Exception:
+        return list(_FALLBACK_FIX_LOG)
+
+
+FIX_LOG = _load_fix_header_lines()
+
+
 def _render_whats_new() -> str:
-    return "<br>".join(FIX_LOG[:3])
+    return "<br>".join((FIX_LOG or [])[:3])
+
 
 WHATS_NEW = _render_whats_new()
 
