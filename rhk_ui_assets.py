@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
+
+
 """UI assets for RHK Befundassistent.
 
 Contains:
@@ -762,6 +765,31 @@ CSS = ("""
   pointer-events: none !important;
 }
 
+/* ------------------------------------------------------------------
+   Pre-RHK PDF button (A4 landscape one-pager)
+   Placed at the very bottom of the app (scroll-to) for printing
+   right before catheter. Keep it compact and non-dominant.
+   ------------------------------------------------------------------ */
+#rhk_prerhk_pdf_row{
+  justify-content: flex-end !important;
+  margin-top: 6px !important;
+}
+#btn_prerhk_pdf .wrap, #btn_prerhk_pdf button{
+  border-radius: 10px !important;
+}
+#btn_prerhk_pdf button{
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  border: 1px solid rgba(148, 163, 184, 0.9) !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: none !important;
+}
+#btn_prerhk_pdf button:hover{
+  filter: brightness(0.98);
+}
+
 /* Neutralize "Befund erstellen/aktualisieren" buttons (avoid persistent blue look) */
 #btn_generate_top button, #btn_generate_bottom button {
   background: #ffffff !important;
@@ -836,6 +864,9 @@ CSS = ("""
 
 /* Hidden clipboard payloads must remain in DOM for robust JS copy binding */
 .rhk-hidden-payload{ display: none !important; }
+/* Hidden but clickable download payloads: keep in layout tree to allow programmatic click */
+.rhk-hidden-download{ position: absolute !important; left: -10000px !important; top: -10000px !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: auto !important; }
+
 
 :root,
 .dark,
@@ -2108,6 +2139,17 @@ JS_ON_LOAD = r"""
   setTimeout(update, 50);
   setTimeout(update, 250);
   window.addEventListener("resize", () => setTimeout(update, 50));
+
+  // Pre-RHK PDF export (sticky header button)
+  window.rhkTriggerPreRhkPdf = () => {
+    try {
+      const btn = document.querySelector("#btn_prerhk_pdf button");
+      if (btn) btn.click();
+    } catch (e) {}
+  };
+
+
+
 }
 """
 JS_ON_LOAD = JS_ON_LOAD.replace("__DESKTOP_ONLY__", "true" if DESKTOP_ONLY else "false")

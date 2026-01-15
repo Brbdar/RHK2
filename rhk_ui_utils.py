@@ -1139,7 +1139,6 @@ def build_pre_cath_header_html(ui: dict | None) -> str:
         infect_chip = _chip(f"Infekt: CRP {crp:g}", "rhk-schip--good")
     else:
         infect_chip = _chip("Infekt: (kein CRP)", "rhk-schip--info")
-
     return (
         "<div class='rhk-summarybar'>"
         + consent_chip

@@ -236,17 +236,140 @@ def _strip_procedere_from_text(text: str) -> str:
 
 
 def _sanitize_concluding(text: str) -> str:
-    """Keep etiological conclusion, strip explicit recommendations (belongs to Procedere)."""
+    """Keep etiological conclusion, but strip any recommendation-like content.
+
+    For the Arztbericht interpretation block we must NOT output:
+    - "Zusatzhinweis:" paragraphs
+    - Any explicit recommendations ("Empfohlen", "Mitbeurteilung", "Therapieplanung",
+      "PH-Zentrum", "Abklärung gemäß Leitlinie", etc.)
+
+    The dedicated "Procedere" section is the only place where recommendations belong.
+    """
     if not isinstance(text, str):
         return ""
-    t = text.strip()
+    t = (text or "").strip()
     if not t:
         return ""
-    # Remove sentences containing 'empfehl' (recommendations) to avoid duplication
-    sents = re.split(r"(?<=[.!?])\s+", t)
-    keep = [s for s in sents if "empfehl" not in s.lower()]
-    return " ".join(keep).strip()
 
+    # 1) Drop any paragraph that starts with "Zusatzhinweis:" (case-insensitive)
+    paras = [p.strip() for p in re.split(r"\n\s*\n", t) if p.strip()]
+    cleaned_paras: List[str] = []
+    for p in paras:
+        if re.match(r"^zusatzhinweis\s*:\s*", p.strip(), flags=re.IGNORECASE):
+            continue
+        cleaned_paras.append(p)
+    t = "\n\n".join(cleaned_paras).strip()
+    if not t:
+        return ""
+
+    # 2) Remove sentences/lines that contain recommendation cues.
+    # Keep this conservative: only remove when clearly procedural.
+    rec_markers = [
+        "empfehl",          # Empfohlen/Empfehlung
+        "ph-zentrum",       # PH-Zentrum
+        "mitbeurteilung",   # Mitbeurteilung
+        "therapieplanung",  # Therapieplanung
+        "therapie nach",    # Therapie nach Risikoprofil
+        "strukturierte komplettierung",  # list-like diagnostic completion
+        "abklärung gemäß",  # guideline wording
+        "leitlinie",        # guideline references in procedural form
+        "risikoadaptiert",  # risk-adapted therapy planning
+        "komplette",        # "komplette ... Abklärung" (procedural)
+        "optimierung/abklärung",
+    ]
+
+    # Work line-wise first to catch "Empfohlen:" and "PH-Zentrum:" fragments.
+    lines = [ln.strip() for ln in t.splitlines()]
+    kept_lines: List[str] = []
+    for ln in lines:
+        s = ln.lower()
+        if any(m in s for m in rec_markers):
+            continue
+        kept_lines.append(ln)
+    t = " ".join([ln for ln in kept_lines if ln]).strip()
+    if not t:
+        return ""
+
+    # Finally, sentence split and filter again (covers inline "Empfohlen:" within long sentences)
+    sents = re.split(r"(?<=[.!?])\s+", t)
+    keep_sents = [s for s in sents if not any(m in s.lower() for m in rec_markers)]
+    return " ".join([s.strip() for s in keep_sents if s.strip()]).strip()
+
+
+def _sanitize_interpretation_block(text: str) -> str:
+    """Final safety net for the Arztbericht interpretation block.
+
+    Goal:
+    - Keep *diagnostic/etiology interpretation* sentences.
+    - Reliably remove any *procedural recommendations* (Empfohlen/PH-Zentrum/etc.)
+      even if they appear inline within the same paragraph.
+    - Drop any dedicated 'Zusatzhinweis:' paragraph.
+    """
+    if not isinstance(text, str):
+        return ""
+    t = (text or "").strip()
+    if not t:
+        return ""
+
+    # Procedural markers (lowercase matching). Keep conservative and German-centric.
+    rec_markers = [
+        "empfehl",               # Empfohlen/Empfehlung
+        "ph-zentrum",            # PH-Zentrum
+        "mitbeurteilung",        # Mitbeurteilung
+        "therapieplanung",       # Therapieplanung
+        "therapie nach",         # Therapie nach Risikoprofil
+        "abklärung gemäß",       # guideline procedural wording
+        "leitlinie",             # guideline references in procedural form
+        "risikoadaptiert",       # risk-adapted therapy planning
+        "komplette",             # "komplette ... Abklärung"
+        "optimierung/abklärung",
+        "interdisziplin",        # interdisziplinäre Einordnung/Board (often procedural)
+        "diagnostik werden empfohlen",
+        "werden empfohlen",
+        "empfohlen wird",
+    ]
+
+    def _truncate_at_marker(sentence: str) -> str:
+        """If a procedural marker appears, keep the part before it (if meaningful)."""
+        s = (sentence or "").strip()
+        if not s:
+            return ""
+        sl = s.lower()
+        # Find earliest marker occurrence
+        cut_pos = None
+        for mk in rec_markers:
+            p = sl.find(mk)
+            if p != -1:
+                if cut_pos is None or p < cut_pos:
+                    cut_pos = p
+        if cut_pos is None:
+            return s
+
+        # Try to cut at the marker boundary, but also remove preceding separators like ';' or '–'
+        prefix = s[:cut_pos].rstrip(" ;,–-:\n\t")
+        # If prefix is too short / non-informative, drop entirely
+        if len(prefix) < 20:
+            return ""
+        return prefix
+
+    # 1) Drop any paragraph that starts with 'Zusatzhinweis:' (case-insensitive)
+    paras = [p.strip() for p in re.split(r"\n\s*\n", t) if p.strip()]
+    paras = [p for p in paras if not re.match(r"^zusatzhinweis\s*:\s*", p, flags=re.IGNORECASE)]
+
+    kept_sents: List[str] = []
+    for p in paras:
+        # Split sentences (simple but robust enough for our German blocks)
+        sents = re.split(r"(?<=[.!?])\s+", p.strip())
+        for s in sents:
+            cleaned = _truncate_at_marker(s)
+            if cleaned:
+                kept_sents.append(cleaned)
+
+    # 2) Re-join into paragraphs (single block is fine)
+    out = " ".join([s.strip() for s in kept_sents if s.strip()]).strip()
+    # 3) Final cleanup: collapse whitespace
+    out = re.sub(r"\s+", " ", out).strip()
+    return out
 def _build_relevante_vorerkrankungen_line(ui: Dict[str, Any]) -> str:
     """Build a single-line 'Relevante Vorerkrankungen' string for the Arztbericht.
 
@@ -1715,6 +1838,17 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     # Guideline-aligned narrative interpretation (placed under the Beurteilung section).
     interpretation = _hemo_interpretation_paragraph().strip()
 
+    # Optional: deepen the *course* interpretation (primary + secondary hemodynamic blocks)
+    # Requirement: only add if values are available; no silent assumptions.
+    try:
+        from rhk_hemo_deep_interpretation import build_hemo_deep_interpretation
+
+        _deep = build_hemo_deep_interpretation(ui, der)
+        if str(_deep or "").strip():
+            interpretation = (interpretation + "\n\n" + str(_deep).strip()).strip() if interpretation else str(_deep).strip()
+    except Exception:
+        pass
+
     empfehlung = render_block(blocks[e_id], ctx) if e_id in blocks else f"[Fehlender Textblock: {e_id}]"
     empfehlung = _filter_narrative_block(empfehlung, ui, der)
 
@@ -1915,9 +2049,10 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     if isinstance(eti, dict) and str(eti.get("doc_conclusion") or "").strip():
         concluding = str(eti.get("doc_conclusion") or "").strip()
     else:
+        # Keep the interpretation section recommendation-free. Any procedural/therapeutic
+        # suggestions belong to the dedicated "Procedere" section.
         leading_cause = dec.get("leading_cause") or "unklaren Genese"
-        leading_action = dec.get("leading_action") or ""
-        concluding = f"In der Zusammenschau der Befunde gehen wir von einer führenden **{leading_cause}** aus. Entsprechend empfehlen wir **{leading_action}**."
+        concluding = f"In der Zusammenschau der Befunde gehen wir von einer führenden **{leading_cause}** aus."
 
 
     # Build final report
@@ -1963,8 +2098,8 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     report.append("\n## Beurteilung\n")
     report.append(beurteilung.strip() + "\n")
 
-    # Interpretation & Empfehlung (konsolidiert, ohne Procedere-Dopplung)
-    report.append("\n## Interpretation & Empfehlung:\n")
+    # Interpretation (konsolidiert, ohne Procedere-Dopplung)
+    report.append("\n## Interpretation:\n")
     ie_parts: List[str] = []
     if interpretation:
         ie_parts.append(interpretation.strip())
@@ -1979,18 +2114,10 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     if _conc:
         ie_parts.append(_conc)
 
-    # Diagnostische Einordnung (nur einmal)
-    dx = dec.get("primary_dx", "—")
-    if dx and dx != "—":
-        ie_parts.append(_md_kv("Diagnostische Einordnung", dx))
-
-    # Optional: kurze narrative Ergänzung, aber ohne Procedere-Text
-    _empf = _strip_procedere_from_text(empfehlung)
-    if _empf:
-        ie_parts.append(_empf)
-
-    ie_parts.append("Therapeutische Konsequenzen und weiterführende Abklärung siehe Procedere.")
-    report.append("\n\n".join([p for p in ie_parts if p]).strip() + "\n")
+    # NOTE: No recommendations in the interpretation block by requirement.
+    _ie_txt = "\n\n".join([p for p in ie_parts if p]).strip()
+    _ie_txt = _sanitize_interpretation_block(_ie_txt)
+    report.append(_ie_txt + "\n" if _ie_txt else "")
     # PH therapy course (documented in UI) – placed between Empfehlung and Procedere
     ph_tx_block = _build_ph_therapieverlauf_block(ui)
     if ph_tx_block:
@@ -2182,349 +2309,22 @@ def build_doctor_report_for_copy(case: Dict[str, Any], blocks: Dict[str, TextBlo
     _cache_set('doctor_report_copy', fp, _res)
     return _res
 def build_echo_patient_report(case: Dict[str, Any]) -> str:
+    """Patient*innenbericht Echokardiographie (strukturierte Interpretation).
+
+    Implementierung liegt in `rhk_echo_report_patient.py` und wird hier nur
+    gecached/wrapped, um etablierte Schnittstellen stabil zu halten.
+    """
     fp = _case_fingerprint(case)
     cached = _cache_get('echo_patient_report', fp)
     if cached is not None:
         return cached
 
-    """Patientenbericht Echokardiographie als klar gegliederter Text.
+    from rhk_echo_report_patient import build_echo_patient_report as _impl
+    out = _impl(case)
 
-    Ziele
-    - sofort verständlich: Kernaussage oben, Details danach
-    - echokardiographische Zeichen werden erklärt, ohne Zahlenlisten als Haupttext
-    - stabile Struktur, damit Patient*innen und Behandler*innen schnell finden, was relevant ist
-    - Zahlenblock nur als Appendix "für Unterlagen"
+    _cache_set('echo_patient_report', fp, out)
+    return out
 
-    Hinweis
-    - Das Echo schätzt Druckzeichen über indirekte Parameter. Die endgültige hämodynamische Einordnung erfolgt über das Behandlungsteam und, falls vorhanden, über direkte Messungen.
-    """
-    ui: Dict[str, Any] = case.get("ui", {}) or {}
-    der: Dict[str, Any] = case.get("derived", {}) or {}
-
-    if not ui.get("echo_done") and not ui.get("cmr_done"):
-        return "## Patientenbericht Echokardiographie\n\nAktuell sind keine Echo Werte dokumentiert.\n"
-
-    import json
-    from rhk_echo_guidelines import severity, trend, overall_trend, fmt_value, label_for, unit_for
-
-    def _get(k: str) -> Any:
-        v = ui.get(k)
-        return None if v in (None, "") else v
-
-    # Werte, die im Patientenbericht genutzt werden
-    cur: Dict[str, Any] = {
-        # Linksherz
-        "lvef": _get("lvef"),
-        "ee_ratio": _get("ee_ratio"),
-        "lavi_ml_m2": _get("lavi_ml_m2"),
-        # PH Zeichen
-        "trv_ms": _get("trv_ms"),
-        "pasp_echo": _get("pasp_echo") or _get("spap_echo") or _get("spap"),
-        "paat_ms": _get("paat_ms"),
-        "rvot_notch": _get("rvot_notch"),
-        # RV Funktion
-        "tapse_mm": _get("tapse_mm"),
-        "s_prime_cm_s": _get("s_prime_cm_s"),
-        "rvfac_pct": _get("rvfac_pct"),
-        "rv_3d_ef_pct": _get("rv_3d_ef_pct"),
-        "rv_fwls_pct": _get("rv_fwls_pct"),
-        "tapse_spap_ratio": _get("tapse_spap_ratio"),
-        # Stauung
-        "ivc_diam_mm": _get("ivc_diam_mm"),
-        "ivc_collapse_index_pct": _get("ivc_collapse_index_pct"),
-        "ivc_collapse": _get("ivc_collapse"),
-        "pericardial_effusion": _get("pericardial_effusion"),
-    }
-
-    # optionaler Vorwertvergleich
-    prev: Dict[str, Any] = {}
-    try:
-        prev = json.loads(ui.get("echo_prev_json") or "{}") if isinstance(ui.get("echo_prev_json"), str) else {}
-    except Exception:
-        prev = {}
-
-    def _sev_rank(code: str) -> int:
-        return {"": 0, "g": 1, "y": 2, "r": 3}.get(code or "", 0)
-
-    def _worst_severity(keys: list[str]) -> str:
-        best = ""
-        for k in keys:
-            if k in cur:
-                c = severity(k, cur.get(k))
-                if _sev_rank(c) > _sev_rank(best):
-                    best = c
-        return best
-
-    def _ampel_label(code: str) -> str:
-        if code == "g":
-            return "Unauffällig"
-        if code == "y":
-            return "Hinweis auf Belastung"
-        if code == "r":
-            return "Deutlich auffällig"
-        return "Nicht beurteilbar"
-
-    # Dimensionen für die schnelle Orientierung
-    sev_rv_fn = _worst_severity(["tapse_mm", "s_prime_cm_s", "rvfac_pct", "rv_3d_ef_pct", "rv_fwls_pct", "tapse_spap_ratio"])
-    sev_pressure = _worst_severity(["trv_ms", "pasp_echo", "paat_ms", "rvot_notch"])
-    sev_congestion = _worst_severity(["ivc_diam_mm", "ivc_collapse_index_pct", "ivc_collapse", "pericardial_effusion"])
-
-    # Kernaussagen (drei Sätze)
-    kernaussagen: list[str] = []
-
-    lvef = cur.get("lvef")
-    sev_lvef = severity("lvef", lvef) if lvef is not None else ""
-    if sev_lvef == "g":
-        kernaussagen.append("Die Pumpfunktion der linken Herzkammer ist erhalten.")
-    elif sev_lvef == "y":
-        kernaussagen.append("Die Pumpfunktion der linken Herzkammer ist leicht eingeschränkt.")
-    elif sev_lvef == "r":
-        kernaussagen.append("Die Pumpfunktion der linken Herzkammer ist deutlich eingeschränkt.")
-    else:
-        # Linksherz optional, kein Zwang
-        pass
-
-    if sev_pressure == "g":
-        kernaussagen.append("Es finden sich keine klaren Hinweise auf deutlich erhöhten Druck im Lungenkreislauf.")
-    elif sev_pressure == "y":
-        kernaussagen.append("Es gibt Hinweise auf eine mögliche Druckerhöhung im Lungenkreislauf.")
-    elif sev_pressure == "r":
-        kernaussagen.append("Es gibt deutliche Hinweise auf einen erhöhten Druck im Lungenkreislauf.")
-    else:
-        kernaussagen.append("Der Druck im Lungenkreislauf konnte im Echo nicht sicher abgeschätzt werden.")
-
-    if sev_rv_fn == "g":
-        kernaussagen.append("Die rechte Herzkammer wirkt in der Pumpfunktion insgesamt erhalten.")
-    elif sev_rv_fn == "y":
-        kernaussagen.append("Die rechte Herzkammer zeigt leichte Hinweise auf eine Einschränkung der Pumpfunktion.")
-    elif sev_rv_fn == "r":
-        kernaussagen.append("Die rechte Herzkammer zeigt deutliche Hinweise auf eine eingeschränkte Pumpfunktion.")
-    else:
-        kernaussagen.append("Zur rechten Pumpfunktion liegen keine belastbaren Messwerte vor.")
-
-    # Zusammenführung: maximal 3 Sätze
-    kernaussage = " ".join(kernaussagen[:3]).strip()
-
-    # Qualitäts und Kontext Satz
-    ctx_line = (
-        "Wichtig: Das Echo liefert indirekte Hinweise. Die endgültige Einordnung erfolgt im Gesamtkontext, "
-        "bei Bedarf auch mit direkten Messungen (Rechtsherzkatheter) sowie Verlaufskontrollen."
-    )
-    if ui.get("rhk_done") or der.get("mpap") is not None or der.get("pvr") is not None:
-        ctx_line = (
-            "Wichtig: Das Echo ergänzt die direkten Messwerte aus dem Rechtsherzkatheter. "
-            "Die endgültige Einordnung erfolgt im Gesamtkontext durch das Behandlungsteam."
-        )
-
-    # Detailabschnitte
-    bits: list[str] = []
-    bits.append("## Patientenbericht Echokardiographie\n")
-    bits.append("### Kernaussage\n" + kernaussage)
-    bits.append(ctx_line)
-
-    # Ampelblock
-    bits.append(
-        "### Übersicht\n"
-        f"Rechte Herzhälfte (Pumpfunktion): {_ampel_label(sev_rv_fn)}\n"
-        f"Hinweise auf erhöhten Druck im Lungenkreislauf: {_ampel_label(sev_pressure)}\n"
-        f"Hinweise auf Stauung: {_ampel_label(sev_congestion)}"
-    )
-
-    # Erklärung: was im Echo beurteilt wird
-    bits.append(
-        "### Was im Echo beurteilt wurde\n"
-        "Im Echo werden Größe und Pumpfunktion der Herzkammern sowie indirekte Zeichen für eine Belastung des Lungenkreislaufs beurteilt. "
-        "Zusätzlich lassen sich Hinweise auf eine Blutstauung erkennen."
-    )
-
-    # Lungenkreislauf und rechte Herzhälfte
-    # Haupttext: keine Fachabkürzungen (Details/Abkürzungen stehen unten bei "Messwerte").
-    ph_parts: list[str] = []
-    trv = cur.get("trv_ms")
-    spap = cur.get("pasp_echo")
-    paat = cur.get("paat_ms")
-    notch = str(cur.get("rvot_notch") or "").strip().lower()
-
-    if spap is not None:
-        ph_parts.append(
-            f"Im Ultraschall ergibt sich ein Hinweis auf einen erhöhten Druck im Lungenkreislauf. "
-            f"Der abgeleitete systolische Druck in der Lungenarterie liegt bei etwa {fmt_value(spap, 0)} mmHg."
-        )
-    elif trv is not None or paat is not None or notch in ("ja", "true", "1"):
-        # Messwerte vorhanden, aber keine direkte sPAP-Angabe
-        ph_parts.append("Es finden sich im Ultraschall indirekte Hinweise auf eine mögliche Druckbelastung des Lungenkreislaufs.")
-    else:
-        ph_parts.append("Es liegen keine ausreichenden Angaben vor, um den Druck im Lungenkreislauf im Echo sicher zu schätzen.")
-
-    # Rechte Pumpfunktion
-    rv_parts: list[str] = []
-    if sev_rv_fn == "g":
-        rv_parts.append("Die rechte Herzkammer wirkt in der Pumpfunktion insgesamt erhalten.")
-    elif sev_rv_fn == "y":
-        rv_parts.append("Es finden sich Hinweise auf eine leicht eingeschränkte Pumpfunktion der rechten Herzkammer.")
-    elif sev_rv_fn == "r":
-        rv_parts.append("Es finden sich deutliche Hinweise auf eine eingeschränkte Pumpfunktion der rechten Herzkammer.")
-    else:
-        rv_parts.append("Zur Pumpfunktion der rechten Herzkammer ergibt sich aus diesem Befund keine eindeutige Aussage.")
-
-    rv_parts.append("Die zugrunde liegenden Messwerte und Abkürzungen sind im Abschnitt \"Messwerte\" erläutert.")
-
-    bits.append("### Rechte Herzhälfte und Lungenkreislauf\n" + " ".join(ph_parts + rv_parts))
-
-    # Linkes Herz
-    lh_parts: list[str] = []
-    ee = cur.get("ee_ratio")
-    lavi = cur.get("lavi_ml_m2")
-
-    if lvef is not None:
-        if sev_lvef == "g":
-            lh_parts.append(f"Die linke Pumpfunktion liegt im Normbereich (LVEF {fmt_value(lvef, 0)} Prozent).")
-        elif sev_lvef == "y":
-            lh_parts.append(f"Die linke Pumpfunktion ist leicht eingeschränkt (LVEF {fmt_value(lvef, 0)} Prozent).")
-        elif sev_lvef == "r":
-            lh_parts.append(f"Die linke Pumpfunktion ist deutlich eingeschränkt (LVEF {fmt_value(lvef, 0)} Prozent).")
-        else:
-            lh_parts.append(f"Die linke Pumpfunktion beträgt {fmt_value(lvef, 0)} Prozent.")
-    # diastolische Hinweise (patientenfreundlich)
-    if ee is not None or lavi is not None:
-        if ee is not None:
-            ee_v = _safe_float(ee)
-        else:
-            ee_v = None
-
-        # grobe, patientenfreundliche Einordnung (keine harte Diagnose im Patientenbericht)
-        if ee_v is not None and ee_v >= 14:
-            lh_parts.append("Es gibt Hinweise auf erhöhte Füllungsdrücke der linken Herzkammer (dies kann zu Luftnot beitragen).")
-        elif ee_v is not None and 10 <= ee_v < 14:
-            lh_parts.append("Die Hinweise auf erhöhte Füllungsdrücke der linken Herzkammer sind grenzwertig.")
-        elif ee_v is not None:
-            lh_parts.append("Es ergeben sich keine eindeutigen Hinweise auf erhöhte Füllungsdrücke der linken Herzkammer.")
-
-        if lavi is not None and _safe_float(lavi) is not None:
-            lh_parts.append("Zusatzzeichen aus dem Ultraschall (z.B. Vorhofgröße) werden im Gesamtkontext mitbeurteilt.")
-    if lh_parts:
-        bits.append("### Linke Herzhälfte\n" + " ".join(lh_parts))
-
-    # Stauungszeichen
-    cong_parts: list[str] = []
-    ivc_d = cur.get("ivc_diam_mm")
-    ivc_ci = cur.get("ivc_collapse_index_pct")
-    ivc_coll = str(cur.get("ivc_collapse") or "").strip().lower()
-    peric = str(cur.get("pericardial_effusion") or "").strip().lower()
-
-    if ivc_d is not None:
-        cong_parts.append(f"Die große Hohlvene misst {fmt_value(ivc_d, 0)} mm.")
-    if ivc_ci is not None:
-        cong_parts.append(f"Die Atemvariabilität liegt bei {fmt_value(ivc_ci, 0)} Prozent.")
-    if ivc_coll in ("ja", "nein"):
-        cong_parts.append("Die Hohlvene kollabiert bei Einatmung deutlich." if ivc_coll == "ja" else "Die Hohlvene kollabiert bei Einatmung nur eingeschränkt.")
-    if peric in ("ja", "true", "1"):
-        cong_parts.append("Es wurde Flüssigkeit um das Herz beschrieben. Dies wird im Verlauf gezielt kontrolliert.")
-
-    if cong_parts:
-        # Einordnung zu Stauung, wenn möglich
-        if sev_congestion == "g":
-            cong_parts.append("Insgesamt ergeben sich keine ausgeprägten Zeichen einer Blutstauung.")
-        elif sev_congestion == "y":
-            cong_parts.append("Insgesamt ergeben sich milde Hinweise auf eine mögliche Blutstauung.")
-        elif sev_congestion == "r":
-            cong_parts.append("Insgesamt ergeben sich deutliche Hinweise auf eine Blutstauung, die klinisch und im Verlauf eng mitbeurteilt werden sollte.")
-        bits.append("### Hinweise auf Stauung\n" + " ".join(cong_parts))
-
-    # Verlauf
-    if prev:
-        ph_summary, _ = overall_trend(prev, cur, ["trv_ms", "pasp_echo", "paat_ms", "rvot_notch", "pericardial_effusion"])
-        rv_summary, _ = overall_trend(prev, cur, ["tapse_mm", "s_prime_cm_s", "rvfac_pct", "rv_3d_ef_pct", "rv_fwls_pct", "tapse_spap_ratio"])
-        changes: list[str] = []
-        for k in ("pasp_echo", "trv_ms", "paat_ms", "tapse_mm", "rv_3d_ef_pct", "rv_fwls_pct", "ivc_diam_mm", "ivc_collapse_index_pct"):
-            if k in prev and k in cur:
-                tr = trend(k, prev.get(k), cur.get(k))
-                if tr.meaningful and tr.improved is not None:
-                    direction_word = "verbessert" if tr.improved else "verschlechtert"
-                    digits = 2 if k in ("trv_ms",) else 1 if k in ("rv_fwls_pct",) else 0
-                    changes.append(
-                        f"{label_for(k)} {direction_word} (von {fmt_value(prev.get(k), digits)} auf {fmt_value(cur.get(k), digits)})"
-                    )
-
-        line = f"Im Vergleich zu einer früheren Untersuchung: Zeichen der Druckbelastung {ph_summary}, rechte Pumpfunktion {rv_summary}."
-        if changes:
-            line += " Auffällige Veränderungen: " + "; ".join(changes[:6]) + "."
-        bits.append("### Verlauf\n" + line)
-
-    # Nächste Schritte
-    next_parts: list[str] = []
-    next_parts.append("Die Befunde werden im behandelnden Team zusammen mit Beschwerden, Laborwerten und Verlauf eingeordnet.")
-    if not (ui.get("rhk_done") or der.get("mpap") is not None or der.get("pvr") is not None):
-        next_parts.append("Wenn die Frage nach dem Druck im Lungenkreislauf offen bleibt, kann eine direkte Messung im Rechtsherzkatheter sinnvoll sein.")
-    else:
-        next_parts.append("Die direkten Messwerte aus dem Rechtsherzkatheter sind für die endgültige Einordnung entscheidend und werden zusammen mit dem Echo bewertet.")
-    bits.append("### Nächste Schritte\n" + " ".join(next_parts))
-
-    # Safety net
-    bits.append(
-        "### Wann Sie früher ärztlich Kontakt aufnehmen sollten\n"
-        "- deutlich zunehmende Atemnot, neu auch in Ruhe\n"
-        "- Schwindel, Beinahe Ohnmacht oder Ohnmacht\n"
-        "- neue oder rasch zunehmende Beinödeme oder rasche Gewichtszunahme\n"
-        "- neue, anhaltende Brustschmerzen\n"
-        "Bei solchen Veränderungen sollte zeitnah ärztlich Kontakt aufgenommen werden."
-    )
-
-    # Appendix Messwerte
-    # Abkürzungen sind hier erlaubt (mit kurzer Erklärung), damit Patient*innen
-    # ihren Befund mit dem Arztbrief abgleichen können.
-    appendix_keys = [
-        "lvef", "ee_ratio", "lavi_ml_m2",
-        "trv_ms", "pasp_echo", "paat_ms", "rvot_notch",
-        "tapse_mm", "s_prime_cm_s", "rvfac_pct", "rv_3d_ef_pct", "rv_fwls_pct", "tapse_spap_ratio",
-        "ivc_diam_mm", "ivc_collapse_index_pct", "ivc_collapse", "pericardial_effusion",
-    ]
-
-    explain: Dict[str, str] = {
-        "lvef": "LVEF (linke Pumpfunktion)",
-        "ee_ratio": "E/e' (Hinweis auf Füllungsdruck)",
-        "lavi_ml_m2": "LAVI (linker Vorhof, Größe)",
-        "pasp_echo": "sPAP Echo (abgeleiteter Druck in der Lungenarterie)",
-        "trv_ms": "TRV (Rückflussgeschwindigkeit über der Trikuspidalklappe)",
-        "paat_ms": "PAAT (Beschleunigungszeit in der Pulmonalarterie)",
-        "rvot_notch": "Mid-systolic notch (Kurvenzeichen)",
-        "tapse_mm": "TAPSE (Maß für rechte Pumpfunktion)",
-        "s_prime_cm_s": "S' (Maß für rechte Pumpfunktion)",
-        "rvfac_pct": "RVFAC (Maß für rechte Pumpfunktion)",
-        "rv_3d_ef_pct": "3D RVEF (rechte Pumpfunktion)",
-        "rv_fwls_pct": "RV FWLS (Dehnungswert der rechten Kammer)",
-        "tapse_spap_ratio": "TAPSE/sPAP (Kopplungsmaß)",
-        "ivc_diam_mm": "VCI Durchmesser (Hinweis auf Füllung/Stauung)",
-        "ivc_collapse_index_pct": "VCI Kollaps (Hinweis auf Stauung)",
-        "ivc_collapse": "VCI Kollaps >50%",
-        "pericardial_effusion": "Perikarderguss (Flüssigkeit um das Herz)",
-    }
-
-    lines: list[str] = []
-    for k in appendix_keys:
-        if k not in cur:
-            continue
-        v = cur.get(k)
-        if v in (None, ""):
-            continue
-        lbl = explain.get(k) or label_for(k)
-        unit = unit_for(k)
-        # digits
-        digits = 2 if k in ("trv_ms", "tapse_spap_ratio") else 1 if k in ("ee_ratio", "s_prime_cm_s", "rv_fwls_pct") else 0
-        if isinstance(v, str) and v.strip().lower() in ("ja", "nein"):
-            val_txt = v.strip().lower()
-            val_txt = "ja" if val_txt == "ja" else "nein"
-        else:
-            val_txt = fmt_value(v, digits)
-        u = f" {unit}" if unit else ""
-        lines.append(f"{lbl}: {val_txt}{u}")
-
-    if lines:
-        bits.append("### Messwerte (für Ihre Unterlagen)\n" + "\n".join(lines))
-
-    _res = "\n\n".join([b for b in bits if b and b.strip()]).strip() + "\n"
-    _cache_set('echo_patient_report', fp, _res)
-    return _res
 def _pick_patient_template(block: Any, rng: random.Random) -> str:
     """Pick a block template variant.
 
@@ -4753,603 +4553,19 @@ def load_case_json(file_path: str) -> Dict[str, Any]:
 
 
 def build_echo_doctor_report_extended(case: Dict[str, Any]) -> str:
+    """Arztbericht Echokardiographie – strukturiert, PH-bezogen, Rechtsherz-Fokus.
+
+    Implementierung liegt in `rhk_echo_report_doctor.py` und wird hier nur
+    gecached/wrapped, um etablierte Schnittstellen stabil zu halten.
+    """
     fp = _case_fingerprint(case)
     cached = _cache_get('echo_doctor_report', fp)
     if cached is not None:
         return cached
 
-    """Echo Expertenbericht (Arztbericht) – ausführlich, strukturiert, leitliniennah.
+    from rhk_echo_report_doctor import build_echo_doctor_report as _impl
+    out = _impl(case)
 
-    Ziele
-    - klinisch lesbarer Fließtext mit klarer Einordnung (keine reine Werteauflistung)
-    - Einordnung der PH-Wahrscheinlichkeit (Echo = Screening, keine Diagnose)
-    - RV Remodeling, RV Funktion, RV PA Kopplung und Stauungszeichen werden konsistent abgebildet
-    - Linksherz Kontext inkl. diastolischer Hinweise (für Differenzierung prä vs. postkapillär)
-    - Verlauf: meaningful change statt reines mathematisches Delta
+    _cache_set('echo_doctor_report', fp, out)
+    return out
 
-    Datenquellen
-    - case["ui"]: Checkboxen/Flags (z.B. septal_flattening)
-    - case["derived"]: abgeleitete Größe (z.B. echo_probability)
-    - case["echo"]: Werte (TAPSE, TRV, PASP, PAAT, RA Fläche, IVC, …)
-
-    Hinweis
-    Dieser Bericht ist für den Arztbericht gedacht (Expertenniveau). Patient*innen-Texte werden
-    separat erzeugt (build_echo_patient_report).
-    """
-    ui: Dict[str, Any] = case.get("ui", {}) or {}
-    der: Dict[str, Any] = case.get("derived", {}) or {}
-
-    if not ui.get("echo_done") and not ui.get("cmr_done"):
-        return "## Echo Arztbefund (Expertenbericht)\n\nFür diesen Fall sind aktuell keine Echo oder CMR Werte dokumentiert.\n"
-
-    from rhk_echo_guidelines import severity, trend, overall_trend, label_for, fmt_value, unit_for
-
-    echo: Dict[str, Any] = case.get("echo", {}) or {}
-
-    def _get(k: str):
-        v = echo.get(k)
-        if v in ("", "—", "-", None):
-            return None
-        return v
-
-    # --- Collect current values ------------------------------------------------
-    cur: Dict[str, Any] = {
-        # Linksherz
-        "lvef": _get("lvef"),
-        "ee_ratio": _get("ee_ratio"),
-        "lavi_ml_m2": _get("lavi_ml_m2"),
-        "la_esa_cm2": _get("la_esa_cm2"),
-
-        # PH Surrogate / Nachlast
-        "trv_ms": _get("trv_ms"),
-        "pasp_echo": _get("pasp_echo"),
-        "paat_ms": _get("paat_ms"),
-        "paat_rvet_ratio": _get("paat_rvet_ratio"),
-        "rvot_notch": _get("rvot_notch"),
-
-        # RV / RA
-        "tapse_mm": _get("tapse_mm"),
-        "s_prime_cm_s": _get("s_prime_cm_s"),
-        "rvfac_pct": _get("rvfac_pct"),
-        "rv_3d_ef_pct": _get("rv_3d_ef_pct"),
-        "rv_fwls_pct": _get("rv_fwls_pct"),
-        "rv_gls_pct": _get("rv_gls_pct"),
-        "tapse_spap_ratio": _get("tapse_spap_ratio"),
-        "ra_esa_cm2": _get("ra_esa_cm2"),
-        "rv_edd_mm": _get("rv_edd_mm"),
-        "rv_wall_thickness_mm": _get("rv_wall_thickness_mm"),
-
-        # Stauung / Perikard
-        "ivc_diam_mm": _get("ivc_diam_mm"),
-        "ivc_exp_mm": _get("ivc_exp_mm"),
-        "ivc_insp_mm": _get("ivc_insp_mm"),
-        "ivc_collapse_index_pct": _get("ivc_collapse_index_pct"),
-        "ivc_collapse": _get("ivc_collapse"),
-        "pericardial_effusion": _get("pericardial_effusion"),
-    }
-
-    # Flags
-    afib = bool(ui.get("afib"))
-    sept_flat = bool(ui.get("septal_flattening"))
-    echo_prob = (der.get("echo_probability") or "").strip()
-
-    # --- Helper: integrated severity ------------------------------------------
-    def _sev_tag(key: str, value: Any) -> str:
-        s = severity(key, value)
-        if s == "g":
-            return "unauffällig"
-        if s == "y":
-            return "grenzwertig"
-        if s == "r":
-            return "deutlich pathologisch"
-        return ""
-
-    def _worst_severity(keys: list[str]) -> str:
-        # returns g/y/r or ""
-        worst = ""
-        order = {"": -1, "g": 0, "y": 1, "r": 2}
-        for k in keys:
-            v = cur.get(k)
-            if v is None:
-                continue
-            s = severity(k, v)
-            if order.get(s, -1) > order.get(worst, -1):
-                worst = s
-        return worst
-
-    # --- Helper: compute PH probability if not present -------------------------
-    def _compute_ph_probability() -> str:
-        trv = cur.get("trv_ms")
-        # ESC/ERS algorithm: primarily TRV, plus additional signs.
-        # Here: implement a pragmatic mapping using available surrogate signs.
-        supportive = 0
-        # ventricles / septum
-        if sept_flat:
-            supportive += 1
-        if cur.get("rv_edd_mm") is not None and severity("rv_edd_mm", cur.get("rv_edd_mm")) in ("y", "r"):
-            supportive += 1
-        # pulmonary artery
-        if cur.get("paat_ms") is not None and severity("paat_ms", cur.get("paat_ms")) in ("y", "r"):
-            supportive += 1
-        if str(cur.get("rvot_notch") or "").strip().lower() in ("ja", "true", "1"):
-            supportive += 1
-        # RA / IVC / pericard
-        if cur.get("ra_esa_cm2") is not None and severity("ra_esa_cm2", cur.get("ra_esa_cm2")) in ("y", "r"):
-            supportive += 1
-        if cur.get("ivc_collapse_index_pct") is not None and severity("ivc_collapse_index_pct", cur.get("ivc_collapse_index_pct")) in ("y", "r"):
-            supportive += 1
-        if str(cur.get("pericardial_effusion") or "").strip().lower() in ("ja", "true", "1"):
-            supportive += 1
-
-        if trv is None:
-            # No TRV: rely on supportive signs
-            if supportive >= 2:
-                return "intermediär bis hoch (TRV nicht messbar, aber mehrere kongruente PH-Zeichen)"
-            if supportive == 1:
-                return "intermediär (TRV nicht messbar, einzelnes PH-Zeichen)"
-            return "niedrig (TRV nicht messbar, keine kongruenten PH-Zeichen dokumentiert)"
-
-        # TRV bands (typical thresholding in guidelines and practice)
-        if trv <= 2.8:
-            if supportive >= 2:
-                return "intermediär (TRV niedrig, aber mehrere kongruente PH-Zeichen)"
-            return "niedrig"
-        if 2.8 < trv <= 3.4:
-            if supportive >= 1:
-                return "hoch (TRV erhöht, plus kongruente PH-Zeichen)"
-            return "intermediär"
-        # trv > 3.4
-        return "hoch"
-
-    if not echo_prob:
-        echo_prob = _compute_ph_probability()
-
-    # --- Build report ----------------------------------------------------------
-    # --- Build report ----------------------------------------------------------
-    parts: list[str] = []
-    parts: list[str] = []
-    parts.append("## Echo Arztbefund (Expertenbericht)")
-
-    # 1) Bildqualität / Limitationen (immer explizit)
-    lim_bits: list[str] = []
-    trv = cur.get("trv_ms")
-    if trv is None:
-        lim_bits.append("TRV nicht messbar oder nicht dokumentiert")
-    # sPAP ohne TRV -> Ableitung eingeschränkt
-    if (cur.get("pasp_echo") is not None) and (trv is None):
-        lim_bits.append("sPAP angegeben, aber ohne TRV-Messung nur eingeschränkt ableitbar")
-    if afib:
-        lim_bits.append("Vorhofflimmern (beat-to-beat Variabilität)")
-    # generischer Hinweis, falls viele Kernparameter fehlen
-    core_keys = ["tapse_mm", "s_prime_cm_s", "rvfac_pct", "rv_3d_ef_pct", "rv_fwls_pct", "tapse_spap_ratio", "ivc_collapse_index_pct", "ivc_diam_mm"]
-    missing_core = [k for k in core_keys if cur.get(k) is None]
-    if len(missing_core) == len(core_keys):
-        lim_bits.append("keine RV/RA Funktionsparameter dokumentiert")
-
-    parts.append("\n\n### Bildqualität und Limitationen")
-    if lim_bits:
-        parts.append("- " + "\n- ".join(lim_bits))
-    else:
-        parts.append("- Keine relevanten Limitationen dokumentiert.")
-
-    # Helper: severity word for a parameter
-    def _sev_word(key: str, value):
-        s = severity(key, value) or ""
-        # g=normal, y=borderline, r=pathologic (directional wording is handled in short comments)
-        if s == "g":
-            return "normal"
-        if s == "y":
-            return "grenzwertig"
-        if s == "r":
-            return "deutlich pathologisch"
-        return ""
-
-    # Helper: short parameter comment (leitlinienorientiert, aber knapp)
-    _short_comment = {
-        "tapse_mm": "Marker der longitudinalen RV-Systolik",
-        "s_prime_cm_s": "Marker der longitudinalen RV-Systolik (Tissue Doppler)",
-        "rvfac_pct": "flächenbasierter RV-Systolikparameter (FAC)",
-        "rv_3d_ef_pct": "volumetrische RV-Systolik (3D)",
-        "rv_fwls_pct": "RV free wall strain (sensitiver Funktionsmarker)",
-        "tapse_spap_ratio": "Surrogat der RV–PA-Kopplung",
-        "ra_esa_cm2": "Remodeling-Marker des rechten Vorhofs",
-        "raai_cm2_m2": "indexierter Remodeling-Marker des rechten Vorhofs",
-        "sprime_raai_ratio": "kombinierter Marker (S′/RAAI)",
-        "ivc_collapse_index_pct": "Surrogat für RA-Druck / Stauungszeichen",
-        "ivc_diam_mm": "Surrogat für RA-Druck / Stauungszeichen",
-        "trv_ms": "PH-Screeningparameter (TRV)",
-        "pasp_echo": "PH-Surrogat (sPAP aus Echo)",
-        "paat_ms": "PH-Surrogat (PAAT)",
-    }
-
-    # 2) Linkes Herz (vollständig, falls dokumentiert)
-    parts.append("\n\n### Linkes Herz")
-    lh_lines: list[str] = []
-
-    # LV systolische Funktion
-    if cur.get("lvef") is not None:
-        v = cur.get("lvef")
-        lh_lines.append(f"- LVEF {fmt_value(v,0)} % – {_sev_word('lvef', v)} (LV systolische Pumpfunktion)")
-
-    # LV Füllungsdruck / Diastolik-Surrogate
-    if cur.get("ee_ratio") is not None:
-        v = cur.get("ee_ratio")
-        lh_lines.append(f"- E/e′ {fmt_value(v,1)} – {_sev_word('ee_ratio', v)} (LV Füllungsdrucksurrogat)")
-
-    # LA Größe (qualitativ und quantitativ)
-    if cur.get("lavi_ml_m2") is not None:
-        v = cur.get("lavi_ml_m2")
-        lh_lines.append(f"- LAVI {fmt_value(v,0)} ml/m² – {_sev_word('lavi_ml_m2', v)} (LA Volumenindex)")
-    if cur.get("la_vmax_ml") is not None:
-        v = cur.get("la_vmax_ml")
-        lh_lines.append(f"- LA Vmax {fmt_value(v,0)} ml (LA Volumen)")
-    if cur.get("la_esa_cm2") is not None:
-        v = cur.get("la_esa_cm2")
-        lh_lines.append(f"- LA ESA {fmt_value(v,0)} cm² (LA Fläche)")
-    if cur.get("la_enlarged") is not None:
-        lh_lines.append(f"- LA: {'erweitert' if bool(cur.get('la_enlarged')) else 'nicht erweitert'} (qualitativ)")
-
-    if lh_lines:
-        parts.append("\n".join(lh_lines))
-    else:
-        parts.append("- Keine Linksherzparameter dokumentiert.")
-
-    # 3) RV Funktion (parametergebunden, mit Begründung)
-    parts.append("\n\n### Rechte Kammer – systolische Funktion")
-    rv_lines: list[str] = []
-    if cur.get("tapse_mm") is not None:
-        v = cur.get("tapse_mm")
-        rv_lines.append(f"- TAPSE {fmt_value(v,0)} mm – {_sev_word('tapse_mm', v)} ({_short_comment['tapse_mm']})")
-    if cur.get("s_prime_cm_s") is not None:
-        v = cur.get("s_prime_cm_s")
-        rv_lines.append(f"- S′ {fmt_value(v,1)} cm/s – {_sev_word('s_prime_cm_s', v)} ({_short_comment['s_prime_cm_s']})")
-    if cur.get("rvfac_pct") is not None:
-        v = cur.get("rvfac_pct")
-        rv_lines.append(f"- RV FAC {fmt_value(v,0)} % – {_sev_word('rvfac_pct', v)} ({_short_comment['rvfac_pct']})")
-    if cur.get("rv_3d_ef_pct") is not None:
-        v = cur.get("rv_3d_ef_pct")
-        rv_lines.append(f"- 3D RVEF {fmt_value(v,0)} % – {_sev_word('rv_3d_ef_pct', v)} ({_short_comment['rv_3d_ef_pct']})")
-    if cur.get("rv_fwls_pct") is not None:
-        v = cur.get("rv_fwls_pct")
-        rv_lines.append(f"- RV FWLS {fmt_value(v,1)} % – {_sev_word('rv_fwls_pct', v)} ({_short_comment['rv_fwls_pct']})")
-
-    # RV Remodeling, wenn vorhanden (kurz)
-    if cur.get("rv_edd_mm") is not None:
-        v = cur.get("rv_edd_mm")
-        rv_lines.append(f"- RV Basaldiameter {fmt_value(v,0)} mm – {_sev_word('rv_edd_mm', v)}")
-    if cur.get("rv_wall_thickness_mm") is not None:
-        v = cur.get("rv_wall_thickness_mm")
-        rv_lines.append(f"- RV Wanddicke {fmt_value(v,0)} mm – {_sev_word('rv_wall_thickness_mm', v)}")
-
-    if rv_lines:
-        parts.append("\n".join(rv_lines))
-    else:
-        parts.append("- Keine RV-Systolikparameter dokumentiert.")
-
-    # 3) RV–PA Kopplung (immer, wenn berechenbar)
-    parts.append("\n\n### RV–PA-Kopplung")
-    coup_lines: list[str] = []
-    if cur.get("tapse_spap_ratio") is not None:
-        v = cur.get("tapse_spap_ratio")
-        coup_lines.append(f"- TAPSE/sPAP {fmt_value(v,2)} mm/mmHg – {_sev_word('tapse_spap_ratio', v)} ({_short_comment['tapse_spap_ratio']})")
-    else:
-        coup_lines.append("- TAPSE/sPAP nicht berechenbar (TAPSE oder sPAP fehlt).")
-    parts.append("\n".join(coup_lines))
-
-    # 4) Rechter Vorhof (prominent)
-    parts.append("\n\n### Rechter Vorhof")
-    ra_lines: list[str] = []
-    if cur.get("ra_esa_cm2") is not None:
-        v = cur.get("ra_esa_cm2")
-        ra_lines.append(f"- RA Fläche {fmt_value(v,0)} cm² – {_sev_word('ra_esa_cm2', v)} ({_short_comment['ra_esa_cm2']})")
-    # RAAI / S'/RAAI werden in der App typischerweise bereits berechnet und in cur hinterlegt
-    if cur.get("raai_cm2_m2") is not None:
-        v = cur.get("raai_cm2_m2")
-        ra_lines.append(f"- RAAI {fmt_value(v,1)} cm²/m² – {_sev_word('raai_cm2_m2', v)} ({_short_comment['raai_cm2_m2']})")
-    if cur.get("sprime_raai_ratio") is not None:
-        v = cur.get("sprime_raai_ratio")
-        ra_lines.append(f"- S′/RAAI {fmt_value(v,2)} – {_sev_word('sprime_raai_ratio', v)} ({_short_comment['sprime_raai_ratio']})")
-    if ra_lines:
-        parts.append("\n".join(ra_lines))
-    else:
-        parts.append("- Keine RA-Parameter dokumentiert.")
-
-    # 5) Stauungszeichen / Perikard
-    parts.append("\n\n### Stauungszeichen")
-    st_lines: list[str] = []
-    if cur.get("ivc_diam_mm") is not None:
-        v = cur.get("ivc_diam_mm")
-        st_lines.append(f"- VCI {fmt_value(v,0)} mm – {_sev_word('ivc_diam_mm', v)} ({_short_comment['ivc_diam_mm']})")
-    if cur.get("ivc_collapse_index_pct") is not None:
-        v = cur.get("ivc_collapse_index_pct")
-        st_lines.append(f"- VCI Kollapsindex {fmt_value(v,0)} % – {_sev_word('ivc_collapse_index_pct', v)} ({_short_comment['ivc_collapse_index_pct']})")
-    if str(cur.get("pericardial_effusion") or "").strip():
-        st_lines.append(f"- Perikarderguss {cur.get('pericardial_effusion')}")
-    if st_lines:
-        parts.append("\n".join(st_lines))
-    else:
-        parts.append("- Keine Stauungsparameter dokumentiert.")
-
-    # 6) Pulmonale Nachlast / PH-Surrogate (A, immer relativiert)
-    parts.append("\n\n### Pulmonale Nachlast und PH-Wahrscheinlichkeit")
-    ph_bits: list[str] = []
-    if cur.get("trv_ms") is not None:
-        v = cur.get("trv_ms")
-        ph_bits.append(f"- TRV max {fmt_value(v,2)} m/s – {_sev_word('trv_ms', v)} ({_short_comment['trv_ms']})")
-    if cur.get("pasp_echo") is not None:
-        v = cur.get("pasp_echo")
-        ph_bits.append(f"- sPAP (Echo) {fmt_value(v,0)} mmHg – {_sev_word('pasp_echo', v)} ({_short_comment['pasp_echo']})")
-    if cur.get("paat_ms") is not None:
-        v = cur.get("paat_ms")
-        ph_bits.append(f"- PAAT {fmt_value(v,0)} ms – {_sev_word('paat_ms', v)} ({_short_comment['paat_ms']})")
-    if str(cur.get("rvot_notch") or "").strip().lower() in ("ja", "true", "1"):
-        ph_bits.append("- RVOT mid-systolic notch")
-    if sept_flat:
-        ph_bits.append("- Septumflattening (D-shaped LV) als Druck-/Volumenbelastungszeichen")
-    if ph_bits:
-        parts.append("\n".join(ph_bits))
-    else:
-        parts.append("- Keine Nachlast-/PH-Surrogate dokumentiert.")
-
-    parts.append(f"\nEcho-Wahrscheinlichkeit für PH: {echo_prob} (Screening/Verlauf; im Kontext der Gesamtdaten interpretieren).")
-
-    # 7) Zusammenfassende Einordnung (untergeordnet zum RHK)
-    parts.append("\n\n### Zusammenfassende Einordnung")
-    # kurze, hybride Zusammenfassung ohne Floskeln
-    rv_func_worst = _worst_severity(["tapse_mm", "s_prime_cm_s", "rvfac_pct", "rv_3d_ef_pct", "rv_fwls_pct"])
-    coupling_worst = _worst_severity(["tapse_spap_ratio"])
-    stau_worst = _worst_severity(["ivc_collapse_index_pct", "ivc_diam_mm", "pericardial_effusion"])
-    afterload_worst = _worst_severity(["trv_ms", "pasp_echo", "paat_ms", "rvot_notch"])
-
-    def _headline(worst: str, normal_txt: str, borderline_txt: str, path_txt: str) -> str:
-        if worst == "r":
-            return path_txt
-        if worst == "y":
-            return borderline_txt
-        return normal_txt
-
-    sum_bits = [
-        _headline(afterload_worst, "Pulmonale Nachlast: keine echokardiographischen Hinweise auf deutliche Erhöhung", "Pulmonale Nachlast: grenzwertige Hinweise", "Pulmonale Nachlast: deutliche Hinweise auf Erhöhung"),
-        _headline(rv_func_worst, "RV-Systolik: unauffällig im Rahmen der dokumentierten Parameter", "RV-Systolik: grenzwertig", "RV-Systolik: deutlich eingeschränkt"),
-        _headline(coupling_worst, "RV–PA-Kopplung: unauffällig", "RV–PA-Kopplung: grenzwertig", "RV–PA-Kopplung: reduziert"),
-        _headline(stau_worst, "Stauungszeichen: keine echokardiographischen Hinweise", "Stauungszeichen: möglich", "Stauungszeichen: wahrscheinlich"),
-    ]
-    parts.append("- " + "\n- ".join(sum_bits))
-    parts.append("\nDie echokardiographischen Befunde dienen der funktionellen Einordnung und Verlaufsbeurteilung. Die hämodynamische Diagnosesicherung erfolgt im Rechtsherzkatheter.")
-
-
-    # 2) Nachlast / PH-Surrogate
-    ph_bits: list[str] = []
-    if cur.get("trv_ms") is not None:
-        ph_bits.append(f"TRV max {fmt_value(cur.get('trv_ms'),2)} m/s")
-    if cur.get("pasp_echo") is not None:
-        ph_bits.append(f"sPAP (Echo) {fmt_value(cur.get('pasp_echo'),0)} mmHg")
-    if cur.get("paat_ms") is not None:
-        ph_bits.append(f"PAAT {fmt_value(cur.get('paat_ms'),0)} ms")
-    if str(cur.get("rvot_notch") or "").strip().lower() in ("ja", "true", "1"):
-        ph_bits.append("RVOT mid-systolic notch")
-    if sept_flat:
-        ph_bits.append("Septumflattening (D-shaped LV) als Druck-/Volumenbelastungszeichen")
-    if ph_bits:
-        parts.append("Pulmonale Nachlast und PH-Surrogate: " + ", ".join(ph_bits) + ".")
-
-    # 3) RV Funktion & Remodeling
-    rv_bits: list[str] = []
-    if cur.get("tapse_mm") is not None:
-        rv_bits.append(f"TAPSE {fmt_value(cur.get('tapse_mm'),0)} mm ({_sev_tag('tapse_mm', cur.get('tapse_mm'))})")
-    if cur.get("s_prime_cm_s") is not None:
-        rv_bits.append(f"S′ {fmt_value(cur.get('s_prime_cm_s'),1)} cm/s ({_sev_tag('s_prime_cm_s', cur.get('s_prime_cm_s'))})")
-    if cur.get("rvfac_pct") is not None:
-        rv_bits.append(f"RV FAC {fmt_value(cur.get('rvfac_pct'),0)} Prozent ({_sev_tag('rvfac_pct', cur.get('rvfac_pct'))})")
-    if cur.get("rv_3d_ef_pct") is not None:
-        rv_bits.append(f"3D RVEF {fmt_value(cur.get('rv_3d_ef_pct'),0)} Prozent ({_sev_tag('rv_3d_ef_pct', cur.get('rv_3d_ef_pct'))})")
-    if cur.get("rv_fwls_pct") is not None:
-        rv_bits.append(f"RV FWLS {fmt_value(cur.get('rv_fwls_pct'),1)} Prozent ({_sev_tag('rv_fwls_pct', cur.get('rv_fwls_pct'))})")
-    if cur.get("tapse_spap_ratio") is not None:
-        rv_bits.append(f"TAPSE/sPAP {fmt_value(cur.get('tapse_spap_ratio'),2)} mm/mmHg ({_sev_tag('tapse_spap_ratio', cur.get('tapse_spap_ratio'))})")
-    rem_bits: list[str] = []
-    if cur.get("ra_esa_cm2") is not None:
-        rem_bits.append(f"RA Fläche {fmt_value(cur.get('ra_esa_cm2'),0)} cm² ({_sev_tag('ra_esa_cm2', cur.get('ra_esa_cm2'))})")
-    if cur.get("rv_edd_mm") is not None:
-        rem_bits.append(f"RV Basaldiameter {fmt_value(cur.get('rv_edd_mm'),0)} mm ({_sev_tag('rv_edd_mm', cur.get('rv_edd_mm'))})")
-    if cur.get("rv_wall_thickness_mm") is not None:
-        rem_bits.append(f"RV Wanddicke {fmt_value(cur.get('rv_wall_thickness_mm'),0)} mm ({_sev_tag('rv_wall_thickness_mm', cur.get('rv_wall_thickness_mm'))})")
-
-    if rv_bits:
-        parts.append("Rechte Kammer – Funktion und RV PA Kopplung: " + ", ".join(rv_bits) + ".")
-    if rem_bits:
-        parts.append("Rechte Kammer – Remodeling: " + ", ".join(rem_bits) + ".")
-
-    # 4) Stauung / Perikard
-    st_bits: list[str] = []
-    if cur.get("ivc_diam_mm") is not None:
-        st_bits.append(f"VCI {fmt_value(cur.get('ivc_diam_mm'),0)} mm")
-    if cur.get("ivc_collapse_index_pct") is not None:
-        st_bits.append(f"VCI Kollapsindex {fmt_value(cur.get('ivc_collapse_index_pct'),0)} Prozent ({_sev_tag('ivc_collapse_index_pct', cur.get('ivc_collapse_index_pct'))})")
-    if cur.get("ivc_collapse") is not None:
-        st_bits.append(f"VCI Kollaps {cur.get('ivc_collapse')}")
-    if str(cur.get("pericardial_effusion") or "").strip():
-        st_bits.append(f"Perikarderguss {cur.get('pericardial_effusion')}")
-    if st_bits:
-        parts.append("Stauungszeichen und Perikard: " + ", ".join(st_bits) + ".")
-
-    # 5) Linksherz Kontext
-    lh_bits: list[str] = []
-    if cur.get("lvef") is not None:
-        lh_bits.append(f"LVEF {fmt_value(cur.get('lvef'),0)} Prozent")
-    if cur.get("ee_ratio") is not None:
-        lh_bits.append(f"E/e′ {fmt_value(cur.get('ee_ratio'),1)}")
-    if cur.get("lavi_ml_m2") is not None:
-        lh_bits.append(f"LAVI {fmt_value(cur.get('lavi_ml_m2'),0)} ml/m²")
-    elif cur.get("la_esa_cm2") is not None:
-        lh_bits.append(f"LA Fläche {fmt_value(cur.get('la_esa_cm2'),0)} cm²")
-    if afib:
-        lh_bits.append("Vorhofflimmern mit beat to beat Variabilität")
-    if lh_bits:
-        parts.append("Linksherz Kontext: " + ", ".join(lh_bits) + ".")
-
-    # 6) Leitlinienorientierte Einordnung (Ampel aus YAML)
-    sev_keys = [
-        "trv_ms", "pasp_echo", "paat_ms", "tapse_mm", "s_prime_cm_s", "rvfac_pct",
-        "rv_3d_ef_pct", "rv_fwls_pct", "tapse_spap_ratio", "ra_esa_cm2",
-        "ivc_diam_mm", "ivc_collapse_index_pct", "pericardial_effusion"
-    ]
-    sev_bits: list[str] = []
-    for k in sev_keys:
-        v = cur.get(k)
-        if v is None:
-            continue
-        s = severity(k, v)
-        if not s:
-            continue
-        tag = "unauffällig" if s == "g" else "grenzwertig" if s == "y" else "deutlich pathologisch"
-        sev_bits.append(f"{label_for(k)} {tag}")
-    if sev_bits:
-        parts.append("Leitlinienorientierte Einordnung: " + ", ".join(sev_bits) + ".")
-
-    # 7) Verlauf
-    prev: Dict[str, Any] = der.get("echo_prev_values") or {}
-    if prev and isinstance(prev, dict):
-        ph_summary, _ = overall_trend(prev, cur, ["trv_ms", "pasp_echo", "paat_ms", "rvot_notch", "pericardial_effusion"])
-        rv_summary, _ = overall_trend(prev, cur, ["tapse_mm", "s_prime_cm_s", "rvfac_pct", "rv_3d_ef_pct", "rv_fwls_pct", "tapse_spap_ratio"])
-        tr_bits: list[str] = []
-        keys_for_change = (
-            "pasp_echo", "trv_ms", "paat_ms", "tapse_mm", "s_prime_cm_s", "rvfac_pct",
-            "rv_3d_ef_pct", "rv_fwls_pct", "tapse_spap_ratio", "ra_esa_cm2",
-            "ivc_diam_mm", "ivc_collapse_index_pct"
-        )
-        for k in keys_for_change:
-            if k in prev and k in cur and prev.get(k) is not None and cur.get(k) is not None:
-                tr = trend(k, prev.get(k), cur.get(k))
-                if tr.meaningful and tr.improved is not None:
-                    word = "verbessert" if tr.improved else "verschlechtert"
-                    digits = 2 if k == "trv_ms" else 1 if k in ("rv_fwls_pct", "s_prime_cm_s", "tapse_spap_ratio") else 0
-                    tr_bits.append(
-                        f"{label_for(k)} {word} von {fmt_value(prev.get(k),digits)} auf {fmt_value(cur.get(k),digits)}"
-                    )
-        vtxt = "Verlauf: "
-        vtxt += f"Nachlastzeichen {ph_summary}; RV Funktion und Kopplung {rv_summary}."
-        if tr_bits:
-            vtxt += " Relevante Änderungen: " + "; ".join(tr_bits[:8]) + "."
-        parts.append(vtxt)
-
-    # 8) Edukative Referenz: Physiologie, Messprinzip und Grenzwerte (kontextabhängig)
-    # Ziel: sehr tief, aber nicht redundant – bei unauffälligen Befunden keine lange Referenz.
-    edu_all_keys = [
-        "trv_ms", "pasp_echo", "paat_ms", "rvot_notch",
-        "tapse_mm", "s_prime_cm_s", "rvfac_pct", "rv_3d_ef_pct", "rv_fwls_pct", "tapse_spap_ratio",
-        "ra_esa_cm2", "ivc_diam_mm", "ivc_collapse_index_pct", "pericardial_effusion",
-        "lvef", "ee_ratio", "lavi_ml_m2",
-    ]
-
-    abnormal_keys: list[str] = []
-    for k in edu_all_keys:
-        v = cur.get(k)
-        if v is None:
-            continue
-        try:
-            s = severity(k, v)
-        except Exception:
-            s = ""
-        if s in ("y", "r"):
-            abnormal_keys.append(k)
-
-    inconsistency_keys: list[str] = []
-    # Beispiel: sPAP ohne TRV -> Ableitung eingeschränkt
-    if (cur.get("pasp_echo") is not None) and (cur.get("trv_ms") is None):
-        inconsistency_keys.extend(["pasp_echo", "trv_ms"])
-    # Diastolik-Interpretation ist bei Rhythmus besonders kontextabhängig
-    if afib and (cur.get("ee_ratio") is not None):
-        inconsistency_keys.append("ee_ratio")
-
-    edu_keys = list(dict.fromkeys(abnormal_keys + inconsistency_keys))
-    edu_needed = bool(edu_keys)
-
-    if edu_needed:
-        try:
-            from rhk_echo_guidelines import rule_for, note_for, guidelines_sources
-
-            def _band_txt(b: Dict[str, Any]) -> str:
-                if not isinstance(b, dict) or not b:
-                    return ""
-                if "min" in b and "max" in b:
-                    return f"{fmt_value(b.get('min'),2)} bis {fmt_value(b.get('max'),2)}"
-                if "max" in b:
-                    return f"bis {fmt_value(b.get('max'),2)}"
-                if "min" in b:
-                    return f"ab {fmt_value(b.get('min'),2)}"
-                if "min_abs" in b and "max_abs" in b:
-                    return f"Betrag {fmt_value(b.get('min_abs'),1)} bis {fmt_value(b.get('max_abs'),1)}"
-                if "min_abs" in b:
-                    return f"Betrag ab {fmt_value(b.get('min_abs'),1)}"
-                if "max_abs" in b:
-                    return f"Betrag bis {fmt_value(b.get('max_abs'),1)}"
-                return ""
-
-            edu_map: Dict[str, str] = {
-                "trv_ms": "TRV max ist die maximale Trikuspidal Regurgitationsgeschwindigkeit. Über die vereinfachte Bernoulli Gleichung (4 v²) ergibt sich der systolische Druckgradient zwischen RV und RA. Mit einer Abschätzung des RA Drucks kann daraus eine sPAP geschätzt werden. Limitierungen sind u. a. unzureichender Jet, Winkel, Signalqualität und die Unsicherheit der RA Druck Abschätzung.",
-                "pasp_echo": "sPAP (Echo) ist eine aus TRV und RA Druck geschätzte systolische Druckgröße. Sie ist ein Screening Surrogat und ersetzt keine hämodynamische Diagnostik. Ohne TRV Messung ist sPAP als Einzelwert nicht verlässlich ableitbar.",
-                "paat_ms": "PAAT ist die pulmonale Akzelerationszeit im RVOT Doppler. Kürzere PAAT spricht für höhere pulmonale Nachlast. Sie ist herzfrequenz und Schlagvolumen abhängig und sollte kontextualisiert werden.",
-                "rvot_notch": "Ein mid systolic notch im RVOT Doppler ist ein Hinweis auf erhöhte pulmonale Gefäßimpedanz und reflektierte Wellen, häufig bei präkapillärer PH.",
-                "tapse_mm": "TAPSE misst die longitudinale Verschiebung des Trikuspidal Anulus in M Mode. Sie ist einfach und reproduzierbar, aber lastabhängig und erfasst nur die longitudinale RV Funktion.",
-                "s_prime_cm_s": "S' ist die systolische Gewebegeschwindigkeit am lateralen Trikuspidal Anulus im Tissue Doppler. Sie reflektiert die longitudinale RV Kontraktilität, ist aber last und winkelabhängig.",
-                "rvfac_pct": "RVFAC ist die Flächenänderung der rechten Kammer in der A4C Ansicht. Sie integriert longitudinale und radiale Komponenten, ist jedoch bildqualitätsabhängig.",
-                "rv_3d_ef_pct": "3D RVEF ist die volumetrische systolische Funktion und kann gegenüber TAPSE oder S' robuster sein, erfordert aber gute 3D Bildqualität.",
-                "rv_fwls_pct": "RV free wall longitudinal strain beschreibt die Deformation der freien RV Wand. Strain ist sensitiv für frühe Funktionsstörungen, aber vendor und tracking abhängig. Grenzwerte beziehen sich auf den Betrag der negativen Werte.",
-                "tapse_spap_ratio": "TAPSE sPAP ist ein einfaches Kopplungs Surrogat für RV PA Kopplung. Niedrige Werte deuten auf eingeschränkte Adaptation der RV Funktion an die Nachlast.",
-                "ra_esa_cm2": "RA Fläche reflektiert rechtsatriales Remodeling und indirekt chronische Druck und Volumenbelastung. Sie ist kontextabhängig und sollte im Verlauf interpretiert werden.",
-                "ivc_diam_mm": "VCI Durchmesser und der Kollapsindex dienen der Abschätzung des RA Drucks. Die Aussage ist bei Beatmung, erhöhtem Bauchdruck und eingeschränkter Inspiration limitiert.",
-                "ivc_collapse_index_pct": "VCI Kollapsindex quantifiziert die respiratorische Variabilität. Niedrige Variabilität spricht für höheren RA Druck, die Interpretation ist situationsabhängig.",
-                "pericardial_effusion": "Ein Perikarderguss ist bei PH ein ungünstiges Begleitzeichen und kann mit höherem rechtsseitigem Füllungsdruck und fortgeschrittener Erkrankung assoziiert sein.",
-                "lvef": "LV EF beschreibt die systolische Pumpfunktion der linken Herzkammer. Bei PH Kontext ist eine normale LV EF häufig, dennoch kann eine diastolische Dysfunktion vorliegen.",
-                "ee_ratio": "E/e' ist ein Doppler Surrogat der LV Füllungsdrücke. Es ist ein Puzzlestein und muss zusammen mit LA Größe, Rhythmus, Mitralpathologie und klinischem Kontext interpretiert werden.",
-                "lavi_ml_m2": "LAVI beschreibt die chronische LA Belastung. Erhöhte Werte unterstützen die Annahme chronisch erhöhter LV Füllungsdrücke.",
-            }
-
-            ea_edu = (
-                "E/A Verhältnis ist der Quotient aus früher diastolischer Mitralinflow Geschwindigkeit (E) und atrialer Kontraktion (A). "
-                "Es unterstützt die Einordnung der diastolischen Funktion. Eine isolierte Interpretation ist nicht sinnvoll, insbesondere bei Vorhofflimmern, Tachykardie oder Mitralklappenvitien."
-            )
-
-            parts.append("\n\n### Edukative Referenz zu auffälligen Echo Parametern")
-            srcs = guidelines_sources() or []
-            if srcs:
-                parts.append("Orientierende Quellen: " + "; ".join(srcs) + ".")
-
-            for k in edu_keys:
-                r = rule_for(k) or {}
-                lab = str(r.get("label") or k)
-                unit = str(r.get("unit") or "").strip()
-                note = str(note_for(k) or "").strip()
-                sev = (r.get("severity") or {}) if isinstance(r, dict) else {}
-                gtxt = _band_txt(sev.get("g") or {})
-                ytxt = _band_txt(sev.get("y") or {})
-                rtxt = _band_txt(sev.get("r") or {})
-                cutoff_parts: List[str] = []
-                if gtxt:
-                    cutoff_parts.append(f"unauffällig: {gtxt}{(' ' + unit) if unit else ''}")
-                if ytxt:
-                    cutoff_parts.append(f"grenzwertig: {ytxt}{(' ' + unit) if unit else ''}")
-                if rtxt:
-                    cutoff_parts.append(f"deutlich pathologisch: {rtxt}{(' ' + unit) if unit else ''}")
-
-                parts.append(f"\n\n#### {lab}")
-                if note:
-                    parts.append(f"Kontext: {note}.")
-                expl = edu_map.get(k) or ""
-                if expl:
-                    parts.append(expl)
-                if cutoff_parts:
-                    parts.append("Grenzwerte in dieser App: " + "; ".join(cutoff_parts) + ".")
-
-            if ("ee_ratio" in edu_keys) or (cur.get("lavi_ml_m2") is not None):
-                parts.append("\n\n#### E/A Verhältnis")
-                parts.append(ea_edu)
-
-        except Exception:
-            # edukative Referenz ist optional und darf den Bericht nicht brechen
-            pass
-
-    _res = "\n\n".join(parts) + "\n"
-    _cache_set('echo_doctor_report', fp, _res)
-    return _res

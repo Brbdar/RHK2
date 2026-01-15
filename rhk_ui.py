@@ -154,7 +154,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             elem_id="rhk_pre_cath_home_wrapper",
         )
 
-
         # Sticky live preview (always visible)
         sticky_summary_html = gr.HTML(
             value=build_sticky_summary_html(None),
@@ -1263,6 +1262,15 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             save_btn_bottom = gr.Button("Fall speichern (.json)", variant="secondary", elem_id="btn_save_bottom")
             load_btn_bottom = gr.UploadButton("Fall laden (.json)", file_types=[".json"], variant="secondary", elem_id="btn_load_bottom")
             docx_btn_bottom = gr.UploadButton("RHK import (.docx)", file_types=[".docx"], variant="primary", elem_id="btn_docx_bottom")
+
+        # Pre-RHK one-page printout (A4 landscape) – placed at the very bottom for printing right before catheter.
+        with gr.Row(elem_id="rhk_prerhk_pdf_row"):
+            btn_prerhk_pdf = gr.DownloadButton(
+                "Pre-RHK PDF",
+                variant="secondary",
+                elem_id="btn_prerhk_pdf",
+                elem_classes=["rhk-prerhk-bottom-btn"],
+            )
 
         file_out = gr.File(label="Download: gespeicherter Fall (.json)", visible=False)
         file_summary_out = gr.File(label="Download: Summary (.json)", visible=False)
@@ -3134,11 +3142,29 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         # DOCX export for the doctor report (Muster-Layout)
         # Use DownloadButton to keep the UI compact.
+        
+        # Pre-RHK A4 landscape PDF (print immediately before catheterization)
+        def _export_prerhk_pdf(case_state: Any):
+            import time
+            if not isinstance(case_state, dict):
+                raise gr.Error("Bitte zuerst den Befund erstellen, dann Pre-RHK PDF exportieren.")
+            from rhk_pdf_prerhk import generate_prerhk_pdf
+            pdf_path = generate_prerhk_pdf(case_state)
+            return pdf_path
+
         btn_download_doc.click(
             _export_doctor_docx,
             inputs=[state_case],
             outputs=[btn_download_doc],
         )
+
+        btn_prerhk_pdf.click(
+            _export_prerhk_pdf,
+            inputs=[state_case],
+            outputs=[btn_prerhk_pdf],
+        )
+
+
 
         # DOCX save to local path (clinic workaround)
         btn_save_docx_local.click(

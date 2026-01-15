@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RHK Befundassistent (Web) – v27.4.44
+RHK Befundassistent (Web) – v0.30
 
 - Ultra-interaktiver Gradio-Assistenzbogen für RHK-/PH-Befunde
 - Deklaratives Regelwerk (YAML) zur Guideline-nahen Klassifikation, Modulen & Empfehlungen
@@ -39,7 +39,7 @@ except Exception:  # pragma: no cover
 
 APP_NAME = "RHK Befundassistent"
 # Versioning: ab v28.x nur noch eine Dezimalstelle (z.B. v28.5)
-APP_VERSION = "v0.29"
+APP_VERSION = "v0.43"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 _FALLBACK_FIX_LOG = [
     "Fix. v0.23: HFpEF-spezifische sprachliche Verfeinerung bei passender Echo- und Hämodynamik-Konstellation ergänzt",
