@@ -770,10 +770,7 @@ CSS = ("""
    Placed at the very bottom of the app (scroll-to) for printing
    right before catheter. Keep it compact and non-dominant.
    ------------------------------------------------------------------ */
-#rhk_prerhk_pdf_row{
-  justify-content: flex-end !important;
-  margin-top: 6px !important;
-}
+/* Pre-RHK PDF export button (in action row) */
 #btn_prerhk_pdf .wrap, #btn_prerhk_pdf button{
   border-radius: 10px !important;
 }
@@ -788,6 +785,20 @@ CSS = ("""
 }
 #btn_prerhk_pdf button:hover{
   filter: brightness(0.98);
+}
+
+/* Inline Pre-RHK PDF download row (next to copy buttons) */
+#rhk_prerhk_inline_row{
+  align-items: center !important;
+  gap: 10px !important;
+  margin-top: 4px !important;
+}
+#file_prerhk_pdf{
+  max-width: 260px !important;
+}
+#prerhk_status{
+  font-size: 12px !important;
+  color: #475569 !important;
 }
 
 /* Neutralize "Befund erstellen/aktualisieren" buttons (avoid persistent blue look) */
@@ -1869,6 +1880,15 @@ button[title*="Dark"] {
 @media (max-width: 1200px){.rhk-viz-grid{grid-template-columns:1fr}}
 .rhk-viz-item{width:100%}
 
+/* ------------------------------------------------------------------
+   Startseite: Tool-Disclaimer (Footer)
+   ------------------------------------------------------------------ */
+#rhk_tool_disclaimer_wrapper{margin-top:14px;padding:0 14px 12px 14px}
+#rhk_tool_disclaimer{border-top:1px solid rgba(0,0,0,.08);padding-top:10px}
+.rhk-disclaimer-inner{max-width:1200px;margin:0 auto}
+.rhk-disclaimer-title{font-weight:900;font-size:12px;color:rgba(15,23,42,.75);margin:0 0 4px 0}
+.rhk-disclaimer-text{font-size:11px;line-height:1.35;color:rgba(15,23,42,.62)}
+
 """.strip())
 
 # Avoid %-formatting pitfalls (Gradio/CSS contains many % characters).
@@ -2143,7 +2163,15 @@ JS_ON_LOAD = r"""
   // Pre-RHK PDF export (sticky header button)
   window.rhkTriggerPreRhkPdf = () => {
     try {
-      const btn = document.querySelector("#btn_prerhk_pdf button");
+      // Gradio versions differ: elem_id may be attached to the <button> itself
+      // or to a wrapper that contains the <button>. Be robust.
+      const root = document.getElementById('btn_prerhk_pdf');
+      if (!root) return;
+      if ((root.tagName || '').toLowerCase() === 'button') {
+        root.click();
+        return;
+      }
+      const btn = root.querySelector('button') || document.querySelector('#btn_prerhk_pdf button');
       if (btn) btn.click();
     } catch (e) {}
   };

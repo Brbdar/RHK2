@@ -1930,12 +1930,13 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
         vaso_block = "#### Vasoreaktivität\n" + "\n".join(vaso_lines)
 
     stepox_block = ""
-    # Stufenoxymetrie only if sufficiently complete (>=4/6 samples).
-    sat_keys = ["sat_svc", "sat_ivc", "sat_ra", "sat_rv", "sat_pa", "sat_ao"]
+    # Stufenoxymetrie only if meaningful: include only if >2 values are present.
+    # IVC is intentionally not used.
+    sat_keys = ["sat_svc", "sat_ra", "sat_rv", "sat_pa", "sat_ao"]
     sat_filled = sum(1 for k in sat_keys if _safe_float(ui.get(k)) is not None)
-    if sat_filled >= 4:
+    if sat_filled >= 3:
         sat_lines = []
-        for k, lab in [("sat_svc", "SVC"), ("sat_ivc", "IVC"), ("sat_ra", "RA"), ("sat_rv", "RV"), ("sat_pa", "PA"), ("sat_ao", "AO")]:
+        for k, lab in [("sat_svc", "SVC"), ("sat_ra", "RA"), ("sat_rv", "RV"), ("sat_pa", "PA"), ("sat_ao", "AO")]:
             v = _safe_float(ui.get(k))
             if v is not None:
                 sat_lines.append(_md_kv(lab, f"{_fmt(v,0)}%"))
@@ -3821,7 +3822,7 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
     # --- Stufenoxymetrie/Step-up (Shunt) ---
     if scen == "shunt_asd":
         ui["sat_svc"] = 65
-        ui["sat_ivc"] = 70
+        ui["sat_ivc"] = None
         ui["sat_ra"] = 80
         ui["sat_rv"] = 80
         ui["sat_pa"] = 80

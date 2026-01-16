@@ -22,16 +22,42 @@ def build_rhk_tab(add) -> Dict[str, Any]:
         value=build_pre_cath_header_html({}),
         elem_id="rhk_pre_cath_wrapper",
     )
+    # Consent + DZL (stacked) on the left, access route on the right
     with gr.Row():
-        add("consent_done", gr.Checkbox(label="Aufklärung erfolgt (RHK)"))
-        add(
-            "access_route",
-            gr.Dropdown(
-                label="Zugangsweg",
-                choices=["", "V. jugularis rechts", "V. jugularis links", "unbekannt", "cave - schwierig"],
-                value="",
-            ),
-        )
+        with gr.Column(scale=1):
+            add("consent_done", gr.Checkbox(label="Aufklärung erfolgt (RHK)"))
+            add(
+                "dzl_flag",
+                gr.Checkbox(label="DZL"),
+            )
+            add(
+                "dzl_decision",
+                gr.Dropdown(
+                    label="DZL",
+                    choices=["", "Genehmigt", "Abgelehnt"],
+                    value="",
+                    visible=False,
+                ),
+            )
+
+            # DZL Ersttestung: only relevant if DZL is active
+            add(
+                "dzl_initial_test",
+                gr.Checkbox(
+                    label="Ersttestung",
+                    value=False,
+                    visible=False,
+                ),
+            )
+        with gr.Column(scale=1):
+            add(
+                "access_route",
+                gr.Dropdown(
+                    label="Zugangsweg",
+                    choices=["", "V. jugularis rechts", "V. jugularis links", "unbekannt", "cave - schwierig"],
+                    value="",
+                ),
+            )
 
     # =============================================================
     # DOCX Import Übersicht (Quelle der Wahrheit)
@@ -163,7 +189,6 @@ def build_rhk_tab(add) -> Dict[str, Any]:
             gr.Markdown("#### Stufenoxymetrie")
             with gr.Row():
                 add("sat_svc", gr.Number(label="SVC O2-Sättigung (%)"))
-                add("sat_ivc", gr.Number(label="IVC O2-Sättigung (%)"))
                 add("sat_ra", gr.Number(label="RA O2-Sättigung (%)"))
             with gr.Row():
                 add("sat_rv", gr.Number(label="RV O2-Sättigung (%)"))

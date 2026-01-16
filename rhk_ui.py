@@ -1152,9 +1152,16 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     btn_copy_doc = gr.Button("Arztbericht kopieren", variant="secondary", elem_id="btn_copy_doc")
                     # Use a real download button to avoid the large gr.File placeholder area.
                     btn_download_doc = gr.DownloadButton("DOCX", variant="secondary", elem_id="btn_download_doc")
+                    # Pre-RHK overview as PDF (one-page, print right before catheter).
+                    btn_prerhk_pdf = gr.Button("Pre-RHK PDF", variant="secondary", elem_id="btn_prerhk_pdf")
                     btn_copy_pat = gr.Button("Patient*innenbrief komplett kopieren", variant="secondary", elem_id="btn_copy_pat")
                     btn_copy_rhk = gr.Button("nur RHK Abschnitt kopieren", variant="secondary", elem_id="btn_copy_rhk")
                 copy_feedback = gr.Markdown("", elem_id="rhk_copy_feedback")
+
+                # Pre-RHK PDF download + status (kept close to the action buttons for reliability/visibility).
+                with gr.Row(elem_id="rhk_prerhk_inline_row"):
+                    file_prerhk_pdf = gr.File(label="Pre-RHK PDF (.pdf)", interactive=False, elem_id="file_prerhk_pdf")
+                    prerhk_status = gr.Markdown("", elem_id="prerhk_status")
 
                 # Klinik-Workaround: serverseitiges Speichern in einen frei wählbaren Ordner.
                 # In Cloud/Render ist das NICHT "lokal" auf dem User-PC, daher dort ausgeblendet.
@@ -1263,14 +1270,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             load_btn_bottom = gr.UploadButton("Fall laden (.json)", file_types=[".json"], variant="secondary", elem_id="btn_load_bottom")
             docx_btn_bottom = gr.UploadButton("RHK import (.docx)", file_types=[".docx"], variant="primary", elem_id="btn_docx_bottom")
 
-        # Pre-RHK one-page printout (A4 landscape) – placed at the very bottom for printing right before catheter.
-        with gr.Row(elem_id="rhk_prerhk_pdf_row"):
-            btn_prerhk_pdf = gr.DownloadButton(
-                "Pre-RHK PDF",
-                variant="secondary",
-                elem_id="btn_prerhk_pdf",
-                elem_classes=["rhk-prerhk-bottom-btn"],
-            )
+        # NOTE: Pre-RHK PDF export button is intentionally only placed in the action row
+        # (next to the copy/download helpers) to avoid duplicated triggers and UX confusion.
+
 
         file_out = gr.File(label="Download: gespeicherter Fall (.json)", visible=False)
         file_summary_out = gr.File(label="Download: Summary (.json)", visible=False)
@@ -1890,6 +1892,31 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "lsb_present", "lsb_reason",
             ):
                 _bind_change(field_components[_k], _update_pre_cath_both, inputs=_pre_cath_inputs, outputs=[pre_cath_html, pre_cath_home_html])
+        except Exception:
+            pass
+
+
+
+        # DZL: show decision dropdown + Ersttestung only if checkbox is set (and clear on uncheck)
+        # IMPORTANT: When enabling, keep current values (never overwrite manual inputs).
+        def _toggle_dzl(flag_val, cur_decision, cur_initial):
+            if bool(flag_val):
+                return (
+                    gr.update(visible=True, value=(cur_decision or "")),
+                    gr.update(visible=True, value=bool(cur_initial)),
+                )
+            return (
+                gr.update(visible=False, value=""),
+                gr.update(visible=False, value=False),
+            )
+
+        try:
+            _bind_change(
+                field_components["dzl_flag"],
+                _toggle_dzl,
+                inputs=[field_components["dzl_flag"], field_components["dzl_decision"], field_components["dzl_initial_test"]],
+                outputs=[field_components["dzl_decision"], field_components["dzl_initial_test"]],
+            )
         except Exception:
             pass
 
@@ -2622,8 +2649,17 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 return v
 
             out: List[Any] = []
+            dzl_flag_val = bool(ui_dict.get("dzl_flag"))
             for k in field_components.keys():
-                out.append(_coerce_for_component(k, ui_dict.get(k)))
+                coerced = _coerce_for_component(k, ui_dict.get(k))
+                # DZL decision dropdown visibility must follow its checkbox also for programmatic loads
+                if k == "dzl_decision":
+                    out.append(gr.update(value=coerced, visible=dzl_flag_val))
+                elif k == "dzl_initial_test":
+                    # DZL Ersttestung visibility follows DZL checkbox on programmatic loads.
+                    out.append(gr.update(value=bool(coerced), visible=dzl_flag_val))
+                else:
+                    out.append(coerced)
             return out
         def _generate(flags_state, pmods_state, docx_cur_state, docx_prev_state, echo_cur_state, echo_prev_state, case_filename_state, *vals):
             flags = dict(flags_state or {})
@@ -3144,26 +3180,99 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         # Use DownloadButton to keep the UI compact.
         
         # Pre-RHK A4 landscape PDF (print immediately before catheterization)
-        def _export_prerhk_pdf(case_state: Any):
-            import time
-            if not isinstance(case_state, dict):
-                raise gr.Error("Bitte zuerst den Befund erstellen, dann Pre-RHK PDF exportieren.")
-            from rhk_pdf_prerhk import generate_prerhk_pdf
-            pdf_path = generate_prerhk_pdf(case_state)
-            return pdf_path
+
+        def _export_prerhk_pdf(flags_state, pmods_state, docx_cur_state, docx_prev_state, echo_cur_state, echo_prev_state, case_filename_state, *vals):
+            # Export should reflect the *current* UI values (even if user edited after last report generation).
+            # We rebuild a minimal, deterministic case snapshot and then render the Pre-RHK PDF from it.
+            flags = dict(flags_state or {})
+            remembered_name = (case_filename_state or '').strip()
+            if remembered_name and not remembered_name.lower().endswith('.json'):
+                remembered_name = remembered_name + '.json'
+
+            raw = ui_get_raw(*vals)
+
+            # eGFR is a non-interactive UI field (programmatic imports do not trigger callbacks) – ensure it is present.
+            try:
+                _egfr_val = compute_egfr(raw.get("creatinine_mg_dl"), raw.get("age"), raw.get("sex"))
+            except Exception:
+                _egfr_val = None
+            if _egfr_val is not None:
+                try:
+                    _egfr_store = int(round(float(_egfr_val)))
+                except Exception:
+                    _egfr_store = _egfr_val
+                raw["egfr_ml_min_1_73"] = _egfr_store
+                raw["egfr"] = _egfr_store
+            else:
+                if raw.get("egfr") in (None, "") and raw.get("egfr_ml_min_1_73") not in (None, ""):
+                    raw["egfr"] = raw.get("egfr_ml_min_1_73")
+
+            # Modules: keep deterministic normalization (same logic as generation, but export-only).
+            ui_mods = _normalize_module_ids((raw.get("modules_lvl1") or []) + (raw.get("modules_lvl2") or []) + (raw.get("modules_lvl3") or []) + (raw.get("modules") or []))
+            seed_mods = _normalize_module_ids(((pmods_state or {}).get("lvl1") or []) + ((pmods_state or {}).get("lvl2") or []) + ((pmods_state or {}).get("lvl3") or []))
+            if (not ui_mods) and seed_mods and (not flags.get("dirty")) and (not flags.get("has_report")):
+                raw["modules"] = seed_mods
+            else:
+                raw["modules"] = ui_mods
+
+            case = build_case(raw, rules)
+            try:
+                case["case_filename"] = remembered_name
+            except Exception:
+                pass
+            try:
+                _imp = case.setdefault("imports", {})
+                _imp["docx_current"] = docx_cur_state
+                _imp["docx_prev"] = docx_prev_state
+                _imp["echo_cur"] = echo_cur_state
+                _imp["echo_prev"] = echo_prev_state
+            except Exception:
+                pass
+
+            try:
+                from rhk_pdf_prerhk import generate_prerhk_pdf
+                pdf_path = generate_prerhk_pdf(case)
+                ts = time.strftime("%Y-%m-%d %H:%M:%S")
+                return pdf_path, f"Pre-RHK PDF erstellt ({ts})."
+            except Exception as e:
+                # Do not crash the UI – show a minimal error message.
+                msg = f"Fehler beim Erstellen der Pre-RHK PDF: {type(e).__name__}: {e}"
+                return None, msg
 
         btn_download_doc.click(
             _export_doctor_docx,
             inputs=[state_case],
             outputs=[btn_download_doc],
         )
+        # Pre-RHK PDF must always reflect the *latest* UI values.
+        # Bind BOTH buttons (action-row + bottom) to the same generator.
+        def _bind_prerhk(btn):
+            try:
+                btn.click(
+                    _export_prerhk_pdf,
+                    inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                    outputs=[file_prerhk_pdf, prerhk_status],
+                    trigger_mode="always_last",
+                    queue=False,
+                    scroll_to_output=False,
+                )
+            except TypeError:
+                try:
+                    btn.click(
+                        _export_prerhk_pdf,
+                        inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                        outputs=[file_prerhk_pdf, prerhk_status],
+                        trigger_mode="always_last",
+                        queue=False,
+                    )
+                except TypeError:
+                    btn.click(
+                        _export_prerhk_pdf,
+                        inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                        outputs=[file_prerhk_pdf, prerhk_status],
+                    )
 
-        btn_prerhk_pdf.click(
-            _export_prerhk_pdf,
-            inputs=[state_case],
-            outputs=[btn_prerhk_pdf],
-        )
-
+        _bind_prerhk(btn_prerhk_pdf)
 
 
         # DOCX save to local path (clinic workaround)
@@ -4543,6 +4652,25 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         ] + generate_outputs,
     )
         # Copy-to-Word buttons are handled by the HEAD script (cross-browser; no Gradio _js dependency).
+
+        # --- Startseite/Footer: Tool-Disclaimer (dezent, aber dauerhaft sichtbar) ---
+        # Hinweis: bewusst NICHT in PDFs. Gilt nur für das Tool selbst.
+        gr.HTML(
+            """
+            <div id='rhk_tool_disclaimer'>
+              <div class='rhk-disclaimer-inner'>
+                <div class='rhk-disclaimer-title'>Hinweis (Forschungs- und Testbetrieb)</div>
+                <div class='rhk-disclaimer-text'>
+                  Dieses Tool befindet sich im Forschungs- und Testbetrieb und dient ausschließlich wissenschaftlichen, explorativen und evaluativen Zwecken.
+                  Die Anwendung ist nicht als Medizinprodukt im Sinne der MDR zertifiziert und nicht zur alleinigen Unterstützung klinischer Entscheidungen vorgesehen.
+                  Es besteht kein Anspruch auf Vollständigkeit, Richtigkeit oder Aktualität der dargestellten Inhalte.
+                  Die Verantwortung für medizinische Entscheidungen verbleibt vollständig bei der behandelnden Ärztin bzw. dem behandelnden Arzt.
+                </div>
+              </div>
+            </div>
+            """,
+            elem_id="rhk_tool_disclaimer_wrapper",
+        )
 
     # Backwards-compatible return signature expected by rhk_app_web_master.py.
     # Note: on Gradio 6+ the CSS/JS/HEAD/THEME are passed via demo._rhk_launch_kwargs.

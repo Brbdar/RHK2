@@ -39,7 +39,7 @@ except Exception:  # pragma: no cover
 
 APP_NAME = "RHK Befundassistent"
 # Versioning: ab v28.x nur noch eine Dezimalstelle (z.B. v28.5)
-APP_VERSION = "v0.43"
+APP_VERSION = "v0.59"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 _FALLBACK_FIX_LOG = [
     "Fix. v0.23: HFpEF-spezifische sprachliche Verfeinerung bei passender Echo- und Hämodynamik-Konstellation ergänzt",
@@ -1267,7 +1267,7 @@ def detect_step_up(sat_svc: Optional[float],
                    thr_pulmonary: float = 5.0) -> StepUpResult:
     """
     Very practical step-up detection using typical thresholds:
-    - Atrial: RA - mean(SVC/IVC) >= ~7%
+    - Atrial: RA - SVC >= ~7%
     - Ventricular: RV - RA >= ~5%
     - Pulmonary artery: PA - RV >= ~5%
 
@@ -1279,25 +1279,24 @@ def detect_step_up(sat_svc: Optional[float],
         return None if x is None else float(x)
 
     svc = _v(sat_svc)
-    ivc = _v(sat_ivc)
+    # IVC saturation is often not sampled in routine cath workflows and was a frequent
+    # source of confusion in the UI. We keep the function signature for backward
+    # compatibility but do not use IVC for the venous reference.
+    _ = _v(sat_ivc)  # kept intentionally (ignored)
     ra = _v(sat_ra)
     rv = _v(sat_rv)
     pa = _v(sat_pa)
     ao = _v(sat_ao)
 
-    venous_vals = [v for v in (svc, ivc) if v is not None]
-    venous_ref = None
-    if len(venous_vals) == 2:
-        venous_ref = sum(venous_vals) / 2.0
-    elif len(venous_vals) == 1:
-        venous_ref = venous_vals[0]
+    # Venous reference: SVC only (datensparsam + robust).
+    venous_ref = svc if svc is not None else None
 
     candidates: List[Tuple[str, float, str]] = []  # (from_to, delta, location)
 
     if venous_ref is not None and ra is not None:
         d = ra - venous_ref
         if d >= thr_atrial:
-            candidates.append(("SVC/IVC → RA", d, "atrial"))
+            candidates.append(("SVC → RA", d, "atrial"))
 
     if ra is not None and rv is not None:
         d = rv - ra
