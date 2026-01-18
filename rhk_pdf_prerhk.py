@@ -21,6 +21,12 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 
+# PH Therapieepisoden (restart-fähig, konsistent)
+from rhk_ph_tx import (
+    parse_ph_tx_table_rows,
+    legacy_lists_to_episodes,
+)
+
 
 # --- Pre-RHK PDF layout constants (compact, one-page) ---
 BOX_PAD_X = 6 * mm
@@ -747,11 +753,20 @@ def generate_prerhk_pdf(case_state: Dict[str, Any]) -> str:
     allergies_list = ui.get("allergies_list") or []
     allergies_other_text = (ui.get("allergies_other_text") or "").strip()
 
-    # PH medication (separate, prominent pre-procedure)
-    ph_current_meds = ui.get("ph_current_meds") or []
+    # PH Therapie (Episoden, restart-fähig; keine stille Übernahme)
     ph_tx_status = ui.get("ph_tx_status")
-    ph_new_meds = ui.get("ph_new_meds") or []
-    ph_stopped_meds = ui.get("ph_stopped_meds") or []
+    ph_tx_episodes: List[Dict[str, str]] = []
+    try:
+        ph_tx_episodes = parse_ph_tx_table_rows(ui.get("ph_tx_table"))
+    except Exception:
+        ph_tx_episodes = []
+    if (not ph_tx_episodes) and isinstance(der.get("ph_tx_episodes"), list):
+        ph_tx_episodes = [
+            e for e in (der.get("ph_tx_episodes") or [])
+            if isinstance(e, dict) and str(e.get("drug") or "").strip() and str(e.get("status") or "").strip()
+        ]
+    if not ph_tx_episodes:
+        ph_tx_episodes = legacy_lists_to_episodes(ui)
 
     # Optional: if present, show the last used access (e.g., which jugularis was used before)
     access_last = (ui.get("access_route_last") or ui.get("last_access_route") or ui.get("last_jugularis") or "").strip()
@@ -824,34 +839,83 @@ def generate_prerhk_pdf(case_state: Dict[str, Any]) -> str:
         prep_pairs.append(("Allergien", s))
 
     prep_pairs = [(k, v) for k, v in prep_pairs if v]
-
-    # --- PH Medikation (falls vorhanden) ---
+    # --- PH Therapie (falls vorhanden) ---
     ph_pairs: List[Tuple[str, str]] = []
-    def _list_to_str(x: Any) -> str:
-        if x is None:
+
+    def _clean(x: Any) -> str:
+        s = "" if x is None else str(x).strip()
+        return "" if (not s or s.lower() in {"keine angabe", "-"}) else s
+
+    def _ep_str(e: Dict[str, str], mode: str) -> str:
+        drug = _clean(e.get("drug"))
+        if not drug:
             return ""
-        if isinstance(x, str):
-            items = [s.strip() for s in x.split(",") if s.strip()]
-        elif isinstance(x, (list, tuple)):
-            items = [str(s).strip() for s in x if str(s).strip()]
+        since = _clean(e.get("since"))
+        until = _clean(e.get("until"))
+        reason = _clean(e.get("reason"))
+        note = _clean(e.get("note"))
+
+        bits: List[str] = []
+        if mode == "aktuell":
+            if since:
+                bits.append(f"seit {since}")
+        elif mode == "geplant":
+            if since:
+                bits.append(f"ab {since}")
+        elif mode in {"pausiert", "abgesetzt"}:
+            if until:
+                bits.append(f"bis {until}")
+            elif since:
+                bits.append(f"seit {since}")
         else:
-            items = [str(x).strip()]
-        items = [it for it in items if it and it.lower() not in {"keine angabe","-"}]
-        return "; ".join(_pick_top(items, 6))
+            if since and until:
+                bits.append(f"{since} bis {until}")
+            elif since:
+                bits.append(f"seit {since}")
+            elif until:
+                bits.append(f"bis {until}")
 
-    ph_current_s = _list_to_str(ph_current_meds)
-    ph_new_s = _list_to_str(ph_new_meds)
-    ph_stopped_s = _list_to_str(ph_stopped_meds)
-    if ph_current_s:
-        ph_pairs.append(("Aktuell", ph_current_s))
-    if ph_tx_status and str(ph_tx_status).strip() and str(ph_tx_status).lower() not in {"keine angabe","-"}:
-        ph_pairs.append(("Verlauf", str(ph_tx_status)))
-    if ph_new_s:
-        ph_pairs.append(("Neu", ph_new_s))
-    if ph_stopped_s:
-        ph_pairs.append(("Pausiert/abg.", ph_stopped_s))
+        # Gründe/Notizen nur, wenn angegeben (kurz halten)
+        if reason:
+            bits.append(reason)
+        if note:
+            bits.append(note)
 
-    # Convert pairs into bullet-friendly lines for the PH medication box.
+        tail = "; ".join([b for b in bits if b])
+        return f"{drug} ({tail})" if tail else drug
+
+    def _group_to_str(eps: List[Dict[str, str]], wanted: set, mode: str, max_n: int = 4) -> str:
+        items: List[str] = []
+        for e in eps or []:
+            if not isinstance(e, dict):
+                continue
+            st = _clean(e.get("status")).lower()
+            if st in wanted:
+                s = _ep_str(e, mode=mode)
+                if s:
+                    items.append(s)
+        return "; ".join(_pick_top(items, max_n))
+
+    cur_s = _group_to_str(ph_tx_episodes, {"aktuell"}, mode="aktuell")
+    plan_s = _group_to_str(ph_tx_episodes, {"geplant"}, mode="geplant")
+    stop_s = _group_to_str(ph_tx_episodes, {"pausiert", "abgesetzt"}, mode="abgesetzt")
+    prev_s = _group_to_str(ph_tx_episodes, {"früher"}, mode="früher", max_n=3)
+    unkl_s = _group_to_str(ph_tx_episodes, {"unklar"}, mode="unklar", max_n=2)
+
+    if cur_s:
+        ph_pairs.append(("Aktuell", cur_s))
+    if ph_tx_status and _clean(ph_tx_status):
+        ph_pairs.append(("Verlauf", _clean(ph_tx_status)))
+    if plan_s:
+        ph_pairs.append(("Geplant", plan_s))
+    if stop_s:
+        ph_pairs.append(("Pausiert/abg.", stop_s))
+    if prev_s:
+        ph_pairs.append(("Früher", prev_s))
+    if unkl_s:
+        ph_pairs.append(("Unklar", unkl_s))
+
+    # Convert pairs into bullet-friendly lines for the PH therapy box.
     # NOTE: This must exist even if empty (avoid NameError during PDF render).
     ph_lines: List[str] = [f"{k}: {v}" for k, v in ph_pairs if v]
 

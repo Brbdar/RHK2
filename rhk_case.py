@@ -13,6 +13,13 @@ from __future__ import annotations
 # Import *inkl. underscore-Helpers* aus rhk_base (rhk_base setzt __all__ entsprechend).
 from rhk_base import *  # noqa: F401,F403
 
+# PH Therapieepisoden (restart-fähig, rulebook-kompatibel)
+from rhk_ph_tx import (  # noqa: F401
+    parse_ph_tx_table_rows,
+    legacy_lists_to_episodes,
+    derive_rulebook_class_lists_from_episodes,
+)
+
 def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
     # Normalize modules (Single Source of Truth: ui['modules'])
     try:
@@ -555,6 +562,110 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
             risk_category = cpet3
 
     derived["risk_category"] = risk_category
+
+    # ---- PVOD/PCH: Red-Flag Synthese (subtil, nicht-diagnostisch) ----
+    # Ziel: Hinweise nicht verpassen, ohne automatisch Diagnosen/Procedere zu erzwingen.
+    try:
+        dlco = _safe_float(ui.get("dlco_sb"))
+        fvc_pct = _safe_float(ui.get("fvc_l"))
+
+        ct_gg = bool(ui.get("ct_pvod_gg"))
+        ct_septal = bool(ui.get("ct_pvod_septal"))
+        ct_ln = bool(ui.get("ct_pvod_ln"))
+        ct_cnt = int(ct_gg) + int(ct_septal) + int(ct_ln)
+
+        dispro = bool(ui.get("pvod_dlco_disproportionate"))
+        # konservativer Auto-Hinweis: Volumina weitgehend erhalten, Diffusion deutlich reduziert
+        if (not dispro) and (dlco is not None) and (fvc_pct is not None):
+            if (dlco < 50.0) and (fvc_pct >= 70.0):
+                dispro = True
+
+        rest_hypox = bool(ui.get("pvod_rest_hypoxemia"))
+        ex_desat = bool(ui.get("pvod_ex_desat"))
+        cpet_nadir = _safe_float(ui.get("cpet_spo2_nadir_pct"))
+        if (not ex_desat) and (cpet_nadir is not None) and (cpet_nadir < 88.0):
+            ex_desat = True
+
+        edema = bool(ui.get("pvod_edema_on_vaso"))
+
+        eif_done = bool(ui.get("eif2ak4_test_done"))
+        eif_res = str(ui.get("eif2ak4_result") or "").strip().lower()
+        eif_pos = bool(eif_done and eif_res == "positiv")
+
+        # Level: 0 none | 1 soft | 2 suspicion | 3 genetic confirmation
+        level = 0
+        if eif_pos:
+            level = 3
+        else:
+            if (dlco is not None and dlco < 35.0):
+                level = max(level, 2)
+            if (ct_cnt >= 2 and (((dlco is not None) and (dlco < 50.0)) or dispro)):
+                level = max(level, 2)
+            if ((dlco is not None and dlco < 50.0) or (ct_cnt >= 2) or dispro or edema):
+                level = max(level, 1)
+
+            # Eskalation zu "Verdacht" bei multi-axialer Konstellation
+            axes = 0
+            if (dlco is not None and dlco < 50.0) or dispro:
+                axes += 1
+            if ct_cnt >= 2:
+                axes += 1
+            if rest_hypox or ex_desat:
+                axes += 1
+            if edema:
+                axes += 1
+            if axes >= 2 and level >= 1:
+                level = max(level, 2)
+
+        hints = []
+        if dlco is not None and dlco < 50.0:
+            hints.append(f"DLCO {_fmt(dlco,0)}%")
+        if dispro:
+            hints.append("DLCO disproportional niedrig")
+        if ct_cnt >= 2:
+            hints.append("CT Red Flags")
+        elif ct_cnt == 1:
+            hints.append("CT Einzelzeichen")
+        if rest_hypox:
+            hints.append("Ruhe-Hypoxämie")
+        if ex_desat:
+            hints.append("Belastungs-Desaturation")
+        if edema:
+            hints.append("Ödem/Verschlechterung unter Vasodilatation")
+        if eif_done and eif_res in ("positiv", "negativ"):
+            hints.append(f"EIF2AK4 {eif_res}")
+
+        derived["pvod_hint_level"] = int(level)
+        derived["pvod_ct_count"] = int(ct_cnt)
+        derived["pvod_hint_desc"] = ", ".join([h for h in hints if str(h).strip()])
+        derived["pvod_suspect"] = bool(level >= 2)
+
+    except Exception:
+        derived["pvod_hint_level"] = 0
+        derived["pvod_ct_count"] = 0
+        derived["pvod_hint_desc"] = ""
+        derived["pvod_suspect"] = False
+
+    # ------------------------------------------------------------------
+    # PH Therapieepisoden
+    # - UI speichert Tabelle als list[list] in ui['ph_tx_table'].
+    # - Für Berichte: derived['ph_tx_episodes'] wird bereitgestellt.
+    # - Für Regelwerk: Klassen-Tags werden aus Episoden abgeleitet und
+    #   in derived unter den Legacy-Keys ph_current_meds/... bereitgestellt.
+    #   Dadurch werden UI-Felder nicht überschrieben.
+    # ------------------------------------------------------------------
+    try:
+        _rows = ui.get("ph_tx_table")
+        eps_explicit = parse_ph_tx_table_rows(_rows)
+        # Report-Fallback: wenn keine expliziten Episoden, nutze Legacy-Listen
+        eps_for_report = eps_explicit if eps_explicit else legacy_lists_to_episodes(ui)
+        derived["ph_tx_episodes"] = eps_for_report
+        # Rulebook-Abbild nur bei expliziter Episoden-Erfassung
+        if eps_explicit:
+            derived.update(derive_rulebook_class_lists_from_episodes(eps_explicit))
+    except Exception:
+        derived["ph_tx_episodes"] = legacy_lists_to_episodes(ui)
+
 # ---- Env for rules ----
     env: Dict[str, Any] = {}
     env.update(ui)
@@ -673,8 +784,25 @@ def infer_leading_conclusion(env: Dict[str, Any], decision: Decision) -> Tuple[s
 
     # CTEPH/CTEPD
     if env.get("vq_defect") or env.get("ct_embolie") or env.get("ct_mosaic"):
-        if env.get("precap") or env.get("has_ph"):
-            return ("chronisch thromboembolischen Genese (CTEPD/CTEPH, Gruppe 4)", "die Vorstellung im CTEPH-/PH-Board und die weitere spezifische Abklärung (V/Q, CT-/Angio-Review, ggf. Pulmonalisangiographie)")
+        has_ph = bool(env.get("precap") or env.get("has_ph"))
+        dx = "CTEPH" if has_ph else "CTEPD ohne PH"
+
+        # Wenn bereits ein Konferenzbeschluss vorliegt, keine redundanten Empfehlungen.
+        if bool(env.get("vq_cteph_conf_done")):
+            dt = str(env.get("vq_cteph_conf_date") or "").strip()
+            return (
+                f"chronisch thromboembolischen Genese ({dx}, Gruppe 4)",
+                ("das weitere Procedere gemäß CTEPH Konferenzbeschluss" + (f" vom {dt}" if dt else ""))
+            )
+
+        bits: List[str] = []
+        if not bool(env.get("vq_done")):
+            bits.append("V/Q")
+        bits.append("CT oder Angio Review")
+        if not bool(env.get("vq_pa_angio_done")):
+            bits.append("ggf. PA Angio")
+        action = "die Vorstellung im CTEPH PH Board und die weitere spezifische Abklärung (" + ", ".join(bits) + ")"
+        return (f"chronisch thromboembolischen Genese ({dx}, Gruppe 4)", action)
 
     # Group 3 (ILD/COPD)
     if env.get("ct_ild") or env.get("ct_emphysema") or env.get("lufu_obstructive") or env.get("lufu_restrictive") or env.get("lufu_diffusion"):
@@ -780,10 +908,12 @@ def infer_ph_etiology(env: Dict[str, Any], decision: Optional[Decision] = None) 
         g4 = max(1, g4 - 1)
         g4_evi.append("Hinweis: PAWP > 15 mmHg – Ko-Mechanismen möglich")
 
+    g4_dx = "CTEPH" if has_ph else "CTEPD ohne PH"
+
     _add_candidate(
         4,
         g4,
-        "chronisch thromboembolischen Genese (CTEPD/CTEPH, Gruppe 4)",
+        f"chronisch thromboembolischen Genese ({g4_dx}, Gruppe 4)",
         "Hinweise auf ältere Blutgerinnsel/Embolien in den Lungengefäßen (chronische Thromboembolie)",
         g4_evi,
     )
@@ -985,7 +1115,29 @@ def infer_ph_etiology(env: Dict[str, Any], decision: Optional[Decision] = None) 
     def _actions_for(groups: List[int]) -> List[str]:
         parts: List[str] = []
         if 4 in groups:
-            parts.append("Vorstellung im CTEPH-/PH-Board und spezifische Abklärung (V/Q, CT-/Angio-Review, ggf. Pulmonalisangiographie).")
+            # Wenn bereits ein CTEPH Konferenzbeschluss vorliegt, keine redundanten Empfehlungen.
+            if bool(env.get("vq_cteph_conf_done")):
+                dt = str(env.get("vq_cteph_conf_date") or "").strip()
+                dec_txt = str(env.get("vq_cteph_conf_decision") or "").strip()
+                s = "Das weitere Procedere richtet sich nach dem vorliegenden CTEPH Konferenzbeschluss"
+                if dt:
+                    s += f" vom {dt}"
+                s += "."
+                if dec_txt:
+                    # keine stillen Annahmen zur Form; Text wird unverändert übernommen
+                    s += " Konferenzbeschluss: " + dec_txt.rstrip(".") + "."
+                parts.append(s)
+            else:
+                bits: List[str] = []
+                if not bool(env.get("vq_done")):
+                    bits.append("V/Q")
+                bits.append("CT oder Angio Review")
+                if not bool(env.get("vq_pa_angio_done")):
+                    bits.append("ggf. PA Angio")
+                inside = ", ".join([b for b in bits if b])
+                parts.append(
+                    "Vorstellung im CTEPH PH Board und spezifische Abklärung" + (f" ({inside})." if inside else ".")
+                )
         if 2 in groups:
             parts.append("Kardiologische Mitbeurteilung und Therapieoptimierung der Linksherzerkrankung/HFpEF.")
         if 3 in groups:
@@ -996,6 +1148,7 @@ def infer_ph_etiology(env: Dict[str, Any], decision: Optional[Decision] = None) 
 
     groups = [c["group"] for c in candidates_sorted]
     action_parts = _actions_for(groups)
+    cteph_conf_done = bool(env.get("vq_cteph_conf_done"))
 
     if not candidates_sorted:
         doc_conclusion = (
@@ -1026,7 +1179,11 @@ def infer_ph_etiology(env: Dict[str, Any], decision: Optional[Decision] = None) 
 
         # Empfehlung anhängen (kompakt)
         if action_parts:
-            doc_conclusion += " Empfohlen: " + " ".join(action_parts)
+            # Bei vorhandenem Konferenzbeschluss in klarer Gruppe 4 Konstellation keine "Empfohlen"-Redundanz.
+            if cteph_conf_done and clear_leader and leading_group == 4 and len(groups) == 1:
+                doc_conclusion += " " + " ".join(action_parts)
+            else:
+                doc_conclusion += " Empfohlen: " + " ".join(action_parts)
 
         # Patiententext kurz
         if clear_leader and patient_labels:
@@ -1644,6 +1801,8 @@ def _done_flags(env: Dict[str, Any]) -> Dict[str, bool]:
     # These flags are used to remove "already done" items from module texts
     return {
         "vq": bool(env.get("vq_done")),
+        "pa_angio": bool(env.get("vq_pa_angio_done")),
+        "ctep_conf": bool(env.get("vq_cteph_conf_done")),
         "ct": bool(env.get("ct_done")),
         "echo": bool(env.get("echo_done")),
         "cmr": bool(env.get("cmr_done")),
@@ -1692,6 +1851,10 @@ def filter_module_text(text: str, env: Dict[str, Any]) -> str:
 
     def _skip(line: str) -> bool:
         l = line.lower()
+        if done.get("ctep_conf") and ("cteph" in l) and ("board" in l or "konferenz" in l or "konferenzbeschluss" in l):
+            return True
+        if done.get("pa_angio") and ("pulmonalisangiographie" in l or "pa angio" in l or "pa-" in l):
+            return True
         if done["vq"] and ("v/q" in l or "vq" in l or "ventilations" in l):
             return True
         if done["ct"] and ("ct" in l or "computertom" in l or "angio" in l):

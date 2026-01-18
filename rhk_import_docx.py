@@ -138,9 +138,17 @@ def _to_phase_key(h: str) -> str:
     hh = hh.replace("post intervention", "post-intervention")
     hh = re.sub(r"[^a-z0-9\- ]", "", hh)
     hh = re.sub(r"\s+", " ", hh).strip()
-    if hh in ("base 1", "base1"):
+    # Robust Base-Phasen-Erkennung (MacLab Varianten):
+    # - akzeptiert Zusätze wie 'Base 2 (Ruhe)', 'Baseline 2', 'Basis 2', etc.
+    # - niemals Base 1 als Base 2 mappen
+    if re.search(r"\b(base|baseline|basis)\s*1\b", hh):
         return "base1"
-    if hh in ("base 2", "base2"):
+    if re.search(r"\b(base|baseline|basis)\s*2\b", hh):
+        return "base2"
+    # Roman numerals occasionally occur
+    if re.search(r"\b(base|baseline|basis)\s*i\b", hh):
+        return "base1"
+    if re.search(r"\b(base|baseline|basis)\s*ii\b", hh):
         return "base2"
     if "ergometrie" in hh or "exercise" in hh or "belast" in hh:
         return "exercise"

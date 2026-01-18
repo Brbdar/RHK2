@@ -83,8 +83,26 @@ def _get_spiro_logic():
             _SPIRO_LOGIC = _FallbackSpiroLogic()
     return _SPIRO_LOGIC
 
+
+# NOTE: gr.Dataframe triggers a pandas import in Gradio. In mixed NumPy environments
+# (NumPy 2.x with wheels compiled against NumPy 1.x), importing pandas/pyarrow/numexpr
+# can hard-fail. For maximal deployment robustness we always use the Textbox-based
+# episode editor for PH Therapie.
+
 from rhk_ui_assets import CSS, JS_ON_LOAD, HEAD_HTML  # noqa: F401
 from rhk_ui_utils import _gradio_major_version  # re-export for rhk_launch
+
+# PH Therapieepisoden (robust, restart-fähig)
+from rhk_ph_tx import (  # noqa: F401
+    PH_DRUG_CHOICES,
+    PH_TX_STATUS_CHOICES,
+    PH_TX_STOP_REASON_CHOICES,
+    PH_TX_TABLE_HEADERS,
+    legacy_lists_to_episodes,
+    episodes_to_ph_tx_table_rows,
+    episodes_to_ph_tx_text,
+    parse_ph_tx_table_rows,
+)
 
 from rhk_ui_utils import (  # noqa: F401
     load_rulebook_meta,
@@ -299,54 +317,105 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                         value="keine Angabe",
                                     ))
 
-                                ph_med_choices = [
-                                    "PDE‑5‑Hemmer",
-                                    "sGC‑Stimulator (Riociguat)",
-                                    "Endothelin‑Rezeptorantagonist (ERA)",
-                                    "Prostazyklin‑Therapie / -Analogon",
-                                    "IP‑Rezeptoragonist (z.B. Selexipag)",
-                                    "Kalziumantagonist (bei Vasoreaktivität)",
-                                    "Diuretikum",
-                                    "Sauerstofftherapie",
-                                    "Sotatercept (BMPR2/Activin-Pfad)",
-                                    "Sonstiges",
-                                ]
-                                add("ph_current_meds", gr.Dropdown(
-                                    label="Aktuelle Therapie (Mehrfachauswahl)",
-                                    choices=ph_med_choices,
-                                    multiselect=True,
-                                    value=[],
-                                ))
-                                add("ph_prev_meds", gr.Dropdown(
-                                    label="Frühere Therapie (optional, Mehrfachauswahl)",
-                                    choices=ph_med_choices,
-                                    multiselect=True,
-                                    value=[],
-                                ))
+                                # ------------------------------------------------------------------
+                                # PH Therapie (neu): Episoden statt diffuser Mehrfach-Listen
+                                # - Wiederbeginn = neue Zeile
+                                # - Eigennamen (Opsumit, Sildenafil, Tadalafil, ...) + Sotatercept
+                                # - Legacy-Felder bleiben verfügbar (Accordion), werden aber nicht
+                                #   automatisch überschrieben.
+                                # ------------------------------------------------------------------
 
-                                add("ph_tx_status", gr.Dropdown(
-                                    label="Therapie-Verlauf seit letzter Kontrolle",
-                                    choices=["keine Angabe", "unverändert", "neu begonnen", "eskaliert", "deeskaliert", "abgesetzt", "pausiert"],
-                                    value="keine Angabe",
-                                ))
-                                add("ph_new_meds", gr.Dropdown(
-                                    label="Neu begonnen / hinzugefügt (Mehrfachauswahl)",
-                                    choices=ph_med_choices,
-                                    multiselect=True,
-                                    value=[],
-                                ))
-                                add("ph_stopped_meds", gr.Dropdown(
-                                    label="Abgesetzt / pausiert (Mehrfachauswahl)",
-                                    choices=ph_med_choices,
-                                    multiselect=True,
-                                    value=[],
-                                ))
-                                add("ph_stop_reason", gr.Dropdown(
-                                    label="Grund für Absetzen/Pause (optional)",
-                                    choices=["keine Angabe", "Unverträglichkeit/Nebenwirkung", "Kontraindikation", "Ineffektivität", "Patient*innenwunsch", "Andere/unklar"],
-                                    value="keine Angabe",
-                                ))
-                                add("ph_stop_reason_text", gr.Textbox(label="Details (optional)", lines=2, placeholder="z.B. Hypotonie, Kopfschmerz, Blutung …"))
+                                gr.Markdown(
+                                    "Therapieepisoden: pro Zeile eine Episode. Wiederbeginn bitte als neue Zeile erfassen. Seit/Bis optional (MM/JJJJ).",
+                                )
+
+                                with gr.Row():
+                                    ph_tx_add_drug = gr.Dropdown(
+                                        label="Medikament",
+                                        choices=PH_DRUG_CHOICES,
+                                        value=None,
+                                    )
+                                    ph_tx_add_status = gr.Dropdown(
+                                        label="Status",
+                                        choices=PH_TX_STATUS_CHOICES,
+                                        value="aktuell",
+                                    )
+                                    ph_tx_add_since = gr.Textbox(label="seit (MM/JJJJ)", placeholder="MM/JJJJ")
+                                    ph_tx_add_until = gr.Textbox(label="bis (MM/JJJJ)", placeholder="MM/JJJJ")
+
+                                with gr.Row():
+                                    ph_tx_add_reason = gr.Dropdown(
+                                        label="Grund (optional)",
+                                        choices=PH_TX_STOP_REASON_CHOICES,
+                                        value="keine Angabe",
+                                    )
+                                    ph_tx_add_note = gr.Textbox(label="Kommentar (optional)", lines=1)
+                                    ph_tx_add_btn = gr.Button("Episode hinzufügen", variant="secondary")
+                                ph_tx_use_df = False
+                                ph_tx_table = add(
+                                    "ph_tx_table",
+                                    gr.Textbox(
+                                        label="PH Therapieepisoden (Tab-getrennt)",
+                                        lines=8,
+                                        placeholder="Medikament	Status	seit (MM/JJJJ)	bis (MM/JJJJ)	Grund	Kommentar",
+                                        value="",
+                                    ),
+                                )
+
+                                with gr.Row():
+                                    ph_tx_del_idx = gr.Number(label="Zeile löschen (Index, beginnt bei 1)", precision=0)
+                                    ph_tx_del_btn = gr.Button("Zeile löschen", variant="secondary")
+                                    ph_tx_from_legacy_btn = gr.Button("Legacy Therapie in Episoden übernehmen", variant="secondary")
+
+                                # Legacy Felder (Alt-Fälle): bleiben erhalten, aber nicht im Hauptfluss
+                                with gr.Accordion("Legacy PH Therapie Felder (nur Alt-Fälle)", open=False):
+                                    ph_med_choices = [
+                                        "PDE‑5‑Hemmer",
+                                        "sGC‑Stimulator (Riociguat)",
+                                        "Endothelin‑Rezeptorantagonist (ERA)",
+                                        "Prostazyklin‑Therapie / -Analogon",
+                                        "IP‑Rezeptoragonist (z.B. Selexipag)",
+                                        "Kalziumantagonist (bei Vasoreaktivität)",
+                                        "Diuretikum",
+                                        "Sauerstofftherapie",
+                                        "Sotatercept (BMPR2/Activin-Pfad)",
+                                        "Sonstiges",
+                                    ]
+                                    add("ph_current_meds", gr.Dropdown(
+                                        label="Aktuelle Therapie (Legacy, Mehrfachauswahl)",
+                                        choices=ph_med_choices,
+                                        multiselect=True,
+                                        value=[],
+                                    ))
+                                    add("ph_prev_meds", gr.Dropdown(
+                                        label="Frühere Therapie (Legacy, Mehrfachauswahl)",
+                                        choices=ph_med_choices,
+                                        multiselect=True,
+                                        value=[],
+                                    ))
+                                    add("ph_tx_status", gr.Dropdown(
+                                        label="Therapie-Verlauf seit letzter Kontrolle (Legacy)",
+                                        choices=["keine Angabe", "unverändert", "neu begonnen", "eskaliert", "deeskaliert", "abgesetzt", "pausiert"],
+                                        value="keine Angabe",
+                                    ))
+                                    add("ph_new_meds", gr.Dropdown(
+                                        label="Neu begonnen / hinzugefügt (Legacy, Mehrfachauswahl)",
+                                        choices=ph_med_choices,
+                                        multiselect=True,
+                                        value=[],
+                                    ))
+                                    add("ph_stopped_meds", gr.Dropdown(
+                                        label="Abgesetzt / pausiert (Legacy, Mehrfachauswahl)",
+                                        choices=ph_med_choices,
+                                        multiselect=True,
+                                        value=[],
+                                    ))
+                                    add("ph_stop_reason", gr.Dropdown(
+                                        label="Grund für Absetzen/Pause (Legacy, optional)",
+                                        choices=PH_TX_STOP_REASON_CHOICES,
+                                        value="keine Angabe",
+                                    ))
+                                    add("ph_stop_reason_text", gr.Textbox(label="Details (Legacy, optional)", lines=2, placeholder="z.B. Hypotonie, Kopfschmerz, Blutung …"))
 
                                 add("ph_interventions", gr.Dropdown(
                                     label="Bereits durchgeführte Interventionen (optional, Mehrfachauswahl)",
@@ -536,6 +605,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                             # CT Thorax – Befundtext nur sichtbar wenn CT durchgeführt
                             with gr.Column(visible=False) as ct_desc_col:
                                 add("ct_desc", gr.Textbox(label="CT Thorax – Kurzbefund", lines=3))
+
+                                # PVOD/PCH – CT Zeichen (optional; rein dokumentierend)
+                                with gr.Accordion("PVOD/PCH – CT Zeichen (optional)", open=False):
+                                    with gr.Row():
+                                        add("ct_pvod_gg", gr.Checkbox(label="Milchglasareale (zentrolobulär)", value=False))
+                                        add("ct_pvod_septal", gr.Checkbox(label="Septenlinien / Septenverdickung", value=False))
+                                        add("ct_pvod_ln", gr.Checkbox(label="Mediastinale LK-Vergrößerung", value=False))
                             with gr.Row():
                                 add("ct_ild", gr.Checkbox(label="ILD"))
                                 add("ct_emphysema", gr.Checkbox(label="Emphysem"))
@@ -580,6 +656,73 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                 with gr.Row():
                                     add("vq_defect", gr.Checkbox(label="V/Q pathologisch (Perfusionsdefekte)"))
                                     add("vq_desc", gr.Textbox(label="V/Q – Kurzbeschreibung", lines=2))
+
+                                # Zusätzliche CTEPH Diagnostik/Board (nur dokumentieren, keine stillen Annahmen)
+                                with gr.Row():
+                                    vq_pa_angio_done = add(
+                                        "vq_pa_angio_done",
+                                        gr.Checkbox(label="PA Angio durchgeführt", value=False),
+                                    )
+                                    vq_cteph_conf_done = add(
+                                        "vq_cteph_conf_done",
+                                        gr.Checkbox(label="CTEPH Konferenz erfolgt", value=False),
+                                    )
+
+                                # PA Angio Befund (nur sichtbar wenn aktiviert)
+                                vq_pa_angio_desc = add(
+                                    "vq_pa_angio_desc",
+                                    gr.Textbox(label="PA Angio – Befund", lines=2, visible=False),
+                                )
+
+                                # CTEPH Konferenz Details (nur sichtbar wenn aktiviert)
+                                with gr.Row():
+                                    vq_cteph_conf_date = add(
+                                        "vq_cteph_conf_date",
+                                        gr.Textbox(label="CTEPH Konferenz: Datum", placeholder="TT.MM.JJJJ", visible=False),
+                                    )
+                                vq_cteph_conf_decision = add(
+                                    "vq_cteph_conf_decision",
+                                    gr.Textbox(label="CTEPH Konferenz: Beschluss", lines=3, visible=False),
+                                )
+
+                                # CTEPD ohne PH – strukturierte Kriterien
+                                # Nur sichtbar, wenn V/Q pathologisch markiert ist (keine stillen Annahmen)
+                                with gr.Column(visible=False) as ctepd_no_ph_col:
+                                    gr.HTML(
+                                        "<div class='docx-muted'>CTEPD ohne PH: bitte Kriterien aktiv bestätigen (keine automatische Diagnose ohne bestätigte Chronizität und morphologische Läsionen).</div>"
+                                    )
+                                    with gr.Row():
+                                        add(
+                                            "ctepd_symptoms",
+                                            gr.Checkbox(
+                                                label="Symptome oder objektive Belastungslimitierung passend (z.B. Dyspnoe, reduzierte Leistungsfähigkeit, Desaturation)",
+                                                value=False,
+                                            ),
+                                        )
+                                    with gr.Row():
+                                        add(
+                                            "ctepd_chronicity_3m_ak",
+                                            gr.Checkbox(
+                                                label="Chronizität gesichert (mindestens 3 Monate therapeutische Antikoagulation nach akuter PE)",
+                                                value=False,
+                                            ),
+                                        )
+                                    with gr.Row():
+                                        add(
+                                            "ctepd_chronic_lesions",
+                                            gr.Checkbox(
+                                                label="CTPA oder DSA: Zeichen chronischer organisierter thromboembolischer Läsionen (z.B. webs, ringförmige Stenosen, slits, pouch, tapering, chronische Okklusion)",
+                                                value=False,
+                                            ),
+                                        )
+                                    add(
+                                        "ctepd_lesions_desc",
+                                        gr.Textbox(
+                                            label="CTPA oder DSA: Details (optional)",
+                                            lines=2,
+                                            placeholder="kurz beschreiben (z.B. webs segmental, pouch in A. pulmonalis dextra …)",
+                                        ),
+                                    )
                     # Card 2: Echokardiographie
                     with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
                         hdr_echo = gr.HTML("<div class='rhk-sec-head'><div class='rhk-sec-title'>Echokardiographie</div><div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span><div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>")
@@ -603,8 +746,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                         with gr.Column(elem_classes=["rhk-sec-body"]):
                             with gr.Row():
                                 add("cmr_done", gr.Checkbox(label="CMR durchgeführt"))
-                                add("rvef", gr.Number(label="RV-EF (%)"))
-                                add("rvesvi", gr.Number(label="RVESVi (ml/m²)"))
+                                add("rvef", gr.Number(label="RVEF (%)"))
+                            with gr.Row():
+                                add("rvedv", gr.Number(label="RVEDV (ml)"))
+                                add("rvesv", gr.Number(label="RVESV (ml)"))
+                                # Index-Volumina sind abgeleitet (EDV/ESV + BSA) und werden daher als read-only gefuehrt.
+                                add("rvedvi", gr.Number(label="RVEDVi (ml/m²)", interactive=False))
+                                add("rvesvi", gr.Number(label="RVESVi (ml/m²)", interactive=False))
 
                 # ---- Tab 3: Lungenfunktion & CPET ----
                 with gr.TabItem("Lungenfunktion & CPET", id=2):
@@ -625,6 +773,16 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                 add("dlco_va", gr.Number(label="DLCO/VA (% Soll, optional)"))
                                 add("residual_volume_l", gr.Number(label="Residualvolumen RV (% Soll, optional)"))
                             add("lufu_summary", gr.Textbox(label="Lufu Summary (Freitext)", lines=3))
+
+                            # PVOD/PCH – Red Flags (optional; keine automatische Diagnose)
+                            with gr.Accordion("PVOD/PCH – Red Flags (optional)", open=False):
+                                with gr.Row():
+                                    add("pvod_dlco_disproportionate", gr.Checkbox(label="DLCO disproportional niedrig (vs FVC)", value=False))
+                                    add("pvod_rest_hypoxemia", gr.Checkbox(label="Ruhe-Hypoxämie auffällig", value=False))
+                                    add("pvod_ex_desat", gr.Checkbox(label="Ausgeprägte Belastungs-Desaturation", value=False))
+                                with gr.Row():
+                                    add("pvod_edema_on_vaso", gr.Checkbox(label="Verschlechterung/Lungenödem nach Vasodilatatoren", value=False))
+                                add("pvod_edema_desc", gr.Textbox(label="Details (optional)", lines=2, visible=False))
 
                     # Card 2: Spiroergometrie / CPET
                     # Dedicated class to stabilize rendering (avoid flicker/pulse) during frequent wizard updates.
@@ -1046,6 +1204,22 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                 ))
                                 mut_desc = add("mutation_desc", gr.Textbox(label="Genetik – Details", lines=2, visible=False))
 
+                            # EIF2AK4 separat: Ergebnis/Datum strukturieren (PVOD/PCH)
+                            gr.Markdown("#### EIF2AK4 (PVOD/PCH) – strukturiert")
+                            with gr.Row():
+                                add("eif2ak4_test_done", gr.Checkbox(label="EIF2AK4 Test durchgeführt", value=False))
+                                add(
+                                    "eif2ak4_result",
+                                    gr.Dropdown(
+                                        label="EIF2AK4 Ergebnis",
+                                        choices=["unklar", "negativ", "positiv"],
+                                        value="unklar",
+                                        visible=False,
+                                    ),
+                                )
+                                add("eif2ak4_date", gr.Textbox(label="Datum (optional)", placeholder="TT.MM.JJJJ", visible=False))
+                            add("eif2ak4_note", gr.Textbox(label="Bemerkung (optional)", lines=2, visible=False))
+
                     # Abdomen / Leber
                     with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
                         hdr_other_abd = gr.HTML(
@@ -1153,15 +1327,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     # Use a real download button to avoid the large gr.File placeholder area.
                     btn_download_doc = gr.DownloadButton("DOCX", variant="secondary", elem_id="btn_download_doc")
                     # Pre-RHK overview as PDF (one-page, print right before catheter).
-                    btn_prerhk_pdf = gr.Button("Pre-RHK PDF", variant="secondary", elem_id="btn_prerhk_pdf")
+                    # DownloadButton avoids the large placeholder area of gr.File.
+                    btn_prerhk_pdf = gr.DownloadButton("Pre-RHK PDF", variant="secondary", elem_id="btn_prerhk_pdf")
                     btn_copy_pat = gr.Button("Patient*innenbrief komplett kopieren", variant="secondary", elem_id="btn_copy_pat")
                     btn_copy_rhk = gr.Button("nur RHK Abschnitt kopieren", variant="secondary", elem_id="btn_copy_rhk")
                 copy_feedback = gr.Markdown("", elem_id="rhk_copy_feedback")
 
-                # Pre-RHK PDF download + status (kept close to the action buttons for reliability/visibility).
-                with gr.Row(elem_id="rhk_prerhk_inline_row"):
-                    file_prerhk_pdf = gr.File(label="Pre-RHK PDF (.pdf)", interactive=False, elem_id="file_prerhk_pdf")
-                    prerhk_status = gr.Markdown("", elem_id="prerhk_status")
+                # Pre-RHK PDF: download is handled directly by the button (no extra field).
 
                 # Klinik-Workaround: serverseitiges Speichern in einen frei wählbaren Ordner.
                 # In Cloud/Render ist das NICHT "lokal" auf dem User-PC, daher dort ausgeblendet.
@@ -1460,11 +1632,23 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     pass
 
         # One-shot sync for visibility + computed fields after programmatic UI loads
-        def _sync_post_load(ct_done_v, ct_ild_v, vq_done_v, creatinine, age, sex, allergies_present_v, allergies_list_v):
+        def _sync_post_load(
+            ct_done_v, ct_ild_v, vq_done_v,
+            creatinine, age, sex,
+            allergies_present_v, allergies_list_v,
+            pvod_edema_on_vaso_v, pvod_edema_desc_v,
+            eif2ak4_test_done_v, eif2ak4_result_v, eif2ak4_date_v, eif2ak4_note_v,
+        ):
             # Allergie-Details sichtbar wenn Checkbox aktiv ODER wenn bereits Einträge vorhanden sind
             al_list = allergies_list_v if isinstance(allergies_list_v, list) else ([] if allergies_list_v in (None, "") else [str(allergies_list_v)])
             show_allergies = bool(allergies_present_v) or bool(al_list)
             show_other = any(str(x).strip().lower() == "sonstiges" for x in al_list)
+
+            # PVOD/PCH: Detailfelder sichtbar wenn aktiviert ODER wenn Inhalt vorhanden
+            show_pvod_edema = bool(pvod_edema_on_vaso_v) or bool((pvod_edema_desc_v or "").strip())
+
+            eif_res = str(eif2ak4_result_v or "").strip().lower()
+            show_eif = bool(eif2ak4_test_done_v) or (eif_res not in ("", "unklar")) or bool((eif2ak4_date_v or "").strip()) or bool((eif2ak4_note_v or "").strip())
             return (
                 gr.update(visible=bool(ct_done_v)),
                 gr.update(visible=bool(ct_ild_v)),
@@ -1474,6 +1658,10 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 _update_egfr(creatinine, age, sex),
                 gr.update(visible=show_allergies),
                 gr.update(visible=show_other),
+                gr.update(visible=show_pvod_edema),
+                gr.update(visible=show_eif),
+                gr.update(visible=show_eif),
+                gr.update(visible=show_eif),
             )
 
         def _render_cpet_risk_html(cpet_done_v,
@@ -1695,6 +1883,25 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         _bind_change(field_components["virology_pos"], lambda x: (gr.update(visible=bool(x)), gr.update(visible=bool(x))), inputs=[field_components["virology_pos"]], outputs=[viro_items, viro_desc])
         _bind_change(field_components["immunology_pos"], lambda x: (gr.update(visible=bool(x)), gr.update(visible=bool(x))), inputs=[field_components["immunology_pos"]], outputs=[immun_items, immun_desc])
         _bind_change(field_components["mutation_pos"], lambda x: (gr.update(visible=bool(x)), gr.update(visible=bool(x))), inputs=[field_components["mutation_pos"]], outputs=[mut_items, mut_desc])
+
+        # PVOD/PCH – Zusatzfelder strikt an Checkboxen koppeln
+        _bind_change(
+            field_components["pvod_edema_on_vaso"],
+            lambda x: gr.update(visible=bool(x)),
+            inputs=[field_components["pvod_edema_on_vaso"]],
+            outputs=[field_components["pvod_edema_desc"]],
+        )
+
+        _bind_change(
+            field_components["eif2ak4_test_done"],
+            lambda x: (
+                gr.update(visible=bool(x)),
+                gr.update(visible=bool(x)),
+                gr.update(visible=bool(x)),
+            ),
+            inputs=[field_components["eif2ak4_test_done"]],
+            outputs=[field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"]],
+        )
         _bind_change(field_components["chd_pos"], lambda x: gr.update(visible=bool(x)), inputs=[field_components["chd_pos"]], outputs=[chd_details])
         _bind_change(field_components["abd_sono_done"], lambda x: _toggle_desc_text(x), inputs=[field_components["abd_sono_done"]], outputs=[abd_desc])
         _bind_change(field_components["ltot"], lambda x: _toggle_ltot(x), inputs=[field_components["ltot"]], outputs=[ltot_flow])
@@ -1708,6 +1915,23 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             outputs=[acc_ild, field_components["ild_extent"], ild_tx_details],
         )
         _bind_change(field_components["vq_done"], lambda x: gr.update(visible=bool(x)), inputs=[field_components["vq_done"]], outputs=[acc_vq])
+
+        # CTEPD ohne PH: Kriterien nur sichtbar, wenn V/Q pathologisch markiert ist
+        _bind_change(field_components["vq_defect"], lambda x: gr.update(visible=bool(x)), inputs=[field_components["vq_defect"]], outputs=[ctepd_no_ph_col])
+
+        # V/Q Zusatzfelder: Sichtbarkeit strikt an Checkboxen koppeln
+        _bind_change(
+            field_components["vq_pa_angio_done"],
+            lambda x: gr.update(visible=bool(x)),
+            inputs=[field_components["vq_pa_angio_done"]],
+            outputs=[field_components["vq_pa_angio_desc"]],
+        )
+        _bind_change(
+            field_components["vq_cteph_conf_done"],
+            lambda x: (gr.update(visible=bool(x)), gr.update(visible=bool(x))),
+            inputs=[field_components["vq_cteph_conf_done"]],
+            outputs=[field_components["vq_cteph_conf_date"], field_components["vq_cteph_conf_decision"]],
+        )
 
         # eGFR (auto) – update on creatinine/age/sex changes
         # eGFR depends only on creatinine, age, sex (do not pass unrelated inputs).
@@ -2026,6 +2250,142 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             outputs=[field_components["ph_known"], ph_known_details],
         )
 
+        # ------------------------------------------------------------------
+        # PH Therapieepisoden (Table) – Add/Delete + explizite Legacy-Konvertierung
+        # ------------------------------------------------------------------
+        def _ph_tx_add_episode(drug, status, since, until, reason, note, table_value):
+            """Add one episode to the PH therapy editor.
+
+            Supports two UI implementations:
+            - Dataframe (list[list]) when pandas is available
+            - Textbox (tab-delimited lines) when pandas is NOT available
+            """
+
+            def _as_rows(v):
+                if isinstance(v, list):
+                    return v
+                eps = parse_ph_tx_table_rows(v)
+                return episodes_to_ph_tx_table_rows(eps)
+
+            def _as_text(v):
+                if isinstance(v, str):
+                    return v
+                eps = parse_ph_tx_table_rows(v)
+                return episodes_to_ph_tx_text(eps)
+
+            d = str(drug or "").strip()
+            s = str(status or "").strip().lower()
+            if not d or not s:
+                # no change
+                if ph_tx_use_df:
+                    rows = _as_rows(table_value)
+                    return (rows, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+                txt = _as_text(table_value)
+                return (txt, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+
+            rr = "" if str(reason or "").strip() in ("", "keine Angabe") else str(reason).strip()
+            new_row = [
+                d,
+                s,
+                str(since or "").strip(),
+                str(until or "").strip(),
+                rr,
+                str(note or "").strip(),
+            ]
+
+            if ph_tx_use_df:
+                rows = _as_rows(table_value)
+                return (
+                    rows + [new_row],
+                    gr.update(value=None),
+                    gr.update(value="aktuell"),
+                    gr.update(value=""),
+                    gr.update(value=""),
+                    gr.update(value="keine Angabe"),
+                    gr.update(value=""),
+                )
+
+            # Textbox fallback (tab-delimited)
+            txt = _as_text(table_value).rstrip("\n")
+            line = "\t".join([str(x or "").strip() for x in (new_row + ["", ""])][:6])
+            out = (txt + "\n" if txt.strip() else "") + line
+            return (
+                out,
+                gr.update(value=None),
+                gr.update(value="aktuell"),
+                gr.update(value=""),
+                gr.update(value=""),
+                gr.update(value="keine Angabe"),
+                gr.update(value=""),
+            )
+
+        def _ph_tx_delete_episode(idx, table_value):
+            def _as_rows(v):
+                if isinstance(v, list):
+                    return v
+                eps = parse_ph_tx_table_rows(v)
+                return episodes_to_ph_tx_table_rows(eps)
+
+            def _as_text(v):
+                if isinstance(v, str):
+                    return v
+                eps = parse_ph_tx_table_rows(v)
+                return episodes_to_ph_tx_text(eps)
+
+            try:
+                i = int(idx)
+            except Exception:
+                return _as_rows(table_value) if ph_tx_use_df else _as_text(table_value)
+            if i <= 0:
+                return _as_rows(table_value) if ph_tx_use_df else _as_text(table_value)
+
+            if ph_tx_use_df:
+                rows = _as_rows(table_value)
+                j = i - 1
+                if j < 0 or j >= len(rows):
+                    return rows
+                return rows[:j] + rows[j + 1 :]
+
+            # Textbox fallback
+            txt = _as_text(table_value)
+            lines = [ln for ln in (txt or "").splitlines() if ln.strip()]
+            j = i - 1
+            if j < 0 or j >= len(lines):
+                return "\n".join(lines)
+            lines = lines[:j] + lines[j + 1 :]
+            return "\n".join(lines)
+
+        def _ph_tx_from_legacy(cur, prev, new_meds, stopped, stop_reason, stop_reason_text):
+            ui_tmp = {
+                "ph_current_meds": cur,
+                "ph_prev_meds": prev,
+                "ph_new_meds": new_meds,
+                "ph_stopped_meds": stopped,
+                "ph_stop_reason": stop_reason,
+                "ph_stop_reason_text": stop_reason_text,
+            }
+            eps = legacy_lists_to_episodes(ui_tmp)
+            return episodes_to_ph_tx_table_rows(eps) if ph_tx_use_df else episodes_to_ph_tx_text(eps)
+
+        try:
+            ph_tx_add_btn.click(
+                _ph_tx_add_episode,
+                inputs=[ph_tx_add_drug, ph_tx_add_status, ph_tx_add_since, ph_tx_add_until, ph_tx_add_reason, ph_tx_add_note, ph_tx_table],
+                outputs=[ph_tx_table, ph_tx_add_drug, ph_tx_add_status, ph_tx_add_since, ph_tx_add_until, ph_tx_add_reason, ph_tx_add_note],
+            )
+            ph_tx_del_btn.click(
+                _ph_tx_delete_episode,
+                inputs=[ph_tx_del_idx, ph_tx_table],
+                outputs=[ph_tx_table],
+            )
+            ph_tx_from_legacy_btn.click(
+                _ph_tx_from_legacy,
+                inputs=[field_components["ph_current_meds"], field_components["ph_prev_meds"], field_components["ph_new_meds"], field_components["ph_stopped_meds"], field_components["ph_stop_reason"], field_components["ph_stop_reason_text"]],
+                outputs=[ph_tx_table],
+            )
+        except Exception:
+            pass
+
         # Antikoagulation: Detailfelder nur bei "ja"
         def _toggle_anticoag(status: str):
             on = str(status or "").strip().lower() == "ja"
@@ -2196,17 +2556,111 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         _bind_section_progress(hdr_echo, "Echokardiographie", _sec_echo_comps, _calc_echo)
 
         # CMR – optional
-        _sec_cmr_comps = [field_components["cmr_done"], field_components["rvef"], field_components["rvesvi"]]
+        _sec_cmr_comps = [
+            field_components["cmr_done"],
+            field_components["rvef"],
+            field_components["rvedv"],
+            field_components["rvesv"],
+            field_components["rvedvi"],
+            field_components["rvesvi"],
+        ]
 
         def _calc_cmr(*vals):
-            cmr_done, rvef, rvesvi = vals
+            cmr_done, rvef, rvedv, rvesv, rvedvi, rvesvi = vals
             if not bool(cmr_done):
                 return 0, 0
-            total = 2
-            filled = (1 if _is_filled(rvef) else 0) + (1 if _is_filled(rvesvi) else 0)
+            fields = [rvef, rvedv, rvesv, rvedvi, rvesvi]
+            total = len(fields)
+            filled = sum(1 for v in fields if _is_filled(v))
             return filled, total
 
         _bind_section_progress(hdr_cmr, "MRT / CMR", _sec_cmr_comps, _calc_cmr)
+
+        # CMR: Index-Volumina aus EDV/ESV + BSA berechnen (abgeleitete Felder; immer konsistent halten)
+        def _cmr_auto_index(cmr_done, rvedv, rvesv, height_cm, weight_kg):
+            def _num(x):
+                try:
+                    if x is None or x == "":
+                        return None
+                    return float(x)
+                except Exception:
+                    return None
+
+            edv = _num(rvedv)
+            esv = _num(rvesv)
+            if edv is not None and edv <= 0:
+                edv = None
+            if esv is not None and esv <= 0:
+                esv = None
+
+            # Wenn weder CMR aktiv ist noch Volumina vorliegen: Felder leeren (kein Stale-State)
+            if (not bool(cmr_done)) and (edv is None and esv is None):
+                return gr.update(value=None), gr.update(value=None)
+
+            bsa = calc_bsa(_num(height_cm), _num(weight_kg))
+            if bsa is None or bsa <= 0 or bsa < 0.8 or bsa > 3.0:
+                # Ohne valide BSA: Indizes nicht anzeigen (keine stillen Altwerte)
+                return gr.update(value=None), gr.update(value=None)
+
+            out_edvi = (edv / bsa) if edv is not None else None
+            out_esvi = (esv / bsa) if esv is not None else None
+
+            return (
+                gr.update(value=(None if out_edvi is None else round(float(out_edvi), 1))),
+                gr.update(value=(None if out_esvi is None else round(float(out_esvi), 1))),
+            )
+
+        try:
+            # Trigger on EDV/ESV and anthropometrics (BSA).
+            field_components["rvedv"].change(
+                _cmr_auto_index,
+                inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
+                outputs=[field_components["rvedvi"], field_components["rvesvi"]],
+                queue=False,
+            )
+            field_components["rvesv"].change(
+                _cmr_auto_index,
+                inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
+                outputs=[field_components["rvedvi"], field_components["rvesvi"]],
+                queue=False,
+            )
+            field_components["height_cm"].change(
+                _cmr_auto_index,
+                inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
+                outputs=[field_components["rvedvi"], field_components["rvesvi"]],
+                queue=False,
+            )
+            field_components["weight_kg"].change(
+                _cmr_auto_index,
+                inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
+                outputs=[field_components["rvedvi"], field_components["rvesvi"]],
+                queue=False,
+            )
+        except Exception:
+            # UI must stay alive even if some Gradio builds reject queue=...
+            try:
+                field_components["rvedv"].change(
+                    _cmr_auto_index,
+                    inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
+                    outputs=[field_components["rvedvi"], field_components["rvesvi"]],
+                )
+                field_components["rvesv"].change(
+                    _cmr_auto_index,
+                    inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
+                    outputs=[field_components["rvedvi"], field_components["rvesvi"]],
+                )
+                field_components["height_cm"].change(
+                    _cmr_auto_index,
+                    inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
+                    outputs=[field_components["rvedvi"], field_components["rvesvi"]],
+                )
+                field_components["weight_kg"].change(
+                    _cmr_auto_index,
+                    inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
+                    outputs=[field_components["rvedvi"], field_components["rvesvi"]],
+                )
+            except Exception:
+                pass
 
         # Lungenfunktion
         _sec_lufu_comps = [
@@ -3233,11 +3687,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 from rhk_pdf_prerhk import generate_prerhk_pdf
                 pdf_path = generate_prerhk_pdf(case)
                 ts = time.strftime("%Y-%m-%d %H:%M:%S")
-                return pdf_path, f"Pre-RHK PDF erstellt ({ts})."
+                return pdf_path, f"✅ Pre-RHK PDF erstellt ({ts})."
             except Exception as e:
                 # Do not crash the UI – show a minimal error message.
                 msg = f"Fehler beim Erstellen der Pre-RHK PDF: {type(e).__name__}: {e}"
-                return None, msg
+                return None, f"⚠️ {msg}"
 
         btn_download_doc.click(
             _export_doctor_docx,
@@ -3251,7 +3705,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 btn.click(
                     _export_prerhk_pdf,
                     inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
-                    outputs=[file_prerhk_pdf, prerhk_status],
+                    outputs=[btn_prerhk_pdf, copy_feedback],
                     trigger_mode="always_last",
                     queue=False,
                     scroll_to_output=False,
@@ -3261,7 +3715,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     btn.click(
                         _export_prerhk_pdf,
                         inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
-                        outputs=[file_prerhk_pdf, prerhk_status],
+                        outputs=[btn_prerhk_pdf, copy_feedback],
                         trigger_mode="always_last",
                         queue=False,
                     )
@@ -3269,7 +3723,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     btn.click(
                         _export_prerhk_pdf,
                         inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
-                        outputs=[file_prerhk_pdf, prerhk_status],
+                        outputs=[btn_prerhk_pdf, copy_feedback],
                     )
 
         _bind_prerhk(btn_prerhk_pdf)
@@ -3716,6 +4170,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         def _post_example_load_and_generate(
             pmods_sel_state,
             ct_done, ct_ild, vq_done, creatinine_mg_dl, age, sex, allergies_present, allergies_list,
+            pvod_edema_on_vaso, pvod_edema_desc,
+            eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
             cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
             cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
             cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm, cpet_o2_pulse_pattern,
@@ -3747,7 +4203,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             case_filename = ""
 
             # Derived UI blocks
-            sync_out = _sync_post_load(ct_done, ct_ild, vq_done, creatinine_mg_dl, age, sex, allergies_present, allergies_list)
+            sync_out = _sync_post_load(
+                ct_done, ct_ild, vq_done,
+                creatinine_mg_dl, age, sex,
+                allergies_present, allergies_list,
+                pvod_edema_on_vaso, pvod_edema_desc,
+                eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
+            )
             cpet_out = _sync_post_load_cpet(
         cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
         cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
@@ -3785,6 +4247,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         inputs=[
             state_pmods_selected,
             field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
+            field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
+            field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
             field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
             field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"],
@@ -3794,6 +4258,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         ] + input_components,
         outputs=[
             ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
+            field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             cpet_details, cpet_risk_html,
             pre_cath_html, pre_cath_home_html,
             import_pdf_cur, import_preview_cur_html, state_echo_cur,
@@ -3809,6 +4274,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         inputs=[
             state_pmods_selected,
             field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
+            field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
+            field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
             field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
             field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"],
@@ -3818,6 +4285,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         ] + input_components,
         outputs=[
             ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
+            field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             cpet_details, cpet_risk_html,
             pre_cath_html, pre_cath_home_html,
             import_pdf_cur, import_preview_cur_html, state_echo_cur,
@@ -3844,7 +4312,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     empty_ui[k] = None
 
             # Explicit empties for list-like fields
-            for lk in ("meds", "comorbidities", "modules", "modules_lvl1", "modules_lvl2", "modules_lvl3"):
+            for lk in ("meds", "comorbidities", "modules", "modules_lvl1", "modules_lvl2", "modules_lvl3", "ph_tx_table"):
                 if lk in empty_ui:
                     empty_ui[lk] = []
 
@@ -3941,7 +4409,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             # Reset all inputs + outputs deterministically
             empty_ui = {k: None for k in input_keys}
             # Explicit empties for list-like fields
-            for lk in ("meds", "comorbidities", "modules_lvl1", "modules_lvl2", "modules_lvl3", "modules"):
+            for lk in ("meds", "comorbidities", "modules_lvl1", "modules_lvl2", "modules_lvl3", "modules", "ph_tx_table"):
                 if lk in empty_ui:
                     empty_ui[lk] = []
             vals = apply_ui_to_components(empty_ui)
@@ -4101,8 +4569,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             ui_dict["modules_lvl2"] = []
             ui_dict["modules_lvl3"] = []
 
-            vals = apply_ui_to_components(ui_dict)
-
             imports = (data.get("imports") if isinstance(data, dict) else None) or {}
             if not isinstance(imports, dict):
                 imports = {}
@@ -4112,6 +4578,78 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             echo_cur = imports.get("echo_cur") or {"parsed": {}, "meta": {}, "has_file": False}
             echo_prev = imports.get("echo_prev") or {"parsed": {}, "meta": {}, "has_file": False}
+
+            # Backfill: When a case was saved while the Echo import payload existed but
+            # the manual echo fields were still empty (e.g. fast save after import),
+            # restore echo fields deterministically from the saved import payload.
+            # Policy: only fill empty fields; never overwrite manual entries.
+            def _echo_is_empty(v):
+                if v is None:
+                    return True
+                if isinstance(v, str):
+                    s = v.strip().lower()
+                    return (not s) or (s in ("keine angabe", "n/a", "na", "-"))
+                if isinstance(v, (int, float)):
+                    try:
+                        x = float(v)
+                        if x != x:  # NaN
+                            return True
+                        return x == 0.0
+                    except Exception:
+                        return False
+                if isinstance(v, bool):
+                    return v is False
+                return False
+
+            def _norm_radio(val):
+                if val is None:
+                    return None
+                s = str(val).strip().lower()
+                if s in ("", "-", "keine angabe", "n/a", "na"):
+                    return "keine Angabe"
+                if s in ("ja", "yes", "y", "true", "1"):
+                    return "ja"
+                if s in ("nein", "no", "n", "false", "0"):
+                    return "nein"
+                return val
+
+            try:
+                parsed_cur = (echo_cur or {}).get("parsed") or {}
+                parsed_prev = (echo_prev or {}).get("parsed") or {}
+                parsed = parsed_cur if parsed_cur else parsed_prev
+                if isinstance(parsed, dict) and parsed:
+                    echo_keys = [
+                        # main visible echo fields
+                        "echo_done", "lvef", "ee_ratio", "la_enlarged", "la_vmax_ml", "la_esa_cm2", "lavi_ml_m2", "afib",
+                        "pasp_echo", "trv_ms", "tapse_mm", "tapse_spap_ratio", "s_prime_cm_s", "ra_esa_cm2", "rv_edd_mm", "septal_flattening",
+                        "ivc_diam_mm", "ivc_collapse", "pericardial_effusion", "rvot_notch", "ivc_respiratory",
+                        # extended
+                        "ra_eda_cm2", "rv_esd_mm", "rv_eda_cm2", "rv_esa_cm2", "rv_wall_thickness_mm", "rvfac_pct", "rv_gls_pct", "rv_fwls_pct",
+                        "rv_3d_edv_ml", "rv_3d_esv_ml", "rv_3d_sv_ml", "rv_3d_ef_pct", "rv_3d_edvi_ml_m2", "rv_3d_esvi_ml_m2",
+                        "paat_ms", "rvet_ms", "paat_rvet_ratio", "ivc_exp_mm", "ivc_insp_mm", "ivc_collapse_index_pct",
+                    ]
+                    for k in echo_keys:
+                        if k not in field_components:
+                            continue
+                        if k not in parsed:
+                            continue
+                        cur_v = ui_dict.get(k)
+                        new_v = parsed.get(k)
+                        # Normalize radios
+                        if k in ("ivc_collapse", "pericardial_effusion", "rvot_notch", "ivc_respiratory"):
+                            new_v = _norm_radio(new_v)
+                        if isinstance(cur_v, bool):
+                            if (cur_v is False) and (new_v is True):
+                                ui_dict[k] = True
+                            continue
+                        if _echo_is_empty(cur_v) and (new_v is not None):
+                            ui_dict[k] = new_v
+                    # echo_done guard
+                    if (ui_dict.get("echo_done") in (None, False)) and any(v for kk, v in parsed.items() if kk not in ("height_cm", "weight_kg", "bsa_m2")):
+                        ui_dict["echo_done"] = True
+            except Exception:
+                pass
+            vals = apply_ui_to_components(ui_dict)
 
             try:
                 cur_html, prev_html, cmp_html, details_html, btnu = render_echo_import_views(echo_prev, echo_cur)
@@ -4271,6 +4809,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         def _post_docx_current_import_and_generate(
             ct_done, ct_ild, vq_done, creatinine_mg_dl, age, sex, allergies_present, allergies_list,
+            pvod_edema_on_vaso, pvod_edema_desc,
+            eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
             cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
             cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
             cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm, cpet_o2_pulse_pattern,
@@ -4285,7 +4825,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             pmods_sel_state = {"lvl1": [], "lvl2": [], "lvl3": []}
             flags = {"dirty": False, "saved_at": None, "has_report": False, "report_stale": False, "warnings": [], "fast_load": False}
 
-            sync_out = _sync_post_load(ct_done, ct_ild, vq_done, creatinine_mg_dl, age, sex, allergies_present, allergies_list)
+            sync_out = _sync_post_load(
+                ct_done, ct_ild, vq_done,
+                creatinine_mg_dl, age, sex,
+                allergies_present, allergies_list,
+                pvod_edema_on_vaso, pvod_edema_desc,
+                eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
+            )
             cpet_out = _sync_post_load_cpet(
                 cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
                 cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
@@ -4308,6 +4854,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         def _post_docx_prev_import_and_generate(
             ct_done, ct_ild, vq_done, creatinine_mg_dl, age, sex, allergies_present, allergies_list,
+            pvod_edema_on_vaso, pvod_edema_desc,
+            eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
             cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
             cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
             cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm, cpet_o2_pulse_pattern,
@@ -4322,7 +4870,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         ):
             flags = {"dirty": False, "saved_at": None, "has_report": False, "report_stale": False, "warnings": [], "fast_load": False}
 
-            sync_out = _sync_post_load(ct_done, ct_ild, vq_done, creatinine_mg_dl, age, sex, allergies_present, allergies_list)
+            sync_out = _sync_post_load(
+                ct_done, ct_ild, vq_done,
+                creatinine_mg_dl, age, sex,
+                allergies_present, allergies_list,
+                pvod_edema_on_vaso, pvod_edema_desc,
+                eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
+            )
             cpet_out = _sync_post_load_cpet(
                 cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
                 cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
@@ -4348,6 +4902,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 _post_docx_current_import_and_generate,
                 inputs=[
                     field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
+                    field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
+                    field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
                     field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
                     field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
                     field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"],
@@ -4360,6 +4916,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 ] + input_components,
                 outputs=[
                     ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
+                    field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
                     cpet_details, cpet_risk_html,
                     pre_cath_html, pre_cath_home_html,
                 ] + generate_outputs,
@@ -4370,6 +4927,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 _post_docx_current_import_and_generate,
                 inputs=[
                     field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
+                    field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
+                    field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
                     field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
                     field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
                     field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"],
@@ -4382,6 +4941,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 ] + input_components,
                 outputs=[
                     ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
+                    field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
                     cpet_details, cpet_risk_html,
                     pre_cath_html, pre_cath_home_html,
                 ] + generate_outputs,
@@ -4392,6 +4952,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 _post_docx_prev_import_and_generate,
                 inputs=[
                     field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
+                    field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
+                    field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
                     field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
                     field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
                     field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"],
@@ -4495,7 +5057,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         ):
             flags = {"dirty": False, "saved_at": None, "has_report": False, "report_stale": False, "warnings": [], "fast_load": False}
 
-            sync_out = _sync_post_load(ct_done, ct_ild, vq_done, creatinine_mg_dl, age, sex, allergies_present, allergies_list)
+            sync_out = _sync_post_load(
+                ct_done, ct_ild, vq_done,
+                creatinine_mg_dl, age, sex,
+                allergies_present, allergies_list,
+                pvod_edema_on_vaso, pvod_edema_desc,
+                eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
+            )
             cpet_out = _sync_post_load_cpet(
         cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
         cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,

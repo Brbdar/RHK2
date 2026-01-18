@@ -1,246 +1,377 @@
+Filename: echo_guidelines.yaml
+Full Content:
 meta:
-  title: Echo guideline cutoffs and trend rules
-  version: 2026-01-04
+  title: Echo guideline cutoffs, safety bounds, and risk logic
+  version: 2026-01-18
+  schema_version: 1.4.0
+  description: >
+    Mastermind Configuration: Defines strict severity thresholds, physiological safety bounds,
+    and rendering precision. Includes LOINC codes for interoperability.
   sources:
-    - ASE Right Heart Guideline 2025
-    - ASE LV Diastolic Function Update 2025
-    - ESC/ERS Pulmonary Hypertension Guidelines 2022
+    - ASE Guidelines for the Assessment of Right Heart (2025 Update)
+    - ESC/ERS Guidelines for Pulmonary Hypertension (2022)
+    - ASE Diastolic Function Guidelines (2016/2025)
 
-# Each rule can define:
-# - label, unit
-# - direction: higher | lower | more_negative
-# - severity bands: g/y/r with min/max
-# - meaningful_delta: absolute change threshold for trend, used when category does not change
-# - note: short display note for UI annotation or tooltip
+# --- SCHEMA EXPLANATION ---
+# category:      Logical grouping for UI/Report (Left Heart, PH Pressure, RV Function, etc.)
+# loinc:         Standardized medical code for export/interoperability.
+# valid_range:   [min, max] -> HARD LIMITS. Values outside trigger "Input Error" (Physics Check).
+# precision:     Decimal places for generated text (e.g., 0 -> "55 %", 1 -> "1.5 cm").
+# risk_weight:   1 (Low) to 5 (Critical/Prognostic) -> Controls sorting order in the 'Impression' section.
+# direction:     higher (Better) | lower (Better) | binary.
+# severity:      g (Green/Target), y (Yellow/Warning), r (Red/Critical).
+# meaningful_delta: Absolute change to trigger trend arrow in dashboard.
+
 rules:
-  # Linksherz
+  # ---------------------------------------------------------------------------
+  # LINKSVENTRIKULÄRE FUNKTION & FÜLLUNG (Left Heart)
+  # ---------------------------------------------------------------------------
   lvef:
-    label: LV EF
+    category: "Left Heart"
+    label: "LV EF"
+    loinc: "8808-8"
     unit: "%"
+    valid_range: [10, 95]
+    precision: 0
+    risk_weight: 5
     direction: higher
     severity:
       g: {min: 55}
       y: {min: 45, max: 54.9}
       r: {max: 44.9}
     meaningful_delta: 5
-    note: LV systolic function
+    note: "LV systolische Funktion (Simpson biplan)"
 
   ee_ratio:
-    label: E/e'
+    category: "Left Heart"
+    label: "E/e'"
+    loinc: "77905-8"
     unit: ""
+    valid_range: [1, 60]
+    precision: 1
+    risk_weight: 4
     direction: lower
     severity:
       g: {max: 14}
       y: {min: 14.1, max: 19}
       r: {min: 19.1}
     meaningful_delta: 2
-    note: Filling pressure surrogate
+    note: "Surrogat für LV-Füllungsdruck (PCWP)"
 
   lavi_ml_m2:
-    label: LAVI
+    category: "Left Heart"
+    label: "LAVI"
+    loinc: "79922-1"
     unit: "ml/m²"
+    valid_range: [10, 200]
+    precision: 0
+    risk_weight: 3
     direction: lower
     severity:
       g: {max: 34}
       y: {min: 34.1, max: 48}
       r: {min: 48.1}
     meaningful_delta: 5
-    note: Left atrial size
+    note: "Linksatriales Volumen (Indexiert)"
 
-  # PH / pressure surrogates
+  # ---------------------------------------------------------------------------
+  # PULMONALE HÄMODYNAMIK & DRÜCKE (PH Pressure)
+  # ---------------------------------------------------------------------------
   trv_ms:
-    label: TRV max
+    category: "PH Pressure"
+    label: "TRV max"
+    loinc: "18037-2"
     unit: "m/s"
+    valid_range: [0.5, 7.0]
+    precision: 2
+    risk_weight: 5
     direction: lower
+    # ESC 2022 Risk Stratification logic
     severity:
       g: {max: 2.8}
-      y: {min: 2.81, max: 3.1}
+      y: {min: 2.81, max: 3.1} # High Prob starts > 3.4 usually, but strict check here
       r: {min: 3.11}
     meaningful_delta: 0.2
-    note: Doppler PH sign
+    note: "CW-Doppler Max-Geschwindigkeit (PH-Wahrscheinlichkeit)"
 
   pasp_echo:
-    label: sPAP Echo
+    category: "PH Pressure"
+    label: "sPAP Echo"
+    loinc: "59121-4"
     unit: "mmHg"
+    valid_range: [10, 160]
+    precision: 0
+    risk_weight: 4
     direction: lower
     severity:
       g: {max: 34}
       y: {min: 35, max: 49}
       r: {min: 50}
     meaningful_delta: 5
-    note: Estimated pulmonary pressure
+    note: "Geschätzter syst. PA-Druck (Bernoulli + RAP)"
 
   paat_ms:
-    label: PAAT
+    category: "PH Pressure"
+    label: "PAAT"
+    loinc: "79920-5"
     unit: "ms"
+    valid_range: [20, 250]
+    precision: 0
+    risk_weight: 3
     direction: higher
     severity:
       g: {min: 105}
       y: {min: 80, max: 104.9}
       r: {max: 79.9}
     meaningful_delta: 10
-    note: RVOT acceleration time
+    note: "RVOT Akzelerationszeit (Kurz = hoher Widerstand)"
 
   paat_rvet_ratio:
-    label: PAAT/RVET
+    category: "PH Pressure"
+    label: "PAAT/RVET"
+    loinc: "X-PAAT-RVET"
     unit: ""
+    valid_range: [0.1, 1.0]
+    precision: 2
+    risk_weight: 3
     direction: higher
     severity:
       g: {min: 0.34}
       y: {min: 0.28, max: 0.339}
       r: {max: 0.279}
     meaningful_delta: 0.03
-    note: PH surrogate ratio
+    note: "Kopplungs-Surrogat (frequenzunabhängiger als PAAT)"
 
-  # RV function
+  # ---------------------------------------------------------------------------
+  # RECHTSHERZFUNKTION (RV Function)
+  # ---------------------------------------------------------------------------
   tapse_mm:
-    label: TAPSE
+    category: "RV Function"
+    label: "TAPSE"
+    loinc: "77903-3"
     unit: "mm"
+    valid_range: [1, 55]
+    precision: 0
+    risk_weight: 5
     direction: higher
+    # ASE: <17 abnormal
     severity:
       g: {min: 17}
       y: {min: 13, max: 16.9}
       r: {max: 12.9}
     meaningful_delta: 2
-    note: Longitudinal RV function
+    note: "Longitudinale Funktion (M-Mode Basis)"
 
   s_prime_cm_s:
-    label: Trikuspidales S'
+    category: "RV Function"
+    label: "Trikuspidales S'"
+    loinc: "79921-3"
     unit: "cm/s"
+    valid_range: [1, 30]
+    precision: 1
+    risk_weight: 3
     direction: higher
     severity:
       g: {min: 9.5}
       y: {min: 7.2, max: 9.49}
       r: {max: 7.19}
     meaningful_delta: 1
-    note: Tissue Doppler RV function
+    note: "Gewebe-Doppler Peak Systolic Velocity"
 
   rvfac_pct:
-    label: RVFAC
+    category: "RV Function"
+    label: "RVFAC"
+    loinc: "93780-5"
     unit: "%"
+    valid_range: [5, 80]
+    precision: 0
+    risk_weight: 4
     direction: higher
     severity:
       g: {min: 35}
       y: {min: 29, max: 34.9}
       r: {max: 28.9}
     meaningful_delta: 5
-    note: Global RV systolic function
+    note: "Fractional Area Change (2D Global)"
 
   rv_3d_ef_pct:
-    label: 3D RVEF
+    category: "RV Function"
+    label: "3D RVEF"
+    loinc: "93782-1"
     unit: "%"
+    valid_range: [10, 85]
+    precision: 0
+    risk_weight: 4
     direction: higher
     severity:
       g: {min: 45}
       y: {min: 39, max: 44.9}
       r: {max: 38.9}
     meaningful_delta: 3
-    note: 3D RV systolic function
+    note: "3D-Volumetrie (Echo Goldstandard)"
 
   rv_fwls_pct:
-    label: RV FWLS
+    category: "RV Function"
+    label: "RV FWLS"
+    loinc: "93785-4"
     unit: "%"
+    valid_range: [-50, 0]
+    precision: 1
+    risk_weight: 5
     direction: more_negative
+    # Logic: abs(-25)=25 (Good), abs(-10)=10 (Bad)
     severity:
       g: {min_abs: 20}
       y: {min_abs: 15, max_abs: 19.9}
       r: {max_abs: 14.9}
     meaningful_delta: 2
-    note: Strain absolute value
+    note: "Free Wall Longitudinal Strain (Prognostisch wertvoll)"
 
   rv_gls_pct:
-    label: RV GLS
+    category: "RV Function"
+    label: "RV GLS"
+    loinc: "99583-7"
     unit: "%"
+    valid_range: [-45, 0]
+    precision: 1
+    risk_weight: 4
     direction: more_negative
     severity:
       g: {min_abs: 17}
       y: {min_abs: 13, max_abs: 16.9}
       r: {max_abs: 12.9}
     meaningful_delta: 2
-    note: Strain absolute value
+    note: "Global Longitudinal Strain (inkl. Septum)"
 
   tapse_spap_ratio:
-    label: TAPSE/sPAP
+    category: "RV Function"
+    label: "TAPSE/sPAP"
+    loinc: "X-TAPSE-SPAP"
     unit: "mm/mmHg"
+    valid_range: [0.05, 5.0]
+    precision: 2
+    risk_weight: 5
     direction: higher
     severity:
       g: {min: 0.32}
       y: {min: 0.19, max: 0.319}
       r: {max: 0.189}
     meaningful_delta: 0.03
-    note: RV PA coupling (ESC/ERS)
+    note: "RV-Arterielle Kopplung (<0.19 = High Risk)"
 
-  # Remodeling and congestion
+  # ---------------------------------------------------------------------------
+  # MORPHOLOGIE & STAUUNG (Structure & Congestion)
+  # ---------------------------------------------------------------------------
   ra_esa_cm2:
-    label: RA ESA
+    category: "Morphology"
+    label: "RA ESA"
+    loinc: "17988-7"
     unit: "cm²"
+    valid_range: [5, 120]
+    precision: 0
+    risk_weight: 3
     direction: lower
+    # ESC Risk: >26 High
     severity:
       g: {max: 18}
       y: {min: 18.1, max: 26}
       r: {min: 26.1}
     meaningful_delta: 2
-    note: RA size (ESC/ERS)
+    note: "Rechter Vorhof (End-Systolische Fläche)"
 
   rv_edd_mm:
-    label: RV EDD
+    category: "Morphology"
+    label: "RV EDD"
+    loinc: "18047-1"
     unit: "mm"
+    valid_range: [15, 90]
+    precision: 0
+    risk_weight: 3
     direction: lower
     severity:
       g: {max: 40.9}
       y: {min: 41, max: 44}
       r: {min: 44.1}
     meaningful_delta: 3
-    note: Basal RV diameter
+    note: "RV Basaler Durchmesser (RVD1)"
 
   rv_wall_thickness_mm:
-    label: RV Wanddicke
+    category: "Morphology"
+    label: "RV Wanddicke"
+    loinc: "18051-3"
     unit: "mm"
+    valid_range: [1, 20]
+    precision: 1
+    risk_weight: 2
     direction: lower
     severity:
       g: {max: 4.9}
       y: {min: 5, max: 7}
       r: {min: 7.1}
     meaningful_delta: 1
-    note: RV hypertrophy surrogate
+    note: "Subkostal enddiastolisch (Hypertrophie >5mm)"
 
   ivc_diam_mm:
-    label: VCI Durchmesser
+    category: "Congestion"
+    label: "VCI Durchmesser"
+    loinc: "18006-7"
     unit: "mm"
+    valid_range: [5, 45]
+    precision: 0
+    risk_weight: 3
     direction: lower
     severity:
       g: {max: 21}
       y: {min: 21.1, max: 23}
       r: {min: 23.1}
     meaningful_delta: 2
-    note: IVC size
+    note: "Volumenstatus (Dilatation >21mm)"
 
   ivc_collapse_index_pct:
-    label: VCI Kollaps Index
+    category: "Congestion"
+    label: "VCI Kollaps Index"
+    loinc: "18007-5"
     unit: "%"
+    valid_range: [0, 100]
+    precision: 0
+    risk_weight: 3
     direction: higher
     severity:
       g: {min: 50}
       y: {min: 35, max: 49.9}
       r: {max: 34.9}
     meaningful_delta: 10
-    note: IVC collapse
+    note: "Inspiratorischer Kollaps (ZVD Schätzung)"
 
-  # Binary markers (handled separately)
+  # ---------------------------------------------------------------------------
+  # BINÄRE MARKER (High Risk)
+  # ---------------------------------------------------------------------------
   pericardial_effusion:
-    label: Perikarderguss
+    category: "Flags"
+    label: "Perikarderguss"
+    loinc: "X-PE-FLAG"
     unit: ""
+    valid_range: [0, 1] # Boolean
+    risk_weight: 5
     direction: binary
-    note: High risk marker if present
+    note: "High Risk Marker bei PH (ESC)"
 
   rvot_notch:
-    label: Mid systolic notch
+    category: "Flags"
+    label: "Mid systolic notch"
+    loinc: "X-NOTCH-FLAG"
     unit: ""
+    valid_range: [0, 1]
+    risk_weight: 3
     direction: binary
-    note: PH sign if present
+    note: "PW-Doppler Zeichen für hohen PVR"
 
   ivc_collapse:
-    label: VCI Kollaps >50%
+    category: "Flags"
+    label: "VCI Kollaps >50%"
+    loinc: "X-IVC-COLL-FLAG"
     unit: ""
+    valid_range: [0, 1]
+    risk_weight: 2
     direction: binary
-    note: Congestion marker
+    note: "Vereinfachter Marker für RAP <= 8mmHg"

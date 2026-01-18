@@ -476,375 +476,220 @@ E_BLOCKS: Dict[str, TextBlock] = {
 # -------------------------
 
 P_BLOCKS: Dict[str, TextBlock] = {
-    "P01": TextBlock(
-        id="P01",
-        title="PH-Basisdiagnostik komplettieren (universell)",
-        applies_to="unklare PH-Ätiologie, Erstdiagnose oder Reevaluation",
-        template=(
-            "Strukturierte Komplettierung/Überprüfung der PH-Basisdiagnostik:\n"
-            "• Echokardiographie inkl. RV-Funktion, TR-Grad, Klappenvitien, ggf. Belastungsecho.\n"
-            "• Lungenfunktion inkl. Bodyplethysmographie und Diffusionskapazität (DLCO) sowie BGA (Ruhe/Belastung nach Verfügbarkeit).\n"
-            "• Bildgebung je nach Fragestellung: HR-CT/CT-Thorax, ggf. Beurteilung in radiologisch-pneumologischer Konferenz.\n"
-            "• V/Q-Szintigraphie (CTEPD/CTEPH-Ausschluss).\n"
-            "• Labor je nach Kontext: Autoimmunserologie (ANA/ENA etc.), Infektiologie (z.B. HIV/Hepatitis nach SOP), "
-            "Blutbild/Eisenstatus, Schilddrüse, Leber/Niere, BNP/NT-proBNP."
+    "P01": TextBlock(        id="P01",        title="PH Basisdiagnostik komplettieren",        applies_to="Erstdiagnose, Reevaluation oder unklare Ätiologie",        template=(
+            "Bitte PH Basisdiagnostik vervollständigen und Befunde im PH Team rückmelden:\n"
+            "• Echo inkl RV Funktion, TR Grad, Klappen\n"
+            "• Lufu inkl DLCO und BGA\n"
+            "• V Q Szinti zum Ausschluss CTEPD und CT Thorax nach Fragestellung\n"
+            "• Basislabor inkl BNP NT proBNP; Autoimmun und Infekt nach Kontext\n"
+            "Timing: zeitnah, vor Therapieentscheidung"
         ),
         category="P",
     ),
-    "P02": TextBlock(
-        id="P02",
-        title="Diuretische Therapie intensivieren (bei zentralvenöser Stauung/RV-Versagen)",
-        applies_to="ausgeprägte ZVD/Ödeme/kardiorenale Dynamik",
-        template=(
-            "Bei führender zentralvenöser Stauung: Intensivierung der diuretischen Therapie, "
-            "idealerweise initial intravenös im stationären Setting mit anschließender Anpassung der Erhaltungsmedikation. "
-            "Engmaschige Kontrolle von Nierenfunktion/Retentionsparametern sowie Elektrolyten empfohlen."
+    "P02": TextBlock(        id="P02",        title="Diurese und Volumenmanagement intensivieren",        applies_to="ZVD, Ödeme, Gewichtszunahme oder kardiorenale Dynamik",        template=(
+            "Bei klinischer Stauung: Diuretika anpassen mit Ziel Euvolämie.\n"
+            "Kontrolle: Gewicht, Kreatinin, Elektrolyte; bei Bedarf stationär iv Diurese."
         ),
         category="P",
     ),
-    "P03": TextBlock(
-        id="P03",
-        title="PH-spezifische Therapie beginnen: PDE5-Inhibitor (SOP-neutral)",
-        applies_to="Indikation gestellt, keine Kontraindikationen",
-        template=(
-            "{therapy_plan_sentence}"
+    "P03": TextBlock(        id="P03",        title="PH spezifische Therapie beginnen PDE5 Inhibitor",        applies_to="Indikation gestellt, keine Kontraindikationen",        template=(
+            "{therapy_plan_sentence}\n"
+            "Kontrolle: Blutdruck, Nebenwirkungen, Verlauf nach SOP."
         ),
         category="P",
-        notes="Medikamenten-/Dosisdetails sollen aus planned_actions kommen; sonst Platzhalter leer lassen.",
+        notes="Medikamenten und Dosisdetails kommen aus planned actions; wenn leer, P Modul nicht auswählen.",
         variants={
             "example_pde5i": (
-                "Beginn einer PH-spezifischen Therapie mit einem PDE5-Inhibitor gemäß Fachinformation/hausinterner SOP "
-                "(Kontraindikationen/Interaktionen beachten; Blutdruck und Verträglichkeit zeitnah kontrollieren)."
-            )
+                "Beginn PDE5 Inhibitor gemäß Fachinformation und hausinterner SOP. Kontrolle Blutdruck und Verträglichkeit zeitnah."
+            ),
         },
     ),
-    "P04": TextBlock(
-        id="P04",
-        title="PH-spezifische Therapie beginnen/erweitern: ERA (SOP-neutral)",
-        applies_to="PAH-Therapie, duale Strategie",
-        template="{therapy_plan_sentence}",
+    "P04": TextBlock(        id="P04",        title="PH spezifische Therapie beginnen oder erweitern ERA",        applies_to="PAH Therapie, duale Strategie",        template=(
+            "{therapy_plan_sentence}\n"
+            "Kontrolle: Labor und Verträglichkeit nach SOP."
+        ),
         category="P",
         variants={
             "example_era": (
-                "Ergänzung/Initiierung einer Endothelin-Rezeptorantagonisten-Therapie gemäß Fachinformation/hausinterner SOP "
-                "(Kontrollen je nach Präparat/Standard)."
-            )
+                "Initiierung oder Ergänzung ERA gemäß Fachinformation und hausinterner SOP. Kontrollen je nach Präparat."
+            ),
         },
     ),
-    "P05": TextBlock(
-        id="P05",
-        title="Riociguat (z.B. bei CTEPH oder als Wechselstrategie) – Sicherheitsformulierung",
-        applies_to="Indikation gegeben, keine PDE5-Kombination",
-        template="{therapy_plan_sentence}",
+    "P05": TextBlock(        id="P05",        title="Riociguat Therapie",        applies_to="CTEPH oder Wechselstrategie, keine PDE5 Kombination",        template=(
+            "{therapy_plan_sentence}\n"
+            "Wichtig: keine Kombination mit PDE5 Inhibitor; Washout Zeiten einhalten."
+        ),
         category="P",
         variants={
             "example_riociguat": (
-                "Therapie mit Riociguat gemäß Fachinformation/hausinterner SOP (einschleichend, strukturierte Aufdosierung nach Blutdruck/Verträglichkeit). "
-                "Kombination mit PDE5-Inhibitoren kontraindiziert; erforderliche Washout-Zeiten einhalten."
-            )
+                "Riociguat einschleichend gemäß Fachinformation und hausinterner SOP. Kombination mit PDE5 Inhibitor kontraindiziert; Washout beachten."
+            ),
         },
     ),
-    "P06": TextBlock(
-        id="P06",
-        title="Prostacyclin-Therapie/Parenteraloption ansprechen",
-        applies_to="intermediär/hoch, RV-Versagen, Eskalationsindikation",
-        template=(
-            "{therapy_escalation_sentence}"
+    "P06": TextBlock(        id="P06",        title="Therapie Eskalation bis parenteral prüfen",        applies_to="intermediär hoch, RV Versagen oder Progress",        template=(
+            "{therapy_escalation_sentence}\n"
+            "Bitte Evaluation im PH Zentrum und Festlegung im PH Board."
         ),
         category="P",
         variants={
             "generic": (
-                "Aufklärung über Eskalationsoptionen im spezialisierten Setting (inkl. ggf. parenteraler Therapieoptionen) "
-                "und Festlegung des weiteren Vorgehens nach klinischer Gesamtkonstellation/Patient:innenpräferenz."
-            )
+                "Eskalationsoptionen im PH Zentrum besprechen inkl parenteraler Optionen. Entscheidung im interdisziplinären Setting."
+            ),
         },
     ),
-    "P07": TextBlock(
-        id="P07",
-        title="Studienevaluation (neutral)",
-        applies_to="wenn lokal verfügbar",
-        template=(
-            "Prüfung einer Studieneinschluss-Option im spezialisierten Zentrum gemäß aktueller Verfügbarkeit und Ein-/Ausschlusskriterien."
+    "P07": TextBlock(        id="P07",        title="Studien Option prüfen",        applies_to="wenn lokal verfügbar",        template=(
+            "Prüfung einer Studieneinschluss Option im PH Zentrum gemäß aktueller Verfügbarkeit und Kriterien."
         ),
         category="P",
     ),
-    "P08": TextBlock(
-        id="P08",
-        title="Radiologisch-pneumologische Konferenz / Fibrose-Ambulanz",
-        applies_to="ILD-Hinweis, CT-Befund ausstehend oder progredient",
-        template=(
-            "Nach Vorliegen des CT-Thorax: Vorstellung/Beurteilung in der radiologisch-pneumologischen Konferenz empfohlen. "
-            "Bei Hinweis auf ILD/Progredienz: Konsultation der Fibrose-Sprechstunde und Therapieplanung im interdisziplinären Setting."
+    "P08": TextBlock(        id="P08",        title="CT Thorax in Konferenz, Fibrose Sprechstunde bei ILD",        applies_to="ILD Hinweis, CT Befund ausstehend oder progredient",        template=(
+            "Nach Vorliegen CT Thorax: Vorstellung in radiologisch pneumologischer Konferenz.\n"
+            "Bei ILD Hinweis oder Progredienz: Fibrose Sprechstunde und interdisziplinäre Therapieplanung."
         ),
         category="P",
     ),
-    "P09": TextBlock(
-        id="P09",
-        title="Kardiologische Mitbeurteilung (Klappen/Rhythmus/Ischämie)",
-        applies_to="V-Welle/MI-Verdacht, Rhythmusauffälligkeiten, TI etc.",
-        template=(
-            "Kardiologische Vorstellung/Verlaufskontrolle empfohlen (inkl. Echokardiographie zur Beurteilung von {valve_focus_desc} sowie ggf. Rhythmusdiagnostik). "
-            "Bei Arrhythmiezeichen: EKG/Monitoring erwägen. Koronardiagnostik gemäß Klinik/Risikoprofil."
+    "P09": TextBlock(        id="P09",        title="Kardiologie Konsil",        applies_to="Klappen, Rhythmus oder Ischämie Fragestellung",        template=(
+            "Bitte kardiale Mitbeurteilung mit Fokus auf {valve_focus_desc}.\n"
+            "Bei Arrhythmiezeichen: EKG Monitoring; Ischämie Abklärung nach Klinik und Risikoprofil."
         ),
         category="P",
     ),
-    "P10": TextBlock(
-        id="P10",
-        title="Antikoagulation & Gerinnungsambulanz",
-        applies_to="VTE/Perfusionsdefekt/APS-Verdacht/Rezidiv unter DOAK",
-        template=(
-            "{anticoagulation_plan_sentence}"
+    "P10": TextBlock(        id="P10",        title="Antikoagulation und Gerinnungsambulanz",        applies_to="VTE, Perfusionsdefekt, APS Verdacht oder Rezidiv",        template=(
+            "{anticoagulation_plan_sentence}\n"
+            "Bitte Gerinnungsambulanz zur Einordnung und Optimierung der AK."
         ),
         category="P",
         variants={
             "generic": (
-                "Zeitnahe Vorstellung in der Gerinnungsambulanz zur Einordnung der thromboembolischen Konstellation und Optimierung der Antikoagulation. "
-                "Antikoagulation gemäß Indikation konsequent fortführen."
-            )
+                "Zeitnahe Gerinnungsambulanz zur Einordnung der VTE Konstellation und Optimierung der AK. AK gemäß Indikation fortführen."
+            ),
         },
     ),
-    "P11": TextBlock(
-        id="P11",
-        title="Verlaufskontrolle (Standard-Timing)",
-        applies_to="Erstdiagnose/Änderung/instabile Lage",
-        template=(
-            "Verlaufskontrolle im spezialisierten Setting in {followup_timing_desc} sowie Reevaluation der Risikokonstellation "
-            "(Klinik, BNP/NT-proBNP, Echo, Belastbarkeit). "
-            "Invasive Verlaufskontrolle (RHK) bei Therapieentscheidungen oder unklarem Verlauf in {invasive_followup_desc} erwägen."
+    "P11": TextBlock(        id="P11",        title="Verlaufskontrolle planen",        applies_to="Erstdiagnose, Therapieänderung oder instabile Lage",        template=(
+            "Kontrolle im PH Zentrum in {followup_timing_desc} mit Reevaluation Risiko und Echo Verlauf.\n"
+            "RHK Verlauf bei Therapieentscheidung oder unklarem Verlauf in {invasive_followup_desc}."
         ),
         category="P",
     ),
-    "P12": TextBlock(
-        id="P12",
-        title="Lungenfunktionelle Abklärung Restriktion/DLCO",
-        applies_to="Restriktion/DLCO reduziert/hohe Atemarbeit",
-        template=(
-            "Weitere Abklärung der {pulm_workup_focus_desc} inkl. Komplettierung der pneumologischen Diagnostik "
-            "und Korrelation mit Bildgebung (z.B. HR-CT) sowie ggf. Belastungsuntersuchungen."
+    "P12": TextBlock(        id="P12",        title="Pneumologische Abklärung vertiefen",        applies_to="Restriktion, DLCO reduziert oder unklare Atemarbeit",        template=(
+            "Bitte Abklärung der {pulm_workup_focus_desc} und Korrelation mit Bildgebung.\n"
+            "Optional: CPET oder Belastungstests zur Objektivierung."
         ),
         category="P",
     ),
-    "P13": TextBlock(
-        id="P13",
-        title="Eisenmangel/Anämie-Baustein",
-        applies_to="Anämie/Eisenmangelverdacht",
-        template=(
-            "Bei {anemia_context_desc}: Bestimmung von Eisenstatus (Ferritin, TSAT) und ggf. Substitution gemäß hausinternem Standard erwägen."
+    "P13": TextBlock(        id="P13",        title="Eisenmangel oder Anämie abklären",        applies_to="Anämie oder Eisenmangelverdacht",        template=(
+            "Bei {anemia_context_desc}: Ferritin und TSAT bestimmen; Substitution nach hausinternem Standard."
         ),
         category="P",
     ),
-
-    # --- Erweiterte Zusatzmodule (P14+) ---
-    "P14": TextBlock(
-        id="P14",
-        title="RV-Prognosemarker (TAPSE/sPAP, S'/RAAI) – Konsequenzen",
-        applies_to="auffällige RV-/RA-Marker oder unklare Diskrepanz zwischen Symptomen und Hämodynamik",
-        template=(
-            "Bei auffälligen Echo-Prognosemarkern der Rechtsherzfunktion (z.B. TAPSE/sPAP, S'/RAAI) wird eine strukturierte "
-            "Verlaufskontrolle empfohlen (Klinik/Belastbarkeit, BNP/NT-proBNP, Echo inkl. RV-Größe/Funktion und TR-Grad). "
-            "Therapieentscheidungen sollten im Kontext des gesamten Risikoprofils (Leitlinien-Risikostratifizierung) erfolgen."
+    "P14": TextBlock(        id="P14",        title="Rechtsherz Marker auffällig, Verlauf eng",        applies_to="auffällige RV RA Marker oder Diskrepanz Klinik Hämodynamik",        template=(
+            "Bei auffälligen RV Prognosemarkern: Verlauf engmaschig mit BNP NT proBNP und Echo Verlauf.\n"
+            "Therapieentscheidungen im PH Board im Kontext der Risikostratifizierung."
         ),
         category="P",
     ),
-    "P15": TextBlock(
-        id="P15",
-        title="Belastungsdiagnostik (CPET/Belastungsecho) – wenn Diskrepanz",
-        applies_to="Dyspnoe unklar/disproportional oder zur Objektivierung der Leistungsfähigkeit",
-        template=(
-            "Bei unklarer oder disproportionaler Belastungsdyspnoe: ergänzende Belastungsdiagnostik erwägen (z.B. Spiroergometrie/CPET, "
-            "Belastungsechokardiographie, ggf. Belastungs-RHK je nach Fragestellung und Verfügbarkeit), "
-            "um ventilatorische Limitationen, Gasaustauschstörung und hämodynamische Komponente besser abzugrenzen."
+    "P15": TextBlock(        id="P15",        title="Belastungsdiagnostik bei Diskrepanz",        applies_to="Dyspnoe unklar oder disproportional",        template=(
+            "Zur Objektivierung: CPET oder Belastungsecho; bei Bedarf Belastungs RHK nach Fragestellung."
         ),
         category="P",
     ),
-    "P16": TextBlock(
-        id="P16",
-        title="Schlafmedizin (OSAS/Hypoventilation) – Screening",
-        applies_to="Hinweis auf nächtliche Hypoxie, Adipositas, Tagesmüdigkeit oder unklare Hypoxämie",
-        template=(
-            "Abklärung schlafbezogener Atmungsstörungen (z.B. OSAS, Hypoventilation) gemäß klinischem Kontext erwägen "
-            "(Screening, Polygraphie/Polysomnographie). Optimierung der nächtlichen Oxygenierung kann die Belastbarkeit beeinflussen."
+    "P16": TextBlock(        id="P16",        title="Schlafmedizin Screening",        applies_to="nächtliche Hypoxie, Adipositas, Tagesmüdigkeit oder unklare Hypoxämie",        template=(
+            "Screening auf OSAS oder Hypoventilation und Polygraphie nach Kontext.\n"
+            "Therapie nach Befund, Optimierung der nächtlichen Oxygenierung prüfen."
         ),
         category="P",
     ),
-    "P17": TextBlock(
-        id="P17",
-        title="Autoimmun-/CTD-Screening (PAH-DD) – nach Kontext",
-        applies_to="DD Gruppe 1 (CTD-PAH) oder klinische Hinweise auf Autoimmunität",
-        template=(
-            "Bei Verdacht auf CTD-assoziierte PH/PAH: Autoimmunserologie nach Standard (z.B. ANA/ENA, ggf. weitere Marker je nach Klinik) "
-            "und rheumatologische Mitbeurteilung erwägen."
+    "P17": TextBlock(        id="P17",        title="CTD Screening",        applies_to="Verdacht auf CTD assoziierte PH oder klinische Hinweise",        template=(
+            "Autoimmunserologie nach Standard (ANA ENA ggf weitere Marker) und Rheuma Konsil nach Klinik."
         ),
         category="P",
     ),
-    "P18": TextBlock(
-        id="P18",
-        title="Infektiologisches Screening (z.B. HIV/Hepatitis) – nach SOP",
-        applies_to="DD Gruppe 1 (assoziierte PAH) oder unklare präkapilläre PH",
-        template=(
-            "Je nach Konstellation: infektiologisches Screening (z.B. HIV, Hepatitis) gemäß lokaler SOP/Anamnese durchführen "
-            "und Befunde in die Ätiologiezuordnung integrieren."
+    "P18": TextBlock(        id="P18",        title="Infektiologisches Screening",        applies_to="assoziierte PAH DD oder unklare präkapilläre PH",        template=(
+            "Infektiologisches Screening (zB HIV Hepatitis) gemäß lokaler SOP und Anamnese durchführen und dokumentieren."
         ),
         category="P",
     ),
-    "P19": TextBlock(
-        id="P19",
-        title="Leber/Portale Hypertonie (PoPH) – Abklärung",
-        applies_to="klinische/laborchemische Hinweise auf Lebererkrankung/Portalhypertonie oder unklare präkapilläre PH",
-        template=(
-            "Bei Verdacht auf portopulmonale Hypertension: lebermedizinische Mitbeurteilung, Sonographie/Elastographie nach Kontext "
-            "und Bewertung portaler Hypertonie/Leberfunktion."
+    "P19": TextBlock(        id="P19",        title="PoPH Abklärung",        applies_to="Hinweise auf Lebererkrankung oder Portalhypertonie",        template=(
+            "Bei Verdacht auf portopulmonale Hypertension: Lebermedizinische Mitbeurteilung und Sonographie Elastographie nach Kontext."
         ),
         category="P",
     ),
-    "P20": TextBlock(
-        id="P20",
-        title="Genetik/Familienanamnese (hereditäre PAH) – Erwägung",
-        applies_to="jüngere Patient:innen, familiäre Belastung oder idiopathische/unklare PAH-Konstellation",
-        template=(
-            "Bei entsprechender Konstellation: genetische Beratung/Testung gemäß Leitlinien/Zentrumspraxis erwägen "
-            "und Familienanamnese gezielt erheben."
+    "P20": TextBlock(        id="P20",        title="Genetik erwägen",        applies_to="jüngere Patient*innen, familiäre Belastung oder idiopathische PAH",        template=(
+            "Bei passender Konstellation: genetische Beratung und Testung gemäß Zentrumspraxis; Familienanamnese gezielt erheben."
         ),
         category="P",
     ),
-    "P21": TextBlock(
-        id="P21",
-        title="Schwangerschaft/Verhütung – Beratung bei PH/PAH",
-        applies_to="PH/PAH im gebärfähigen Alter",
-        template=(
-            "Bei PH/PAH im gebärfähigen Alter: strukturierte Beratung zu Schwangerschaftsrisiko und sicherer Kontrazeption "
-            "im spezialisierten Setting."
+    "P21": TextBlock(        id="P21",        title="Schwangerschaft und Kontrazeption",        applies_to="PH PAH im gebärfähigen Alter",        template=(
+            "Beratung zu Schwangerschaftsrisiko und sicherer Kontrazeption im PH Zentrum; ggf Gyn Konsil."
         ),
         category="P",
     ),
-    "P22": TextBlock(
-        id="P22",
-        title="Reha/Training (supervised) – Alltagsfunktion verbessern",
-        applies_to="stabile Situation, nach Einordnung/Optimierung",
-        template=(
-            "Bei stabiler klinischer Konstellation: strukturiertes, überwacht angeleitetes Training/Rehabilitation im geeigneten Setting "
-            "kann Belastbarkeit und Lebensqualität verbessern (Kontraindikationen beachten)."
+    "P22": TextBlock(        id="P22",        title="Reha und Training",        applies_to="stabile Situation nach Einordnung und Optimierung",        template=(
+            "Bei stabiler Konstellation: Reha oder strukturiertes Training im überwachten Setting prüfen.\n"
+            "Kontraindikationen beachten und Belastbarkeit im Verlauf dokumentieren."
         ),
         category="P",
     ),
-    "P23": TextBlock(
-        id="P23",
-        title="Impfstatus/Infektprophylaxe – Basismaßnahmen",
-        applies_to="chronische kardio-pulmonale Erkrankung",
-        template=(
-            "Überprüfung und Aktualisierung des Impfstatus gemäß Empfehlungen (z.B. Influenza, Pneumokokken) sowie allgemeine "
-            "Infektprophylaxe (Frühkontakt bei Infektzeichen, Therapieplan) nach Kontext."
+    "P23": TextBlock(        id="P23",        title="Impfstatus und Infektplan",        applies_to="chronische kardio pulmonale Erkrankung",        template=(
+            "Impfstatus prüfen und aktualisieren (Influenza, Pneumokokken nach Empfehlung) und Vorgehen bei Infektzeichen festlegen."
         ),
         category="P",
     ),
-    "P24": TextBlock(
-        id="P24",
-        title="Oxygenierung/SpO₂ (Ruhe/Belastung/Nacht) – Verlauf",
-        applies_to="Hypoxämie-Verdacht oder Dyspnoe",
-        template=(
-            "Objektivierung der Oxygenierung (SpO₂/BGA) in Ruhe, unter Belastung und ggf. nachts erwägen; "
-            "Sauerstoff-/Ventilationstherapie nach Befund und Leitlinie prüfen."
+    "P24": TextBlock(        id="P24",        title="Oxygenierung objektivieren",        applies_to="Hypoxämie Verdacht oder Dyspnoe",        template=(
+            "SpO2 und BGA in Ruhe und unter Belastung, ggf nachts.\n"
+            "Sauerstoff und Ventilationstherapie nach Befund prüfen."
         ),
         category="P",
     ),
-    "P25": TextBlock(
-        id="P25",
-        title="Advanced Therapies / Transplantation – frühzeitig denken",
-        applies_to="hochrisikokonstellation oder progrediente RV-Dysfunktion trotz Therapie",
-        template=(
-            "Bei hoher Risikokonstellation oder Progress trotz Therapie: frühzeitige Evaluation in einem spezialisierten Zentrum "
-            "für Eskalationsstrategien (inkl. parenteraler Therapieoptionen und ggf. Transplantationsabklärung) erwägen."
+    "P25": TextBlock(        id="P25",        title="Eskalationszentrum und Transplantation prüfen",        applies_to="Hochrisiko oder Progress trotz Therapie",        template=(
+            "Bei Hochrisiko oder Progress: Vorstellung im PH Zentrum zur Eskalationsstrategie inkl parenteral und ggf Transplantationsabklärung."
         ),
         category="P",
     ),
-    "P26": TextBlock(
-        id="P26",
-        title="Trinkmengenrestriktion und konsequentes Volumenmanagement",
-        applies_to="Stauungszeichen, kardiorenale Dynamik oder Volumenüberladung",
-        template=(
-            "Bei Zeichen der Volumenüberladung: individuelle Trinkmengenrestriktion und konsequentes Volumenmanagement.\n"
-            "• Tägliche Gewichtskontrolle (Verlauf dokumentieren).\n"
-            "• Ziel: Vermeidung rascher Gewichtszunahme und peripherer Ödeme.\n"
-            "• Anpassung der Trinkmenge und diuretischen Therapie nach Klinik, Nierenfunktion und Elektrolyten im Verlauf.\n"
-            "• Patient:innenschulung zu Warnzeichen (z.B. rasche Gewichtszunahme, zunehmende Dyspnoe, Beinödeme)."
+    "P26": TextBlock(        id="P26",        title="Trinkmenge und Gewicht führen",        applies_to="Stauungszeichen oder Volumenüberladung",        template=(
+            "Bei Volumenüberladung: Trinkmenge individualisieren und tägliche Gewichtskontrolle.\n"
+            "Diuretika Anpassung nach Klinik, Nierenfunktion und Elektrolyten."
         ),
         category="P",
     ),
-    "P27": TextBlock(
-        id="P27",
-        title="Kardiovaskuläre Risikofaktoren konsequent minimieren",
-        applies_to="PH mit Begleiterkrankungen oder erhöhtem kardiovaskulärem Risikoprofil",
-        template=(
-            "Konsequente Minimierung kardiovaskulärer Risikofaktoren im Rahmen der Gesamttherapie:\n"
-            "• Blutdruckkontrolle, Optimierung der Herzfrequenz und Rhythmusstrategie nach Kontext.\n"
-            "• Lipidmanagement und Diabeteskontrolle gemäß Leitlinien.\n"
-            "• Nikotinkarenz, strukturierte Bewegung im geeigneten Setting und Ernährungsberatung.\n"
-            "• Behandlung begleitender kardiovaskulärer Erkrankungen nach Standard (z.B. KHK, HFpEF) im interdisziplinären Setting."
+    "P27": TextBlock(        id="P27",        title="Komorbiditäten optimieren",        applies_to="Begleiterkrankungen oder kardiovaskuläres Risikoprofil",        template=(
+            "Komorbiditäten konsequent mitbehandeln: RR, Diabetes, Lipide, KHK, HFpEF nach Leitlinie.\n"
+            "Interdisziplinäre Steuerung bei komplexer Konstellation."
         ),
         category="P",
     ),
-    "P28": TextBlock(
-        id="P28",
-        title="Gewichtsreduktion und metabolische Optimierung",
-        applies_to="Adipositas oder Übergewicht mit Einfluss auf Belastbarkeit, Schlaf, HFpEF Wahrscheinlichkeitsprofil",
-        template=(
-            "Bei Übergewicht/Adipositas: strukturierte Gewichtsreduktion und metabolische Optimierung (interdisziplinär) empfohlen.\n"
-            "• Ernährungsmedizinische Beratung und realistische Zieldefinition.\n"
-            "• Angepasstes, überwacht angeleitetes Training je nach klinischer Stabilität.\n"
-            "• Schlafbezogene Atmungsstörungen und HFpEF Komponente im Verlauf mit berücksichtigen."
+    "P28": TextBlock(        id="P28",        title="Gewicht und Metabolik optimieren",        applies_to="Adipositas oder Übergewicht mit Einfluss auf Belastbarkeit",        template=(
+            "Ernährungsmedizinische Beratung und strukturierte Gewichtsreduktion.\n"
+            "OSAS und HFpEF Komponente im Verlauf mitbeachten."
         ),
         category="P",
     ),
-    "P29": TextBlock(
-        id="P29",
-        title="LTOT konsequent anwenden und Verlauf kontrollieren",
-        applies_to="Hypoxämie oder verordnete Langzeitsauerstofftherapie",
-        template=(
-            "Konsequente Anwendung der verordneten Langzeitsauerstofftherapie (LTOT) mit Verlaufskontrollen.\n"
-            "• Nutzung gemäß Verordnung, Anpassung des Flow nach Ruhe, Belastung und ggf. Nachtmessung.\n"
-            "• Ziel: ausreichende Oxygenierung und Reduktion hypoxiegetriggerter pulmonaler Vasokonstriktion.\n"
-            "• Reevaluation bei Persistenz von Dyspnoe, Hyperkapnieverdacht oder Therapielimitierungen."
+    "P29": TextBlock(        id="P29",        title="LTOT Verlauf",        applies_to="Hypoxämie oder verordnete Langzeitsauerstofftherapie",        template=(
+            "LTOT konsequent nutzen; Flow anpassen nach Ruhe Belastung und ggf Nachtmessung.\n"
+            "Reevaluation bei Persistenz von Dyspnoe oder Hyperkapnieverdacht."
         ),
         category="P",
     ),
-    "P30": TextBlock(
-        id="P30",
-        title="CT Befunde interdisziplinär vorstellen und Rückmeldung an PH Ambulanz",
-        applies_to="CT Thorax Befund ausstehend oder unklare Bildgebung mit Relevanz für Ätiologiezuordnung",
-        template=(
-            "Ausstehende oder unklare computertomographische Befunde sollten in der radiologisch pneumologischen Konferenz vorgestellt werden.\n"
-            "• Interdisziplinäre Einordnung (Radiologie, Pneumologie, ggf. PH Team) zur Ätiologiezuordnung.\n"
-            "• Ergebnis und Konsequenzen (Diagnostik, Therapie, Follow up) dokumentieren.\n"
-            "• Rückmeldung an die PH Ambulanz zur weiteren Steuerung des Procedere."
+    "P30": TextBlock(        id="P30",        title="CT Befunde in Konferenz, Rückmeldung an PH Team",        applies_to="unklare Bildgebung mit Relevanz für Ätiologie",        template=(
+            "CT Befunde interdisziplinär vorstellen und Konsequenzen dokumentieren.\n"
+            "Rückmeldung an PH Ambulanz zur weiteren Steuerung."
         ),
         category="P",
     ),
-
-    "P31": TextBlock(
-        id="P31",
-        title="Risikofaktoren Management",
-        applies_to="kardiovaskuläres Risikoprofil/Komorbiditäten",
-        template=(
-            "Wir empfehlen ein konsequentes Risikofaktoren Management "
-            "(strikte Nikotinkarenz, Gewichtsreduktion, LDL Cholesterin < 100 mg/dl, "
-            "strenge Blutdruckeinstellung, mediterrane Kost sowie moderates körperliches Training)."
+    "P31": TextBlock(        id="P31",        title="Lifestyle und Risikofaktoren kurz",        applies_to="Risikoprofil oder Komorbiditäten",        template=(
+            "Risikofaktoren aktiv adressieren: Nikotinkarenz, Bewegung im sicheren Rahmen, Ernährung.\n"
+            "Therapieziele für LDL und Blutdruck gemäß Leitlinie im Verlauf prüfen."
         ),
         category="P",
     ),
-
-    "P32": TextBlock(
-        id="P32",
-        title="Ausschluss einer pulmonalen Hypertonie",
-        applies_to="kein Hinweis auf PH in Ruhe und Provokation",
-        template=(
-            "Aktuell ergibt sich kein Hinweis auf das Vorliegen einer pulmonalen Hypertonie. "
-            "Bei akuter Befundverschlechterung oder bei Hinweisen auf eine Rechtsherzbelastung "
-            "kann eine erneute Vorstellung jederzeit erfolgen."
+    "P32": TextBlock(        id="P32",        title="Keine pulmonale Hypertonie",        applies_to="keine PH Kriterien in Ruhe und Provokation",        template=(
+            "Aktuell kein Hinweis auf pulmonale Hypertonie.\n"
+            "Bei neuer Rechtsherzbelastung oder klinischer Verschlechterung erneute Vorstellung."
         ),
         category="P",
     ),
-
 }
+
 
 # -------------------------
 # Zusatzbausteine (Z...)

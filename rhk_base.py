@@ -39,7 +39,7 @@ except Exception:  # pragma: no cover
 
 APP_NAME = "RHK Befundassistent"
 # Versioning: ab v28.x nur noch eine Dezimalstelle (z.B. v28.5)
-APP_VERSION = "v0.59"
+APP_VERSION = "v0.71"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 _FALLBACK_FIX_LOG = [
     "Fix. v0.23: HFpEF-spezifische sprachliche Verfeinerung bei passender Echo- und Hämodynamik-Konstellation ergänzt",
@@ -457,22 +457,65 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 # Simple physiologic calculations
 # =============================================================================
 
-def calc_bmi(height_cm: Optional[float], weight_kg: Optional[float]) -> Optional[float]:
-    if not height_cm or not weight_kg:
+def _normalize_height_cm(height_cm: Optional[float]) -> Optional[float]:
+    """Normalize height to centimeters.
+
+    The UI label is "cm", but imported values may occasionally be provided in meters.
+    - If 0.5 <= height < 3.0, interpret as meters and convert to cm.
+    - Otherwise interpret as cm.
+
+    Unphysiologic ranges are treated as missing (None).
+    """
+    if height_cm is None or height_cm == "":
         return None
-    h_m = height_cm / 100.0
+    try:
+        h = float(height_cm)
+    except Exception:
+        return None
+    if h <= 0:
+        return None
+    # meters -> cm
+    if 0.5 <= h < 3.0:
+        h = h * 100.0
+    # broad plausibility gate (keep stable; do not guess)
+    if h < 30.0 or h > 300.0:
+        return None
+    return h
+
+
+def _normalize_weight_kg(weight_kg: Optional[float]) -> Optional[float]:
+    """Normalize weight to kg with broad plausibility."""
+    if weight_kg is None or weight_kg == "":
+        return None
+    try:
+        w = float(weight_kg)
+    except Exception:
+        return None
+    if w <= 0:
+        return None
+    # broad plausibility gate
+    if w < 1.0 or w > 500.0:
+        return None
+    return w
+
+def calc_bmi(height_cm: Optional[float], weight_kg: Optional[float]) -> Optional[float]:
+    h_cm = _normalize_height_cm(height_cm)
+    w_kg = _normalize_weight_kg(weight_kg)
+    if not h_cm or not w_kg:
+        return None
+    h_m = h_cm / 100.0
     if h_m <= 0:
         return None
-    return weight_kg / (h_m * h_m)
+    return w_kg / (h_m * h_m)
 
 
 def calc_bsa(height_cm: Optional[float], weight_kg: Optional[float]) -> Optional[float]:
     # Mosteller
-    if not height_cm or not weight_kg:
+    h_cm = _normalize_height_cm(height_cm)
+    w_kg = _normalize_weight_kg(weight_kg)
+    if not h_cm or not w_kg:
         return None
-    if height_cm <= 0 or weight_kg <= 0:
-        return None
-    return math.sqrt((height_cm * weight_kg) / 3600.0)
+    return math.sqrt((h_cm * w_kg) / 3600.0)
 
 
 def calc_mpap_from_spap_dpap(spap: Optional[float], dpap: Optional[float]) -> Optional[float]:
@@ -1619,6 +1662,33 @@ def collect_plausibility_warnings(ui: Dict[str, Any], derived: Dict[str, Any]) -
         )
 
     # Serialisieren als dicts
+    # --- PVOD/PCH Red Flags (subtiler Reminder; keine Diagnose) ---
+    try:
+        lvl = _safe_float(derived.get("pvod_hint_level"))
+        desc = str(derived.get("pvod_hint_desc") or "").strip()
+        if lvl is not None and lvl >= 1 and desc:
+            sev = "info" if float(lvl) < 3 else "warn"
+            add(
+                code="pvod_redflags",
+                severity=sev,
+                message="PVOD/PCH Red Flags erfasst. DD beachten (Hover: Details).",
+                fields=[
+                    "dlco_sb",
+                    "fvc_l",
+                    "ct_pvod_gg",
+                    "ct_pvod_septal",
+                    "ct_pvod_ln",
+                    "pvod_dlco_disproportionate",
+                    "pvod_rest_hypoxemia",
+                    "pvod_ex_desat",
+                    "pvod_edema_on_vaso",
+                    "eif2ak4_result",
+                ],
+                values={"pvod_hint_level": int(lvl), "pvod_hint_desc": desc},
+            )
+    except Exception:
+        pass
+
     return [asdict(i) for i in items]
 
 

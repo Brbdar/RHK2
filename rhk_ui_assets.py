@@ -1589,6 +1589,40 @@ button[title*="Dark"] {
   color: rgba(15,23,42,0.8);
   white-space: nowrap;
 }
+
+.rhk-summarybar .rhk-schip.rhk-has-tip{
+  position: relative;
+  cursor: help;
+}
+.rhk-summarybar .rhk-schip .rhk-tip{
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 9999;
+  max-width: 360px;
+  white-space: normal;
+  line-height: 1.25;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(15,23,42,0.96);
+  color: rgba(255,255,255,0.95);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.22);
+  opacity: 0;
+  transform: translateY(3px);
+  pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease, visibility .12s ease;
+  visibility: hidden;
+}
+.rhk-summarybar .rhk-schip.rhk-has-tip:hover .rhk-tip,
+.rhk-summarybar .rhk-schip.rhk-has-tip:focus .rhk-tip{
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
 .rhk-summarybar .rhk-schip--hint{
   white-space: normal;
   flex: 1 1 100%;
@@ -2105,16 +2139,21 @@ JS_ON_LOAD = r"""
 
       const getPingEl = () => document.querySelector('#rhk_dirty_ping textarea, #rhk_dirty_ping input');
 
+      window.__rhk_dirty_already = false;
+
       const bumpPing = debounce(() => {
         try {
+          if (window.__rhk_dirty_already) return;
           const el = getPingEl();
           if (!el) return;
           el.value = String(Date.now());
-          el.dispatchEvent(new Event('input', { bubbles: true }));
+          // Only dispatch 'change' to trigger the server-side .change handler.
           el.dispatchEvent(new Event('change', { bubbles: true }));
+          window.__rhk_dirty_already = true;
         } catch (e) {}
-      // Performance: longer debounce to reduce server roundtrips while typing on slow clinic internet.
-      }, 450);
+      }, 900);
+
+      const resetDirtyLocal = () => { try { window.__rhk_dirty_already = false; } catch (e) {} };
 
       const shouldIgnore = (target) => {
         try {
@@ -2138,10 +2177,23 @@ JS_ON_LOAD = r"""
         } catch (e) {}
       };
 
-      document.addEventListener('input', onAnyEdit, true);
+      const onInputMaybe = (ev) => {
+        try {
+          const t = ev ? ev.target : null;
+          if (!t) return;
+          const tag = (t.tagName || '').toLowerCase();
+          const type = (t.getAttribute && t.getAttribute('type')) ? String(t.getAttribute('type')).toLowerCase() : '';
+          // Avoid a roundtrip on every keystroke in textboxes/textarea.
+          if (tag === 'textarea') return;
+          if (tag === 'input' && (type === 'text' || type === 'search' || type === 'email' || type === 'url' || type === 'tel' || type === 'password')) return;
+          onAnyEdit(ev);
+        } catch (e) {}
+      };
+
+      document.addEventListener('input', onInputMaybe, true);
       document.addEventListener('change', onAnyEdit, true);
 
-      const armBulk = () => { window.__rhk_bulk_until = Date.now() + 1400; };
+      const armBulk = () => { resetDirtyLocal(); window.__rhk_bulk_until = Date.now() + 1400; };
       [
         'btn_example_top','btn_example_bottom','btn_clear_top','btn_clear_bottom',
         'btn_generate_top','btn_generate_bottom','btn_save_top','btn_save_bottom',

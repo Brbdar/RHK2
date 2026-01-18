@@ -544,15 +544,31 @@ rules:
     add_modules:
     - P24
     - P25
-- id: R_CTEPD_WITHOUT_PH
-  priority: 225
+- id: R_CTEPD_WITHOUT_PH_CHECKLIST
+  priority: 223
   when: vq_done == True and vq_defect == True and mpap_rest != None and mpap_rest <= 20
   then:
     add_tags:
-    - CTEPD ohne PH möglich
+    - 'V/Q Perfusionsdefekte ohne PH'
+    - 'CTEPD ohne PH DD'
+    require_fields:
+    - ctepd_symptoms
+    - ctepd_chronicity_3m_ak
+    - ctepd_chronic_lesions
     add_recommendations:
-    - 'Perfusionsdefekt bei mPAP ≤20 mmHg: CTEPD ohne PH möglich. Klinische Korrelation, ggf. CT-Pulmonalisangiographie/Angio-CT
-      und Verlaufskontrolle; bei anhaltender Belastungslimitierung spezialisierte Mitbeurteilung (CTEPH/PH-Zentrum) erwägen.'
+    - 'V/Q mit Perfusionsdefekten bei mPAP ≤20 mmHg: Differenzialdiagnose CTEPD ohne PH. Die Diagnose ist erst zulässig nach gesicherter Chronizität (typischerweise mindestens 3 Monate therapeutische Antikoagulation nach akuter PE) und bei morphologischen Zeichen chronischer Läsionen in CTPA oder DSA. Zusätzlich sollten Symptome oder objektive Belastungslimitierung plausibel zum Befund passen.'
+    add_modules:
+    - P01
+
+- id: R_CTEPD_WITHOUT_PH
+  priority: 225
+  when: vq_done == True and vq_defect == True and ctepd_symptoms == True and ctepd_chronicity_3m_ak == True and ctepd_chronic_lesions == True and ((mpap_rest != None and mpap_rest <= 20) or (pawp_rest != None and pawp_rest <= 15 and pvr_rest != None and pvr_rest <= 2))
+  then:
+    set_primary_dx: 'CTEPD ohne PH (Gruppe 4) wahrscheinlich'
+    add_tags:
+    - 'CTEPD ohne PH wahrscheinlich'
+    add_recommendations:
+    - 'Kriterienkonstellation passend für CTEPD ohne PH: Symptome oder objektive Belastungslimitierung, V/Q mit mismatched Perfusionsdefekten, morphologische Zeichen chronischer organisierter thromboembolischer Läsionen (CTPA/DSA) und RHK in Ruhe ohne PH Kriterien. Bei persistierender Belastungsdyspnoe kann eine Belastungsabklärung (z.B. Belastungs RHK) zur Einordnung hilfreich sein. Vorstellung im CTEPH PH Zentrum zur Mitbeurteilung empfohlen.'
     add_modules:
     - P01
 

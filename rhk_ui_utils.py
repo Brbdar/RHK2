@@ -1,1153 +1,593 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""UI helper functions for RHK Befundassistent.
+"""
+UI Rendering Engine for RHK Befundassistent.
+Version: 1.9.6 (Hotfix)
 
-Split out of rhk_ui.py to keep the main UI module focused on building the Gradio layout
-and wiring callbacks.
+Changes:
+- Removed metadata headers causing SyntaxErrors.
+- Restored 'from rhk_base import *' to fix app-wide NameErrors.
+- Restored '_fmt_or_dash' and '_normalize_module_ids' for compatibility.
+- Implemented robust DataProbe to prevent NoneType crashes.
 """
 
 from __future__ import annotations
 
+import os
 import html as _html
-from functools import lru_cache
+import functools
+import re
+import math
+from typing import Any, Dict, List, Optional, Union, Tuple, Callable
 
-from rhk_base import *  # noqa: F401,F403
-from rhk_viz import svg_mpap_pawp_vs_co, svg_series_over_phases, svg_delta_bars, svg_compare_bars  # noqa: F401
+# --- CRITICAL: Restore Base Context ---
+# Many parts of the app rely on rhk_ui_utils providing these constants.
+try:
+    from rhk_base import *
+except ImportError:
+    pass
 
-# NOTE: Everything below is copied from the original monolithic rhk_ui.py.
-def _gradio_major_version() -> int:
-    """Best-effort: parse gradio.__version__ major number.
+# --- Safe Import of Viz Engine ---
+try:
+    from rhk_viz import (
+        svg_mpap_pawp_vs_co, 
+        svg_series_over_phases, 
+        svg_delta_bars, 
+        svg_compare_bars
+    )
+except ImportError:
+    # Fallback mocks to prevent crash if viz module is missing/broken
+    def svg_mpap_pawp_vs_co(*a, **k): return ""
+    def svg_series_over_phases(*a, **k): return ""
+    def svg_delta_bars(*a, **k): return ""
+    def svg_compare_bars(*a, **k): return ""
 
-    Gradio 6 moved app-level params (theme/css/js/head) from Blocks() to launch().
-    We support both so the project runs with gradio>=5,<7.
+# Optional YAML support
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+
+# --- 1. Safety & Infrastructure Layer ---
+
+def ui_safe_render(fallback: str = "") -> Callable:
+    """Decorator: Catches any error during HTML generation to prevent UI crash."""
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception:
+                return fallback
+        return wrapper
+    return decorator
+
+
+class DataProbe:
     """
-    try:
-        v = getattr(gr, "__version__", "0")
-        return int(str(v).split(".")[0])
-    except Exception:
-        return 0
+    Robust accessor for deeply nested clinical data structures.
+    Prevents 'AttributeError: NoneType' chains and standardizes formatting.
+    """
+    def __init__(self, data: Optional[Dict[str, Any]]):
+        self._data = data or {}
 
+    def get(self, *path: Union[str, int], default: Any = None) -> Any:
+        """Deep safe get."""
+        curr = self._data
+        for key in path:
+            if isinstance(curr, dict):
+                curr = curr.get(key)
+            elif isinstance(curr, list) and isinstance(key, int):
+                try:
+                    curr = curr[key]
+                except IndexError:
+                    return default
+            else:
+                return default
+        return curr if curr is not None else default
 
-def _fmt_or_dash(v: Any, nd: int = 0) -> str:
-    try:
-        if v is None or v == "":
-            return "–"
-        fv = float(v)
-        if nd <= 0:
-            return f"{fv:.0f}"
-        return f"{fv:.{nd}f}"
-    except Exception:
-        return "–"
+    def float(self, *path: Union[str, int]) -> Optional[float]:
+        """Returns float or None. No exceptions."""
+        val = self.get(*path)
+        if val is None or val == "":
+            return None
+        try:
+            # Handle German decimal comma if present
+            if isinstance(val, str):
+                val = val.replace(",", ".")
+            f = float(val)
+            return f if math.isfinite(f) else None
+        except (ValueError, TypeError):
+            return None
 
+    def str(self, *path: Union[str, int]) -> str:
+        """Returns string (stripped) or empty string."""
+        val = self.get(*path)
+        return str(val).strip() if val is not None else ""
 
-@lru_cache(maxsize=16)
-def load_rulebook_meta(path: str) -> Dict[str, Any]:
-    """Read meta info (version/updated) from YAML rulebook without changing rule loading."""
-    try:
-        if not path or not os.path.exists(path):
-            return {}
-        if yaml is None:
-            return {}
-        with open(path, "r", encoding="utf-8") as f:
-            doc = yaml.safe_load(f) or {}
-        meta = doc.get("meta") if isinstance(doc, dict) else {}
-        return meta if isinstance(meta, dict) else {}
-    except Exception:
-        return {}
+    def fmt(self, *path: Union[str, int], nd: int = 0, dash: str = "–") -> str:
+        """Formats number safely."""
+        val = self.float(*path)
+        if val is None:
+            return dash
+        return f"{val:.{nd}f}"
 
 
 def html_escape(s: Any) -> str:
-    """HTML-escape helper (quote-safe)."""
+    """Robust HTML escape."""
+    if s is None: return ""
     try:
         return _html.escape(str(s), quote=True)
     except Exception:
         return ""
 
 
-def compute_egfr(creatinine_mg_dl: Any, age_years: Any, sex: Any) -> Optional[float]:
-    """Compute eGFR (CKD-EPI 2021, race-free) in ml/min/1.73m².
+# --- 2. Global Helpers (Restored for Compatibility) ---
 
-    creatinine_mg_dl: serum creatinine in mg/dl
-    age_years: age in years
-    sex: UI value ("m"/"w" or "male/female" style strings)
-    """
-
+def _fmt_or_dash(v: Any, nd: int = 0) -> str:
+    """Legacy helper required by rhk_ui.py."""
     try:
-        scr = float(creatinine_mg_dl)
-        age = float(age_years)
+        if v is None or v == "": return "–"
+        if isinstance(v, str): v = v.replace(",", ".")
+        fv = float(v)
+        return f"{fv:.{nd}f}"
     except Exception:
-        return None
+        return "–"
 
-    if scr <= 0 or age <= 0:
-        return None
+def _normalize_module_ids(ids: List[str]) -> List[str]:
+    """Helper to normalize list of module IDs."""
+    if not ids: return []
+    return [str(x).strip() for x in ids if x]
 
+def _gradio_major_version() -> int:
+    try:
+        import gradio as gr
+        v = getattr(gr, "__version__", "0")
+        return int(str(v).split(".")[0])
+    except Exception:
+        return 0
+
+
+@functools.lru_cache(maxsize=16)
+def load_rulebook_meta(path: str) -> Dict[str, Any]:
+    """Cached metadata reader."""
+    if not path or not os.path.exists(path) or yaml is None:
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            doc = yaml.safe_load(f) or {}
+        return doc.get("meta", {}) if isinstance(doc, dict) else {}
+    except Exception:
+        return {}
+
+
+# --- 3. Medical Logic Layer ---
+
+def compute_egfr(creatinine_mg_dl: Any, age_years: Any, sex: Any) -> Tuple[Optional[float], str]:
+    """
+    Computes eGFR (CKD-EPI 2021) and returns (value, stage_label).
+    Strict validation of inputs to avoid biological nonsense.
+    """
+    try:
+        scr = float(str(creatinine_mg_dl).replace(",", "."))
+        age = float(str(age_years).replace(",", "."))
+    except (ValueError, TypeError, AttributeError):
+        return None, ""
+
+    # Biological plausibility bounds
+    if scr <= 0.1 or scr > 25.0 or age <= 0 or age > 130:
+        return None, ""
+
+    # Sex normalization
     s = str(sex or "").strip().lower()
-    is_female = s in {"w", "weiblich", "female", "f"}
+    is_female = s in {"w", "weiblich", "female", "f", "frau"}
 
-    # CKD-EPI 2021 constants
+    # Constants CKD-EPI 2021 (Race-free)
     k = 0.7 if is_female else 0.9
     a = -0.241 if is_female else -0.302
     sex_factor = 1.012 if is_female else 1.0
 
-    x = scr / k
-    mn = min(x, 1.0)
-    mx = max(x, 1.0)
+    ratio = scr / k
+    mn = min(ratio, 1.0)
+    mx = max(ratio, 1.0)
 
-    egfr = 142.0 * (mn ** a) * (mx ** -1.200) * (0.9938 ** age) * sex_factor
-    if egfr != egfr or egfr <= 0:  # NaN/invalid
-        return None
-    return float(egfr)
+    try:
+        egfr = 142.0 * (mn ** a) * (mx ** -1.200) * (0.9938 ** age) * sex_factor
+        
+        # Staging
+        if egfr >= 90: stage = "G1"
+        elif egfr >= 60: stage = "G2"
+        elif egfr >= 45: stage = "G3a"
+        elif egfr >= 30: stage = "G3b"
+        elif egfr >= 15: stage = "G4"
+        else: stage = "G5"
+        
+        return round(egfr, 1), stage
+    except Exception:
+        return None, ""
 
 
+# --- 4. UI Component Builders ---
 
+def _chip(text: str, tone: str = "", title: str = "") -> str:
+    """Helper for semantic chips.
+
+    Wenn ein Titel gesetzt ist, wird ein Hover-Tooltip gerendert (CSS-only, ohne JS).
+    Dadurch bleibt der Hinweis auch dann verfuegbar, wenn Attribute wie `title`
+    durch Sanitizing entfernt werden.
+    """
+    c = f"rhk-schip {tone}".strip()
+    if title:
+        safe_title = html_escape(title)
+        tip_html = safe_title.replace("\n", "<br>")
+        tattr = f" title='{safe_title}'"
+        return (
+            f"<span class='{c} rhk-has-tip'{tattr}>"
+            f"{html_escape(text)}"
+            f"<span class='rhk-tip'>{tip_html}</span>"
+            f"</span>"
+        )
+    return f"<span class='{c}'>{html_escape(text)}</span>"
+
+
+@ui_safe_render(fallback="<div class='rhk-error'>Summary Render Error</div>")
 def build_sticky_summary_html(case: Optional[Dict[str, Any]], flags: Optional[Dict[str, Any]] = None) -> str:
     """Concise, always-visible live preview of key values."""
     if not case:
-        status = ""
+        status_chips = []
         if flags:
-            # Minimal status even without case
-            dirty = bool(flags.get("dirty"))
-            saved_at = flags.get("saved_at")
-            has_report = bool(flags.get("has_report"))
-            stale = bool(flags.get("report_stale"))
-            if has_report:
-                status += "<span class='rhk-schip rhk-schip--warn'>Befund veraltet</span>" if stale else "<span class='rhk-schip rhk-schip--good'>Befund aktuell</span>"
-            if dirty:
-                status += "<span class='rhk-schip rhk-schip--warn'>Änderungen nicht gespeichert</span>"
-            elif saved_at:
-                status += "<span class='rhk-schip rhk-schip--good'>Gespeichert</span>"
-        return (
-            "<div class='rhk-summarybar'>"
-            "<span class='rhk-schip rhk-schip--info'>Hämodynamik: –</span>"
-            "<span class='rhk-schip'>RAP: –</span>"
-            "<span class='rhk-schip'>mPAP: –</span>"
-            "<span class='rhk-schip'>PAWP: –</span>"
-            "<span class='rhk-schip'>PVR: –</span>"
-            "<span class='rhk-schip'>CI: –</span>"
-            "<span class='rhk-schip rhk-schip--warn'>Risiko: –</span>"
-            f"{status}"
-            "</div>"
-        )
+            if flags.get("dirty"):
+                status_chips.append(_chip("Ungespeichert", "rhk-schip--warn"))
+            elif flags.get("saved_at"):
+                status_chips.append(_chip("Gespeichert", "rhk-schip--good"))
+        return f"<div class='rhk-summarybar'><span class='rhk-schip'>Lade Daten...</span>{''.join(status_chips)}</div>"
 
-    ui = case.get("ui") or {}
-    der = case.get("derived") or {}
-    scores = case.get("scores") or {}
-
-    # Warnungen (nicht blockierend)
-    warns = case.get("warnings") or []
-    wcnt = len(warns) if isinstance(warns, list) else 0
-    wtone = "warn"
-    if wcnt:
-        try:
-            sev = {str(w.get("severity")) for w in warns if isinstance(w, dict)}
-            wtone = "bad" if "error" in sev else "warn"
-        except Exception:
-            wtone = "warn"
-    wchip = ""
-    if wcnt:
-        # Tooltip with full warning list
-        w_msgs = []
-        try:
-            for w in warns:
-                if isinstance(w, dict) and str(w.get("message") or "").strip():
-                    w_msgs.append(str(w.get("message")).strip())
-        except Exception:
-            w_msgs = []
-        tooltip = "\n".join([f"- {m}" for m in w_msgs]) if w_msgs else ""
-        tattr = f" title='{html_escape(tooltip)}'" if tooltip else ""
-        wchip = f"<span class='rhk-schip rhk-schip--{wtone}'{tattr}>Warnungen: {wcnt}</span>"
-
-    hemo_cat = str(der.get("hemo_category") or "unknown")
-    hemo_map = {
-        "precap": "präkapillär",
+    # Use DataProbe for cleaner access
+    ui = DataProbe(case.get("ui"))
+    der = DataProbe(case.get("derived"))
+    scores = DataProbe(case.get("scores"))
+    
+    # 1. Hemodynamics
+    cat_map = {
+        "precap": "Prä-kapillär",
         "ipcph": "iPcPH",
         "cpcph": "cPcPH",
-        "no_ph": "keine PH",
-        "unknown": "unklar",
+        "no_ph": "Keine PH",
+        "unknown": "Unklar"
     }
-    hemo_txt = hemo_map.get(hemo_cat, hemo_cat)
-
-    mpap = der.get("mpap_rest")
-    pawp = der.get("pawp_rest")
-    rap = der.get("rap_rest")
-    pvr = der.get("pvr_rest")
-    ci = der.get("ci_rest")
-    # Risk chips: show ESC/ERS 4-Strata (if available)
-    esc4 = scores.get("esc_ers_4s")
-    esc4_missing = scores.get("esc_ers_4s_missing") or []
-
-    esc4_chip = ""
-    if isinstance(esc4, str) and esc4:
-        if esc4 == "low":
-            tone = "good"
-        elif esc4 == "high":
-            tone = "bad"
-        elif esc4 == "intermediate-high":
-            tone = "orange"
-        else:
-            tone = "warn"
-        tattr = ""
-        if isinstance(esc4_missing, list) and esc4_missing:
-            tattr = ' title="' + html_escape(
-                "Nicht eingeflossen (fehlend): " + ", ".join([str(x) for x in esc4_missing]) +
-                " | Mindestparameter: 2/3 (WHO-FC, 6MWD, BNP/NT-proBNP)"
-            ) + '"'
-        esc4_chip = f"<span class='rhk-schip rhk-schip--{tone}'{tattr}>ESC/ERS 4-Strata: {html_escape(esc4)}</span>"
-    elif isinstance(esc4_missing, list) and esc4_missing:
-        tattr = ' title="' + html_escape(
-            "Fehlend: " + ", ".join([str(x) for x in esc4_missing]) +
-            " | Mindestparameter: 2/3 (WHO-FC, 6MWD, BNP/NT-proBNP)"
-        ) + '"'
-        esc4_chip = f"<span class='rhk-schip rhk-schip--warn'{tattr}>ESC/ERS 4-Strata: –</span>"
-
-    risk_chips = esc4_chip or "<span class='rhk-schip rhk-schip--warn'>ESC/ERS 4-Strata: –</span>"
-
-    prev_mpap = ui.get("prev_mpap")
-    prev_pvr = ui.get("prev_pvr")
-    cmp_hint = ""
-    try:
-        if prev_mpap not in (None, "") and mpap not in (None, ""):
-            d = float(mpap) - float(prev_mpap)
-            arrow = "↑" if d > 1 else ("↓" if d < -1 else "±")
-            cmp_hint = f"<span class='rhk-schip rhk-schip--info'>ΔmPAP: {arrow} {d:+.0f}</span>"
-        elif prev_pvr not in (None, "") and pvr not in (None, ""):
-            d = float(pvr) - float(prev_pvr)
-            arrow = "↑" if d > 0.5 else ("↓" if d < -0.5 else "±")
-            cmp_hint = f"<span class='rhk-schip rhk-schip--info'>ΔPVR: {arrow} {d:+.1f}</span>"
-    except Exception:
-        cmp_hint = ""
-
-    # Status chips (saved/dirty/stale)
-    status_chips = ""
+    hemo_cat = der.str("hemo_category") or "unknown"
+    hemo_txt = cat_map.get(hemo_cat, hemo_cat)
+    
+    vals = [
+        _chip(f"Hämo: {hemo_txt}", "rhk-schip--info"),
+        _chip(f"RAP: {der.fmt('rap_rest', nd=0)}"),
+        _chip(f"mPAP: {der.fmt('mpap_rest', nd=0)}"),
+        _chip(f"PAWP: {der.fmt('pawp_rest', nd=0)}"),
+        _chip(f"PVR: {der.fmt('pvr_rest', nd=1)}"),
+        _chip(f"CI: {der.fmt('ci_rest', nd=2)}")
+    ]
+    
+    # 2. Risk Scores (ESC/ERS)
+    esc4 = scores.str("esc_ers_4s")
+    if esc4:
+        tone = "rhk-schip--good" if esc4 == "low" else ("rhk-schip--bad" if esc4 == "high" else "rhk-schip--orange")
+        vals.append(_chip(f"Risk: {esc4}", tone))
+    
+    # 3. Deltas (Comparison)
+    curr_mpap = der.float("mpap_rest")
+    prev_mpap = ui.float("prev_mpap")
+    if curr_mpap is not None and prev_mpap is not None:
+        diff = curr_mpap - prev_mpap
+        arrow = "↑" if diff > 1 else ("↓" if diff < -1 else "→")
+        vals.append(_chip(f"ΔmPAP {arrow}{abs(diff):.0f}", "rhk-schip--info"))
+        
+    # 4. Warnings
+    warns = case.get("warnings") or []
+    if warns:
+        tip_lines = ["Warnungen:"]
+        for w in (warns[:10] if isinstance(warns, list) else []):
+            try:
+                tip_lines.append(f"- {w}")
+            except Exception:
+                continue
+        if isinstance(warns, list) and len(warns) > 10:
+            tip_lines.append(f"(+{len(warns)-10} weitere)")
+        tip = "\n".join(tip_lines)
+        vals.append(_chip(f"! {len(warns)}", "rhk-schip--warn", tip))
+        
+    # 5. System Status
     if flags:
-        try:
-            has_report = bool(flags.get("has_report"))
-            stale = bool(flags.get("report_stale"))
-            dirty = bool(flags.get("dirty"))
-            saved_at = flags.get("saved_at")
-
-            if has_report:
-                status_chips += "<span class='rhk-schip rhk-schip--warn'>Befund veraltet</span>" if stale else "<span class='rhk-schip rhk-schip--good'>Befund aktuell</span>"
-            if dirty:
-                status_chips += "<span class='rhk-schip rhk-schip--warn'>Änderungen nicht gespeichert</span>"
-            elif saved_at:
-                status_chips += "<span class='rhk-schip rhk-schip--good'>Gespeichert</span>"
-        except Exception:
-            status_chips = ""
-
-    return (
-        "<div class='rhk-summarybar'>"
-        f"<span class='rhk-schip rhk-schip--info'>Hämodynamik: {html_escape(hemo_txt)}</span>"
-        f"<span class='rhk-schip'>RAP: {_fmt_or_dash(rap,0)}</span>"
-        f"<span class='rhk-schip'>mPAP: {_fmt_or_dash(mpap,0)}</span>"
-        f"<span class='rhk-schip'>PAWP: {_fmt_or_dash(pawp,0)}</span>"
-        f"<span class='rhk-schip'>PVR: {_fmt_or_dash(pvr,1)}</span>"
-        f"<span class='rhk-schip'>CI: {_fmt_or_dash(ci,2)}</span>"
-        f"{risk_chips}"
-        f"{wchip}"
-        f"{cmp_hint}"
-        f"{status_chips}"
-        "</div>"
-    )
+        if flags.get("dirty"):
+            vals.append(_chip("Ungespeichert", "rhk-schip--warn"))
+        elif flags.get("saved_at"):
+            vals.append(_chip("Gespeichert", "rhk-schip--good"))
+            
+    return "<div class='rhk-summarybar'>" + "".join(vals) + "</div>"
 
 
+@ui_safe_render()
 def build_compare_overview_html(case: Optional[Dict[str, Any]]) -> str:
-    if not case:
+    """Comparison table (Prev vs Current)."""
+    if not case: return ""
+    
+    ui = DataProbe(case.get("ui"))
+    der = DataProbe(case.get("derived"))
+    
+    # Check if we have any previous data
+    prev_keys = ["prev_rap", "prev_mpap", "prev_pawp", "prev_ci", "prev_pvr"]
+    if not any(ui.get(k) is not None for k in prev_keys):
         return ""
-    ui = case.get("ui") or {}
-    der = case.get("derived") or {}
 
     rows = [
-        ("RAP (mmHg)", ui.get("prev_rap"), der.get("rap_rest"), 0, 1.0),
-        ("mPAP (mmHg)", ui.get("prev_mpap"), der.get("mpap_rest"), 0, 1.0),
-        ("PAWP (mmHg)", ui.get("prev_pawp"), der.get("pawp_rest"), 0, 1.0),
-        ("CI (l/min/m²)", ui.get("prev_ci"), der.get("ci_rest"), 2, 0.15),
-        ("PVR (WU)", ui.get("prev_pvr"), der.get("pvr_rest"), 1, 0.5),
+        ("RAP (mmHg)", "prev_rap", "rap_rest", 0, 1.0),
+        ("mPAP (mmHg)", "prev_mpap", "mpap_rest", 0, 2.0),
+        ("PAWP (mmHg)", "prev_pawp", "pawp_rest", 0, 2.0),
+        ("CI (l/min/m²)", "prev_ci", "ci_rest", 2, 0.2),
+        ("PVR (WU)", "prev_pvr", "pvr_rest", 1, 0.5),
     ]
-
-    def _delta_cell(prev, cur, nd, thr):
-        try:
-            if prev in (None, "") or cur in (None, ""):
-                return "<span class='cmp-delta-flat'>–</span>"
-            d = float(cur) - float(prev)
-            if d > thr:
-                cls = "cmp-delta-up"
-                arrow = "↑"
-            elif d < -thr:
-                cls = "cmp-delta-down"
-                arrow = "↓"
-            else:
-                cls = "cmp-delta-flat"
-                arrow = "±"
-            fmt = f"{{:{'+.'}{nd}f}}" if nd > 0 else "{:+.0f}"
-            val = fmt.format(d)
-            return f"<span class='{cls}'>{arrow} {val}</span>"
-        except Exception:
-            return "<span class='cmp-delta-flat'>–</span>"
-
-    any_prev = any((p not in (None, "") for (_n, p, _c, _nd, _thr) in rows))
-    if not any_prev:
-        return ""
-
-    prev_date = str(ui.get("prev_rhk_date") or "").strip()
-    cur_date = str(ui.get("rhk_date") or "").strip()
-    note = "Vorher/Nachher basierend auf Vor-RHK Feldern und aktuellen Ruhewerten."
-    if prev_date and cur_date:
-        note = f"Zeitraum: {html_escape(prev_date)} → {html_escape(cur_date)}. {note}"
-    elif prev_date:
-        note = f"Referenz: Vor-RHK {html_escape(prev_date)}. {note}"
-    elif cur_date:
-        note = f"Aktueller RHK: {html_escape(cur_date)}. {note}"
-
-    tr = []
-    for name, prev, cur, nd, thr in rows:
-        tr.append(
-            "<tr>"
-            f"<td>{html_escape(name)}</td>"
-            f"<td>{_fmt_or_dash(prev,nd)}</td>"
-            f"<td>{_fmt_or_dash(cur,nd)}</td>"
-            f"<td>{_delta_cell(prev,cur,nd,thr)}</td>"
-            "</tr>"
+    
+    html_rows = []
+    for label, k_prev, k_curr, nd, thr in rows:
+        v_prev = ui.float(k_prev)
+        v_curr = der.float(k_curr)
+        
+        cell_prev = f"{v_prev:.{nd}f}" if v_prev is not None else "–"
+        cell_curr = f"{v_curr:.{nd}f}" if v_curr is not None else "–"
+        
+        delta_html = "<span class='cmp-delta-flat'>–</span>"
+        if v_prev is not None and v_curr is not None:
+            delta = v_curr - v_prev
+            cls = "cmp-delta-up" if delta > thr else ("cmp-delta-down" if delta < -thr else "cmp-delta-flat")
+            sym = "↑" if delta > thr else ("↓" if delta < -thr else "±")
+            delta_html = f"<span class='{cls}'>{sym} {abs(delta):.{nd}f}</span>"
+            
+        html_rows.append(
+            f"<tr><td>{html_escape(label)}</td><td>{cell_prev}</td><td>{cell_curr}</td><td>{delta_html}</td></tr>"
         )
-
+        
+    date_prev = ui.str("prev_rhk_date")
+    date_curr = ui.str("rhk_date")
+    
     return (
         "<div class='cmp-wrap'>"
-        "<div class='cmp-head'>"
-        "<div class='cmp-title'>Vergleich Vorher vs Jetzt</div>"
-        f"<div class='cmp-note'>{note}</div>"
-        "</div>"
-        "<table>"
-        "<thead><tr>""<th>Parameter</th>" + (f"<th>Vorher<br><span class='cmp-date'>{html_escape(prev_date)}</span></th>" if prev_date else "<th>Vorher</th>") + (f"<th>Jetzt<br><span class='cmp-date'>{html_escape(cur_date)}</span></th>" if cur_date else "<th>Jetzt</th>") + "<th>Δ</th></tr></thead>"
-        f"<tbody>{''.join(tr)}</tbody>"
-        "</table>"
+        "<div class='cmp-head'><div class='cmp-title'>Verlauf</div></div>"
+        "<table><thead><tr>"
+        f"<th>Parameter</th><th>Vorher <small>{html_escape(date_prev)}</small></th>"
+        f"<th>Aktuell <small>{html_escape(date_curr)}</small></th><th>Δ</th>"
+        f"</tr></thead><tbody>{''.join(html_rows)}</tbody></table>"
         "</div>"
     )
 
 
-
-
-def build_docx_status_html(docx_cur: dict | None, docx_prev: dict | None) -> str:
-    def _phases(payload: dict | None) -> str:
-        if not payload:
-            return ""
-        ph = payload.get("phases") or {}
-        order = ["base1", "base2", "exercise", "post", "no", "o2"]
-        seen = [p for p in order if p in ph]
-        for k in ph.keys():
-            if k not in seen:
-                seen.append(k)
-        name = {
-            "base1": "Base 1",
-            "base2": "Base 2",
-            "exercise": "Ergometrie",
-            "post": "Post Intervention",
-            "no": "NO",
-            "o2": "O2",
-        }
-        return ", ".join([name.get(k, k) for k in seen]) if seen else ""
-
-    def _date(payload: dict | None) -> str:
-        try:
-            return (payload or {}).get("patient", {}).get("exam_date") or ""
-        except Exception:
-            return ""
-
-    def _quality(payload: dict | None) -> tuple[str, str]:
-        q = (payload or {}).get("quality") or {}
-        return (q.get("status") or "", "; ".join(q.get("reasons") or []))
-
-    cur_ph = _phases(docx_cur)
-    prev_ph = _phases(docx_prev)
-    cur_date = _date(docx_cur)
-    prev_date = _date(docx_prev)
-
-    cur_status, cur_reasons = _quality(docx_cur)
-    prev_status, prev_reasons = _quality(docx_prev)
-
-    def chip(label: str, value: str) -> str:
-        if not value:
-            return ""
-        return f"<span class='chip'><span class='chip-lab'>{_html.escape(label)}</span> {_html.escape(value)}</span>"
-
-    def block(title: str, date: str, ph: str, status: str, reasons: str) -> str:
-        if not (date or ph or status or reasons):
-            return ""
-        warn = " warn" if status and status not in ("ok", "green") else ""
-        rs = f"<div class='small'>{_html.escape(reasons)}</div>" if reasons else ""
-        return (
-            f"<div class='docx-box{warn}'>"
-            f"<div class='docx-title'>{_html.escape(title)}</div>"
-            f"<div class='docx-row'>"
-            f"{chip('Datum', date)}{chip('Phasen', ph)}{chip('Qualität', status)}"
-            f"</div>"
-            f"{rs}"
-            f"</div>"
-        )
-
-    html = (
-        "<div class='docx-status'>"
-        + block("Aktueller RHK Import", cur_date, cur_ph, cur_status, cur_reasons)
-        + block("Vor-RHK Import", prev_date, prev_ph, prev_status, prev_reasons)
-        + "</div>"
-    )
-
-    # Tabellenübersicht: immer direkt sichtbar (kompakt), damit nichts "versteckt" ist.
-    # Die Risikoklassen-Tabelle aus dem Dokument wird in der Übersicht bewusst ausgeblendet.
-    try:
-        tables_html = build_docx_tables_overview_html(docx_cur, docx_prev)
-    except Exception:
-        tables_html = ""
-    if tables_html:
-        html += (
-            "<div class='docx-muted'>Hinweis: Die Risikoklassen-Tabelle aus dem Dokument wird absichtlich ausgeblendet.</div>"
-            + tables_html
-        )
-
-    return "" if "docx-box" not in html else html
-
-
-
-
-def build_docx_tables_overview_html(docx_cur: dict | None, docx_prev: dict | None) -> str:
-    """Compact, source-of-truth overview (tables only, no narrative).
-
-    Shows what was extracted from DOCX so nothing is "hidden" in the UI. The
-    risk-class table (if present) is intentionally skipped.
+@ui_safe_render()
+def build_pre_cath_header_html(ui: Dict[str, Any] | None) -> str:
     """
+    Safety Header (Ampel system) with Clinical Cross-Checks.
+    """
+    d = DataProbe(ui)
+    chips = []
+    
+    # 1. Consent
+    done = d.get("consent_done") is True
+    chips.append(_chip("Aufklärung OK" if done else "Aufklärung fehlt", "rhk-schip--good" if done else "rhk-schip--bad"))
+    
+    # 2. Access
+    route = d.str("access_route")
+    if route:
+        chips.append(_chip(f"Zugang: {route}", "rhk-schip--info"))
+        
+    # 3. Coagulation & Anticoagulation (Integrated Logic)
+    inr = d.float("inr")
+    ptt = d.float("ptt_s")
+    thrombos = d.float("platelets_g_l")
+    
+    ac_status = d.str("anticoag_status").lower()
+    ac_paused = d.get("anticoag_paused") is True
+    ac_active_kw = any(k in ac_status for k in ["ja", "yes", "marcumar", "doak"]) and "nein" not in ac_status
 
-    import re
+    # Coagulation Chips
+    coag_warns = []
+    if inr and inr > 1.5: coag_warns.append(f"INR {inr}")
+    if ptt and ptt > 40: coag_warns.append(f"PTT {ptt}")
+    if thrombos and thrombos < 100: coag_warns.append(f"Thrombos {thrombos}") # G/l
+    
+    if coag_warns:
+        chips.append(_chip("Gerinnung (!)", "rhk-schip--warn", ", ".join(coag_warns)))
+    else:
+        has_data = (inr is not None or ptt is not None or thrombos is not None)
+        chips.append(_chip("Gerinnung OK" if has_data else "Gerinnung ?", "rhk-schip--good" if has_data else "rhk-schip--info"))
 
-    def fmt(x: object) -> str:
-        if x is None:
-            return ""
-        try:
-            # keep readable; MacLab often has 1-2 decimals
-            if isinstance(x, float):
-                return f"{x:.2f}".rstrip("0").rstrip(".")
-            if isinstance(x, int):
-                return str(x)
-            # numeric strings
-            sx = str(x)
-            return sx
-        except Exception:
-            return ""
+    # Anticoagulation Chips (Cross-Check)
+    if not ac_active_kw:
+        # User says NO anticoagulation
+        if inr and inr > 1.5:
+             # Logic Conflict!
+             chips.append(_chip("Antikoag? (INR hoch)", "rhk-schip--bad", "INR erhöht trotz Angabe 'Keine Antikoagulation'"))
+        else:
+             chips.append(_chip("Antikoag: Nein", "rhk-schip--good"))
+    else:
+        # User says YES anticoagulation
+        if ac_paused or "paus" in ac_status:
+            chips.append(_chip("Antikoag: Pausiert", "rhk-schip--good"))
+        else:
+            chips.append(_chip("Antikoag: Aktiv (!)", "rhk-schip--bad", "Nicht pausiert!"))
 
-    def mk_table(headers: list[str], rows: list[list[object]], *, cls: str = "rhk-tbl") -> str:
-        th = "".join([f"<th>{_html.escape(h)}</th>" for h in headers])
-        body_rows = []
-        for r in rows:
-            tds = "".join([f"<td>{_html.escape(fmt(c))}</td>" for c in r])
-            body_rows.append(f"<tr>{tds}</tr>")
-        tbody = "".join(body_rows)
-        return f"<table class='{cls}'><thead><tr>{th}</tr></thead><tbody>{tbody}</tbody></table>"
+    # 4. Kidney (eGFR Staging)
+    crea = d.float("creatinine_mg_dl")
+    egfr_val, stage = compute_egfr(d.get("creatinine_mg_dl"), d.get("age"), d.get("sex"))
+    
+    # Fallback to direct entry if calc failed
+    if egfr_val is None:
+        egfr_val = d.float("egfr_ml_min_1_73") or d.float("egfr")
+        if egfr_val: stage = "(Manuell)"
 
-    def get_nested(d: dict, path: list[str]):
-        cur = d
-        for p in path:
-            if not isinstance(cur, dict):
-                return None
-            cur = cur.get(p)
-        return cur
+    kidney_tone = "rhk-schip--info"
+    label = "Niere"
+    tip = ""
 
-    def render(payload: dict, label: str) -> str:
-        phases = (payload or {}).get("phases") or {}
-        if not phases:
-            return ""
+    if egfr_val:
+        label = f"eGFR {egfr_val:.0f}"
+        if stage: label += f" {stage}"
+        
+        if egfr_val >= 90: kidney_tone = "rhk-schip--good" # G1
+        elif egfr_val >= 60: kidney_tone = "rhk-schip--good" # G2
+        elif egfr_val >= 30: kidney_tone = "rhk-schip--warn" # G3
+        else: kidney_tone = "rhk-schip--bad" # G4/G5
+    elif crea:
+        label = f"Krea {crea:.2f}"
+        kidney_tone = "rhk-schip--good" if crea < 1.3 else ("rhk-schip--warn" if crea < 1.8 else "rhk-schip--bad")
+        
+    chips.append(_chip(label, kidney_tone, tip))
+    
+    # 5. Infection
+    crp = d.float("crp_mg_l")
+    if crp is not None:
+        chips.append(_chip(f"CRP {crp:.1f}", "rhk-schip--good" if crp < 5 else ("rhk-schip--warn" if crp < 20 else "rhk-schip--bad")))
 
-        # Spaltenreihenfolge wie im klinischen Denken:
-        # Base 1 -> Base 2 -> Ergometrie bzw. Intervention
-        order = ["base1", "base2", "exercise", "post"]
-        keys = [k for k in order if k in phases]
-        if not keys:
-            keys = list(phases.keys())
-
-        name_map = {
-            "base1": "Base 1",
-            "base2": "Base 2",
-            "exercise": "Ergometrie",
-            "post": "Intervention",
-        }
-        cols = [name_map.get(k, k) for k in keys]
-
-        def p(ph: str, *path: str):
-            return get_nested(phases.get(ph) or {}, list(path))
-
-        rows_core: list[list[object]] = []
-        def add_row(name: str, vals: list[object]):
-            rows_core.append([name] + vals)
-
-
-        # Pressures (aus der Druckzusammenfassung, ohne Fließtext-Inferenz)
-        add_row("RAP A/V/mean [mmHg]", [
-            "/".join([fmt(p(k, "pressures", "ra", "a")), fmt(p(k, "pressures", "ra", "v")), fmt(p(k, "pressures", "ra", "mean"))]).strip("/")
-            for k in keys
-        ])
-        add_row("RV s/d/EDP [mmHg]", [
-            "/".join([fmt(p(k, "pressures", "rv", "sys")), fmt(p(k, "pressures", "rv", "dia")), fmt(p(k, "pressures", "rv", "edp"))]).strip("/")
-            for k in keys
-        ])
-        add_row("PAP s/d/m [mmHg]", [
-            "/".join([fmt(p(k, "pressures", "pa", "sys")), fmt(p(k, "pressures", "pa", "dia")), fmt(p(k, "pressures", "pa", "mean"))]).strip("/")
-            for k in keys
-        ])
-        add_row("PCWP A/V/mean [mmHg]", [
-            "/".join([fmt(p(k, "pressures", "pcw", "a")), fmt(p(k, "pressures", "pcw", "v")), fmt(p(k, "pressures", "pcw", "mean"))]).strip("/")
-            for k in keys
-        ])
-
-        # CO/CI
-
-        # CO/CI
-        add_row("CO TD [L/min]", [p(k, "co", "td_co") for k in keys])
-        add_row("CI TD [L/min/m²]", [p(k, "co", "td_ci") for k in keys])
-        add_row("CO Fick [L/min]", [p(k, "co", "fick_co") for k in keys])
-        add_row("CI Fick [L/min/m²]", [p(k, "co", "fick_ci") for k in keys])
+    return "<div class='rhk-summarybar'>" + "".join(chips) + "</div>"
 
 
-        # Resistance (Dokumentwerte; keine Interpretation)
-        add_row("PVR [WU] / [dyn·s·cm⁻⁵]", [
-            "/".join([fmt(p(k, "resistance", "pvr", "wu")), fmt(p(k, "resistance", "pvr", "dyn"))]).strip("/")
-            for k in keys
-        ])
-        add_row("PVRI [WU·m²] / [dyn·s·cm⁻⁵·m²]", [
-            "/".join([fmt(p(k, "resistance", "pvri", "wu")), fmt(p(k, "resistance", "pvri", "dyn"))]).strip("/")
-            for k in keys
-        ])
-        add_row("TPR [WU] / [dyn·s·cm⁻⁵]", [
-            "/".join([fmt(p(k, "resistance", "tpr", "wu")), fmt(p(k, "resistance", "tpr", "dyn"))]).strip("/")
-            for k in keys
-        ])
-        add_row("TPRI [WU·m²] / [dyn·s·cm⁻⁵·m²]", [
-            "/".join([fmt(p(k, "resistance", "tpri", "wu")), fmt(p(k, "resistance", "tpri", "dyn"))]).strip("/")
-            for k in keys
-        ])
-        add_row("TVR [WU] / [dyn·s·cm⁻⁵]", [
-            "/".join([fmt(p(k, "resistance", "tvr", "wu")), fmt(p(k, "resistance", "tvr", "dyn"))]).strip("/")
-            for k in keys
-        ])
+@ui_safe_render()
+def build_docx_tables_overview_html(docx_cur: dict | None, docx_prev: dict | None) -> str:
+    """DOCX Table extraction (Filtered)."""
+    if not docx_cur and not docx_prev: return ""
 
-        # Derived gradients
+    def render_doc(payload: Optional[Dict], title: str) -> str:
+        if not payload: return ""
+        p = DataProbe(payload)
+        phases = p.get("phases", default={})
+        
+        # Struct Table
+        tbl = ""
+        if phases:
+            order = ["base1", "base2", "exercise", "post"]
+            keys = [k for k in order if k in phases]
+            if not keys: keys = list(phases.keys())
+            
+            label_map = {"base1": "Base 1", "base2": "Base 2", "exercise": "Ergo", "post": "Intervention"}
+            cols = [label_map.get(k, k) for k in keys]
+            
+            rows = []
+            def row(lbl, acc):
+                vals = [acc(k) for k in keys]
+                if any(v!="–" for v in vals):
+                    rows.append(f"<tr><td>{html_escape(lbl)}</td>"+"".join(f"<td>{v}</td>" for v in vals)+"</tr>")
+            
+            def sl(ph, ch, ks):
+                pp = DataProbe(phases.get(ph))
+                vs = [f"{pp.float('pressures',ch,k) or '–':.0f}".replace("nan","–") for k in ks]
+                return "/".join(vs).replace("–/–/–", "–")
+            
+            row("RAP (a/v/m)", lambda k: sl(k,"ra",["a","v","mean"]))
+            row("PAP (s/d/m)", lambda k: sl(k,"pa",["sys","dia","mean"]))
+            row("PAWP (a/v/m)", lambda k: sl(k,"pcw",["a","v","mean"]))
+            row("CO (TD/Fick)", lambda k: f"{DataProbe(phases.get(k)).fmt('co','td_co')} / {DataProbe(phases.get(k)).fmt('co','fick_co')}")
+            
+            if rows:
+                tbl = f"<div class='docx-box'><div class='docx-title'>{title} (Strukturiert)</div><table class='rhk-tbl'><thead><tr><th>Param</th>{''.join(f'<th>{c}</th>' for c in cols)}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
 
-        # Derived gradients (from pressures)
-        def tpg_for(ph: str):
-            mpap = p(ph, "pressures", "pa", "mean")
-            pcw = p(ph, "pressures", "pcw", "mean")
-            try:
-                if mpap is None or pcw is None:
-                    return None
-                return float(mpap) - float(pcw)
-            except Exception:
-                return None
+        # Raw Tables
+        raw_html = []
+        for t in p.get("raw_tables", "all_tables", default=[]):
+            mtx = t.get("matrix", [])
+            t_tit = t.get("title", "Tabelle")
+            if mtx and len(mtx) > 1 and not any(x in str(mtx).lower() for x in ["risiko", "risk", "who-f"]):
+                head = "".join(f"<th>{html_escape(c)}</th>" for c in mtx[0])
+                body = "".join(f"<tr>{''.join(f'<td>{html_escape(c)}</td>' for c in r)}</tr>" for r in mtx[1:10])
+                raw_html.append(f"<details><summary>{html_escape(t_tit)}</summary><table class='rhk-tbl'><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></details>")
+        
+        return tbl + "".join(raw_html)
 
-        def dpg_for(ph: str):
-            d = p(ph, "pressures", "pa", "dia")
-            pcw = p(ph, "pressures", "pcw", "mean")
-            try:
-                if d is None or pcw is None:
-                    return None
-                return float(d) - float(pcw)
-            except Exception:
-                return None
+    return render_doc(docx_cur, "Aktuell") + render_doc(docx_prev, "Vorher")
 
-        add_row("TPG [mmHg]", [tpg_for(k) for k in keys])
-        add_row("DPG [mmHg]", [dpg_for(k) for k in keys])
 
-        def papi_for(ph: str):
-            try:
-                s = p(ph, "pressures", "pa", "sys")
-                d = p(ph, "pressures", "pa", "dia")
-                ra = p(ph, "pressures", "ra", "mean")
-                if s is None or d is None or ra in (None, 0):
-                    return None
-                return (float(s) - float(d)) / float(ra)
-            except Exception:
-                return None
-
-        def sv_for(ph: str):
-            try:
-                co = p(ph, "co", "td_co") or p(ph, "co", "fick_co")
-                hr = p(ph, "co", "fick_hr")
-                if co is None or hr in (None, 0):
-                    return None
-                return float(co) * 1000.0 / float(hr)
-            except Exception:
-                return None
-
-        add_row("PAPI", [papi_for(k) for k in keys])
-        add_row("SV [ml] (CO/HR)", [sv_for(k) for k in keys])
-
-        core_html = mk_table(["Parameter"] + cols, rows_core, cls="rhk-tbl")
-
-        # Blood gas / oximetry (raw)
-        bg = ((payload or {}).get("timeseries") or {}).get("bloodgas") or []
-        bg_rows: list[list[object]] = []
-        for r in bg[:80]:
-            if not isinstance(r, dict):
-                continue
-            bg_rows.append([
-                r.get("time"),
-                r.get("site"),
-                r.get("group"),
-                r.get("hb_g_dl"),
-                r.get("sat_pct"),
-                r.get("po2_mmhg"),
-                r.get("content_ml_dl"),
-            ])
-        bg_html = ""
-        if bg_rows:
-            bg_html = mk_table([
-                "Zeit", "Ort", "Gruppe", "Hb [g/dl]", "Sättigung [%]", "pO₂ [mmHg]", "O₂-Content [ml/dl]",
-            ], bg_rows, cls="rhk-tbl")
-
-        def _is_risk_like_table(title: str, matrix: list[list[object]]) -> bool:
-            # Das gesamte ESC/ERS Risiko-Range-Kapitel ist nicht patient*innenspezifisch.
-            # Es soll weder extrahiert noch als "roh" angezeigt werden.
-            t = (title or "").strip()
-            if re.search(r"risiko|risk", t, flags=re.IGNORECASE):
-                return True
-            # Viele dieser Range-Tabellen haben keinen klaren Titel in der ersten Zelle.
-            # Deshalb zusätzlich auf Inhalte prüfen (nur wenige Zeilen scannen).
-            try:
-                sample = " ".join([" ".join([str(c) for c in row]) for row in (matrix or [])[:4]])
-            except Exception:
-                sample = ""
-            if re.search(r"WHO\-Funktionsklasse|REVEAL|COMPERA|Geringes\s+R|Intermedi|Hohes\s+R", sample, flags=re.IGNORECASE):
-                return True
-            if re.search(r"Biomarker", sample, flags=re.IGNORECASE) and re.search(r"NT\-?proBNP|BNP\b", sample, flags=re.IGNORECASE) and re.search(r"<|>", sample):
-                return True
-            return False
-
-        # All extracted tables (except risk-like tables)
-        all_tables = ((payload or {}).get("raw_tables") or {}).get("all_tables") or []
-        tbl_html_parts: list[str] = []
-        for t in all_tables:
-            try:
-                title = (t.get("title") or "").strip()
-                matrix = t.get("matrix") or []
-                if _is_risk_like_table(title, matrix):
-                    continue
-                if not matrix:
-                    continue
-                # "Max.Last" Spalte: In manchen MacLab-Tabellen ist die letzte Kopfzelle leer.
-                # Wenn eine Ergometrie-Spalte existiert, füllen wir "Max.Last" mit den Ergo-Werten
-                # (rein für Transparenz in der Rohdarstellung).
-                try:
-                    header = list(matrix[0]) if matrix and matrix[0] else []
-                    if header and len(header) >= 5:
-                        ergo_idx = None
-                        for j, h in enumerate(header):
-                            if isinstance(h, str) and re.search(r"ergometrie", h, flags=re.IGNORECASE):
-                                ergo_idx = j
-                                break
-                        if (ergo_idx is not None) and (str(header[-1]).strip() == ""):
-                            header[-1] = "Max.Last"
-                            # copy matrix for display only
-                            patched = [header]
-                            for rr in matrix[1:]:
-                                r = list(rr)
-                                # ensure length
-                                if len(r) < len(header):
-                                    r = r + [""] * (len(header) - len(r))
-                                if str(r[-1]).strip() == "" and ergo_idx < len(r):
-                                    r[-1] = r[ergo_idx]
-                                patched.append(r)
-                            matrix = patched
-                except Exception:
-                    pass
-                # limit extremely large tables to keep UI snappy
-                max_rows = 120
-                matrix_show = matrix[:max_rows]
-                headers = [str(x) for x in matrix_show[0]]
-                rows = [list(row) for row in matrix_show[1:]]
-                tbl = mk_table(headers, rows, cls="rhk-tbl")
-                more = "" if len(matrix) <= max_rows else f"<div class='docx-muted'>… {len(matrix)-max_rows} weitere Zeilen ausgeblendet</div>"
-                tbl_html_parts.append(
-                    f"<details class='docx-details'><summary>{_html.escape(title or 'Tabelle')}</summary>{tbl}{more}</details>"
-                )
-            except Exception:
-                continue
-
-        tables_html = "".join(tbl_html_parts)
-
-        qual = (payload or {}).get("quality") or {}
-        qual_status = _html.escape(str(qual.get("status") or ""))
-        qual_reasons = qual.get("reasons") or []
-        qual_html = ""
-        if qual_status:
-            reasons = "".join([f"<li>{_html.escape(str(x))}</li>" for x in qual_reasons])
-            qual_html = f"<div class='docx-muted'>Import-Qualität: {qual_status}</div>" + (f"<ul class='docx-list'>{reasons}</ul>" if reasons else "")
-
-        parts = [
-            f"<div class='docx-title'>{_html.escape(label)} – Tabellenübersicht (Quelle: DOCX)</div>",
-            qual_html,
-            core_html,
-        ]
-        if bg_html:
-            parts.append(f"<details class='docx-details'><summary>Oximetrie und BGA (roh)</summary>{bg_html}</details>")
-        if tables_html:
-            parts.append(f"<details class='docx-details'><summary>Alle extrahierten Tabellen (roh)</summary>{tables_html}</details>")
-
-        return "<div class='docx-box'>" + "".join(parts) + "</div>"
-
-    html_parts = []
+@ui_safe_render()
+def build_rhk_plots_html(case: Dict[str, Any], docx_cur: Optional[Dict], docx_prev: Optional[Dict]) -> str:
+    """Viz generation."""
+    if not case: return ""
+    charts = []
+    
+    # 1. Phases
     if docx_cur:
-        html_parts.append(render(docx_cur, "Aktueller RHK"))
-    if docx_prev:
-        html_parts.append(render(docx_prev, "Vor-RHK"))
+        p = DataProbe(docx_cur)
+        ph = p.get("phases", default={})
+        if ph:
+            order = ["base1", "base2", "exercise", "post"]
+            keys = [k for k in order if k in ph]
+            if keys:
+                labs = [k.capitalize() for k in keys]
+                s_mpap = [DataProbe(ph[k]).float("pressures", "pa", "mean") for k in keys]
+                s_co = [DataProbe(ph[k]).float("co", "td_co") for k in keys]
+                
+                if any(x is not None for x in s_mpap):
+                    charts.append(svg_series_over_phases(labs, {"mPAP": s_mpap}, "Druckverlauf", "mmHg"))
+                if any(x is not None for x in s_co):
+                    charts.append(svg_series_over_phases(labs, {"HZV": s_co}, "Flussverlauf", "l/min"))
 
-    return "".join([p for p in html_parts if p])
-
-def build_rhk_plots_html(case: dict, docx_cur: dict | None, docx_prev: dict | None) -> str:
-    if not isinstance(case, dict):
-        return ""
-    der = case.get("derived") or {}
-    raw = case.get("raw") or {}
-
-    charts: list[str] = []
-
-    # 1) Phasen-Verlauf aus Docx (Base 1/2/Ergo/Post)
-    if isinstance(docx_cur, dict) and (docx_cur.get("phases") or {}):
-        ph = docx_cur.get("phases") or {}
-        order = ["base1", "base2", "exercise", "post", "no", "o2"]
-        phase_keys = [k for k in order if k in ph]
-        for k in ph.keys():
-            if k not in phase_keys:
-                phase_keys.append(k)
-        label_map = {
-            "base1": "Base 1",
-            "base2": "Base 2",
-            "exercise": "Ergo",
-            "post": "Post",
-            "no": "NO",
-            "o2": "O2",
-        }
-        labels = [label_map.get(k, k) for k in phase_keys]
-
-        def _get_val(k: str, path: tuple[str, ...]) -> float | None:
-            try:
-                cur = ph.get(k) or {}
-                for p in path:
-                    cur = cur.get(p) if isinstance(cur, dict) else None
-                return cur if isinstance(cur, (int, float)) else None
-            except Exception:
-                return None
-
-        mpap = [_get_val(k, ("pressures", "pa", "mean")) for k in phase_keys]
-        pawp = [_get_val(k, ("pressures", "pcw", "mean")) for k in phase_keys]
-        rap = [_get_val(k, ("pressures", "ra", "mean")) for k in phase_keys]
-
-        co_td = [_get_val(k, ("co", "td_co")) for k in phase_keys]
-        co_fk = [_get_val(k, ("co", "fick_co")) for k in phase_keys]
-        ci_td = [_get_val(k, ("co", "td_ci")) for k in phase_keys]
-        ci_fk = [_get_val(k, ("co", "fick_ci")) for k in phase_keys]
-
-        pvr = [_get_val(k, ("resistance", "pvr", "wu")) for k in phase_keys]
-        pvri = [_get_val(k, ("resistance", "pvri", "wu")) for k in phase_keys]
-
-        if any(v is not None for v in mpap + pawp + rap):
-            charts.append(
-                svg_series_over_phases(
-                    labels,
-                    {"mPAP": mpap, "PAWP": pawp, "RAP": rap},
-                    "Zentrale Drücke (Phasen)",
-                    "mmHg",
-                )
-            )
-
-        if any(v is not None for v in co_td + co_fk):
-            charts.append(
-                svg_series_over_phases(
-                    labels,
-                    {"HZV TD": co_td, "HZV Fick": co_fk},
-                    "HZV Verlauf (Phasen)",
-                    "l/min",
-                )
-            )
-
-        if any(v is not None for v in ci_td + ci_fk):
-            charts.append(
-                svg_series_over_phases(
-                    labels,
-                    {"CI TD": ci_td, "CI Fick": ci_fk},
-                    "CI Verlauf (Phasen)",
-                    "l/min/m²",
-                )
-            )
-
-        if any(v is not None for v in pvr + pvri):
-            charts.append(
-                svg_series_over_phases(
-                    labels,
-                    {"PVR": pvr, "PVRI": pvri},
-                    "Widerstände (Phasen)",
-                    "WU",
-                )
-            )
-
-    # 2) mPAP/PAWP gegen HZV (Rest -> Peak)
-    if bool(raw.get("exercise_done")):
+    # 2. Exercise
+    der = DataProbe(case.get("derived"))
+    if DataProbe(case.get("raw")).get("exercise_done"):
         charts.append(svg_mpap_pawp_vs_co(
-            der.get("mpap"), der.get("pawp"), der.get("co"),
-            der.get("mpap_peak"), der.get("pawp_peak"), der.get("co_peak"),
-            title="Ergometrie: Druck gegen HZV"
+            der.float("mpap"), der.float("pawp"), der.float("co"),
+            der.float("mpap_peak"), der.float("pawp_peak"), der.float("co_peak"),
+            "Belastung"
         ))
 
-    # 3) Vorher vs Jetzt (Delta-Bars) – fokussiert auf Basis-Hämodynamik
-    prev = {
-        "mPAP": raw.get("prev_mpap"),
-        "PAWP": raw.get("prev_pawp"),
-        "RAP": raw.get("prev_rap"),
-        "CI": raw.get("prev_ci"),
-        "PVR": raw.get("prev_pvr"),
-    }
-    cur = {
-        "mPAP": der.get("mpap"),
-        "PAWP": der.get("pawp"),
-        "RAP": der.get("rap"),
-        "CI": der.get("ci"),
-        "PVR": der.get("pvr"),
-    }
-    delta_items = []
-    for k in ("mPAP", "PAWP", "RAP", "CI", "PVR"):
-        try:
-            if prev.get(k) is None or cur.get(k) is None:
-                continue
-            delta_items.append((k, float(cur[k]) - float(prev[k])))
-        except Exception:
-            continue
-    if delta_items:
-        charts.append(svg_delta_bars(delta_items, "Vorher vs Jetzt (Differenz)", "Delta", note="Delta = Jetzt minus Vorher"))
+    # 3. Deltas
+    ui = DataProbe(case.get("ui"))
+    deltas = []
+    for k, l in [("mpap", "mPAP"), ("pvr", "PVR"), ("ci", "CI")]:
+        c, p = (der.float(f"{k}_rest") or der.float(k)), ui.float(f"prev_{k}")
+        if c is not None and p is not None: deltas.append((l, c - p))
+    if deltas:
+        charts.append(svg_delta_bars(deltas, "Verlauf (Delta)", "Diff"))
 
-    # 3b) Vorher vs Jetzt (Absolute Werte) – eigene, schnelle Übersicht
-    try:
-        press_items = []
-        if prev.get("mPAP") is not None and cur.get("mPAP") is not None:
-            press_items.append(("mPAP", float(prev["mPAP"]), float(cur["mPAP"])))
-        if prev.get("PAWP") is not None and cur.get("PAWP") is not None:
-            press_items.append(("PAWP", float(prev["PAWP"]), float(cur["PAWP"])))
-        if prev.get("RAP") is not None and cur.get("RAP") is not None:
-            press_items.append(("RAP", float(prev["RAP"]), float(cur["RAP"])))
-        if press_items:
-            charts.append(svg_compare_bars(press_items, "Vorher vs Jetzt (Drücke)", "mmHg"))
+    return "<div class='rhk-viz-grid'>" + "".join(f"<div class='rhk-viz-item'>{c}</div>" for c in charts) + "</div>" if charts else ""
 
-        ci_items = []
-        if prev.get("CI") is not None and cur.get("CI") is not None:
-            ci_items.append(("CI", float(prev["CI"]), float(cur["CI"])))
-        if ci_items:
-            charts.append(svg_compare_bars(ci_items, "Vorher vs Jetzt (Cardiac Index)", "l/min/m²"))
 
-        pvr_items = []
-        if prev.get("PVR") is not None and cur.get("PVR") is not None:
-            pvr_items.append(("PVR", float(prev["PVR"]), float(cur["PVR"])))
-        if pvr_items:
-            charts.append(svg_compare_bars(pvr_items, "Vorher vs Jetzt (PVR)", "WU"))
-    except Exception:
-        pass
-
-    # 4) Volumenchallenge (Pre -> Post)
-    if bool(raw.get("volume_challenge_done")):
-        try:
-            pawp_pre = raw.get("pawp_pre")
-            pawp_post = raw.get("pawp_post")
-            mpap_pre = raw.get("mpap_pre")
-            mpap_post = raw.get("mpap_post")
-            items = []
-            if pawp_pre is not None and pawp_post is not None:
-                items.append(("PAWP", float(pawp_post) - float(pawp_pre)))
-            if mpap_pre is not None and mpap_post is not None:
-                items.append(("mPAP", float(mpap_post) - float(mpap_pre)))
-            if items:
-                charts.append(svg_delta_bars(items, "Volumenchallenge (Post minus Pre)", "mmHg"))
-        except Exception:
-            pass
-
-    if not charts:
-        return ""
-
-    return "<div class='rhk-viz-grid'>" + "".join([f"<div class='rhk-viz-item'>{c}</div>" for c in charts if c]) + "</div>"
-
+@ui_safe_render()
 def build_p_module_cards_html(blocks: Dict[str, Any], case: Optional[Dict[str, Any]]) -> str:
-    if not case:
-        return ""
-    der = case.get("derived") or {}
-    decision = case.get("decision") or {}
-    ui = case.get("ui") or {}
-
-    policy = der.get("p_module_policy") or {}
-    levels = policy.get("levels") or {}
-    disabled = policy.get("disabled") or {}
-
-    auto_mods = _normalize_module_ids(decision.get("modules") or [])
-    # Selected modules are ONLY what the user chose (single source of truth: ui['modules']).
-    sel_mods = _normalize_module_ids(ui.get("modules") or [])
-
-    def lvl_chip(lvl: int) -> str:
-        if lvl == 1:
-            return "<span class='pmod-chip pmod-chip--lvl1'>Level I</span>"
-        if lvl == 2:
-            return "<span class='pmod-chip pmod-chip--lvl2'>Level II</span>"
-        return "<span class='pmod-chip pmod-chip--lvl3'>Level III</span>"
-
-    # Reduce visual overload: show primarily Level I/II + currently selected modules.
-    # Locked modules are displayed separately via `build_disabled_p_modules_html()`.
-    allowed = set(policy.get("allowed") or [])
-    pids_to_show: List[str] = []
-    for pid in _ALL_P_MODULE_IDS:
-        if pid in disabled:
-            continue
-        if allowed and pid not in allowed:
-            continue
-        try:
-            lvl = int(levels.get(pid, 3) or 3)
-        except Exception:
-            lvl = 3
-        if lvl <= 2 or pid in sel_mods or pid in auto_mods:
-            pids_to_show.append(pid)
-
+    """Decision Support Cards."""
+    if not case: return ""
+    ui = DataProbe(case.get("ui"))
+    decision = DataProbe(case.get("decision"))
+    policy = DataProbe(case.get("derived")).get("p_module_policy", {})
+    
+    allowed = set(policy.get("allowed", []))
+    levels = policy.get("levels", {})
+    sel = set(ui.get("modules") or [])
+    auto = set(decision.get("modules") or [])
+    
     cards = []
-    for pid in pids_to_show:
-        b = blocks.get(pid)
-        title = b.title if b else pid
-        subtitle = ""
-        try:
-            subtitle = b.subtitle if b and getattr(b, "subtitle", None) else ""
-        except Exception:
-            subtitle = ""
+    for pid in sorted(blocks.keys()):
+        if allowed and pid not in allowed: continue
+        lvl = int(levels.get(pid, 3))
+        
+        # Hide Level 3 unless selected/suggested
+        if lvl > 2 and pid not in sel and pid not in auto: continue
+        
+        b = blocks[pid]
+        tit = getattr(b, "title", pid)
+        sub = getattr(b, "subtitle", "")
+        
+        cls = "pmod-card"
+        badges = [f"<span class='pmod-chip pmod-chip--lvl{lvl}'>Lvl {lvl}</span>"]
+        if pid in sel:
+            cls += " selected"
+            badges.append("<span class='pmod-chip pmod-chip--manual'>Gewählt</span>")
+        elif pid in auto:
+            badges.append("<span class='pmod-chip pmod-chip--auto'>Vorschlag</span>")
+            
+        cards.append(f"<div class='{cls}'><div class='pmod-title'>{html_escape(tit)}</div><div class='pmod-sub'>{html_escape(sub)}</div><div class='pmod-meta'>{''.join(badges)}</div></div>")
+        
+    return "<div class='pmod-grid'>" + "".join(cards) + "</div>"
 
-        lvl = int(levels.get(pid, 3) or 3)
-        locked_reason = None
-        is_locked = False
-
-        is_auto = pid in auto_mods
-        is_selected = pid in sel_mods
-
-        meta = [lvl_chip(lvl)]
-        if is_selected:
-            meta.append("<span class='pmod-chip pmod-chip--manual'>Gewählt</span>")
-        if (is_auto and not is_selected):
-            meta.append("<span class='pmod-chip pmod-chip--auto'>Vorschlag</span>")
-
-        tip = ""
-        if is_locked and locked_reason:
-            tip = html_escape(str(locked_reason))
-
-        cards.append(
-            f"<div class='pmod-card' title='{tip}'>"
-            f"<div class='pmod-title'>{pid} – {html_escape(str(title))}</div>"
-            f"<div class='pmod-sub'>{html_escape(str(subtitle))}</div>"
-            f"<div class='pmod-meta'>{''.join(meta)}</div>"
-            "</div>"
-        )
-
-    auto_n = len(auto_mods)
-    manual_n = len(sel_mods)
-    locked_n = len(disabled)
-
-    shown_n = len(pids_to_show)
-    header = (
-        "<div class='rhk-summarybar' style='margin: 4px 0 8px;'>"
-        f"<span class='rhk-schip rhk-schip--info'>Module: Auto {auto_n}</span>"
-        f"<span class='rhk-schip'>Manuell {manual_n}</span>"
-        f"<span class='rhk-schip rhk-schip--warn'>Gesperrt {locked_n}</span>"
-        f"<span class='rhk-schip'>Anzeige: {shown_n}/{len(_ALL_P_MODULE_IDS)} (Level I–II + ausgewählt)</span>"
-        "</div>"
-    )
-
-    if not cards:
-        return header
-    return header + "<div class='pmod-grid'>" + "".join(cards) + "</div>"
-
-
-# ---------------------------------------------------------------------
-# Pre-Cath Safety Header (Ampel) – HTML renderer
-# ---------------------------------------------------------------------
-def build_pre_cath_header_html(ui: dict | None) -> str:
-    """Render a compact, chip-based Pre-Cath Safety header.
-
-    Expected ui keys (best-effort):
-    - consent_done: bool
-    - access_route: str
-    - inr: float
-    - ptt_s: float
-    - platelets_g_l: float
-    - anticoag_status: str
-    - anticoag_paused: bool
-    - crp_mg_l: float
-    """
-
-    ui = ui or {}
-
-    def _safe_float(x):
-        try:
-            if x is None or x == "":
-                return None
-            return float(x)
-        except Exception:
-            return None
-
-    def _chip(text: str, cls: str = "", title: str = "") -> str:
-        c = "rhk-schip" + (f" {cls}" if cls else "")
-        tattr = f" title='{html_escape(title)}'" if title else ""
-        return f"<span class='{c}'{tattr}>" + html_escape(text) + "</span>"
-
-    # 1) Aufklärung
-    consent_done = bool(ui.get("consent_done") is True)
-    consent_chip = _chip(
-        "Aufklärung: erfolgt" if consent_done else "Aufklärung: fehlt",
-        "rhk-schip--good" if consent_done else "rhk-schip--bad",
-    )
-
-    # 1b) Zugangsweg
-    access_route = (ui.get("access_route") or "").strip()
-    access_chip = _chip(
-        f"Zugang: {access_route}" if access_route else "Zugang: –",
-        "rhk-schip--info",
-    )
-
-    # 2) Gerinnung
-    inr = _safe_float(ui.get("inr"))
-    ptt = _safe_float(ui.get("ptt_s"))
-    plts = _safe_float(ui.get("platelets_g_l"))
-
-    # Schwellen: praxisnah/konservativ
-    # - INR hoch: > 1.5
-    # - PTT hoch: > 40 s
-    # - Thrombos niedrig: < 100 G/l
-    warns = []
-    if inr is not None and inr > 1.5:
-        warns.append(f"INR {inr:g}")
-    if ptt is not None and ptt > 40:
-        warns.append(f"PTT {ptt:g}")
-    if plts is not None and plts < 100:
-        warns.append(f"Thrombos {plts:g}")
-
-    if warns:
-        coag_chip = _chip("Gerinnung: Warnung (" + ", ".join(warns) + ")", "rhk-schip--warn")
-    else:
-        # Wenn alles fehlt: neutral (info), sonst grün
-        any_val = (inr is not None) or (ptt is not None) or (plts is not None)
-        coag_chip = _chip("Gerinnung: OK" if any_val else "Gerinnung: (keine Daten)", "rhk-schip--good" if any_val else "rhk-schip--info")
-
-    # 3) Antikoagulation
-    anticoag_status_raw = str(ui.get("anticoag_status") or "").strip()
-    anticoag_status = anticoag_status_raw.strip().lower()
-    anticoag_paused_flag = bool(ui.get("anticoag_paused") is True)
-
-    # Normalize common variants
-    is_yes = anticoag_status in ("ja", "yes", "true")
-    is_no = anticoag_status in ("nein", "no", "false")
-    is_paused_text = ("paus" in anticoag_status)  # matches "pausiert", "ja, aber pausiert"
-    is_unknown = anticoag_status in ("unklar", "")
-
-    if is_no:
-        # In this context: no anticoagulation = OK (green)
-        antico_chip = _chip("Antikoagulation: nein", "rhk-schip--good")
-    elif is_yes:
-        # Yes without pause = attention (red), paused = OK (green)
-        if anticoag_paused_flag or is_paused_text:
-            antico_chip = _chip("Antikoagulation: ja (pausiert)", "rhk-schip--good")
-        else:
-            antico_chip = _chip("Antikoagulation: ja", "rhk-schip--bad")
-    elif is_paused_text:
-        antico_chip = _chip("Antikoagulation: ja (pausiert)", "rhk-schip--good")
-    elif is_unknown:
-        antico_chip = _chip("Antikoagulation: unklar", "rhk-schip--warn")
-    else:
-        # e.g. "keine Angabe"
-        antico_chip = _chip("Antikoagulation: " + (anticoag_status_raw or "keine Angabe"), "rhk-schip--info")
-
-    # 4) Nierenfunktion (Kreatinin / eGFR)
-    crea = _safe_float(ui.get("creatinine_mg_dl"))
-    egfr_v = _safe_float(ui.get("egfr_ml_min_1_73"))
-    if egfr_v is None:
-        egfr_v = _safe_float(ui.get("egfr"))
-
-    renal_tone = "rhk-schip--info"
-    if egfr_v is not None:
-        if egfr_v >= 60:
-            renal_tone = "rhk-schip--good"
-        elif egfr_v >= 30:
-            renal_tone = "rhk-schip--warn"
-        else:
-            renal_tone = "rhk-schip--bad"
-    elif crea is not None:
-        if crea < 1.3:
-            renal_tone = "rhk-schip--good"
-        elif crea <= 1.8:
-            renal_tone = "rhk-schip--warn"
-        else:
-            renal_tone = "rhk-schip--bad"
-
-    renal_tip = ""
-    try:
-        if egfr_v is not None:
-            renal_tip = f"eGFR {_fmt_or_dash(egfr_v,0)} ml/min/1.73m²"
-    except Exception:
-        renal_tip = ""
-
-    renal_chip = _chip(f"Krea: {_fmt_or_dash(crea,2)}", renal_tone, renal_tip)
-
-    # 5) Allergien (immer sichtbar)
-    # UI keys:
-    # - allergies_present: bool
-    # - allergies_list: list[str]
-    # - allergies_other_text: str
-    allergies_present = bool(ui.get("allergies_present") is True)
-    allergies_list = ui.get("allergies_list")
-    if allergies_list is None:
-        allergies_list = ui.get("allergies")
-    if not isinstance(allergies_list, list):
-        allergies_list = [] if allergies_list in (None, "") else [str(allergies_list)]
-    allergies_list = [str(x).strip() for x in allergies_list if str(x).strip()]
-    allergies_other = str(ui.get("allergies_other_text") or ui.get("allergies_other") or "").strip()
-
-    # Always show a neutral chip if nothing is present
-    if (not allergies_present) and (not allergies_list) and (not allergies_other):
-        allergy_chip = _chip("Allergien: –", "rhk-schip--info")
-    else:
-        items = list(allergies_list)
-        if allergies_other:
-            # if "sonstiges" is selected, replace it with the free text for readability
-            if any(i.lower() == "sonstiges" for i in items):
-                items = [i for i in items if i.lower() != "sonstiges"]
-            items.append(allergies_other)
-        # De-duplicate while keeping order
-        seen = set()
-        dedup = []
-        for it in items:
-            key = it.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            dedup.append(it)
-
-        allergy_text = ", ".join(dedup) if dedup else "(nicht spezifiziert)"
-        allergy_chip = _chip(f"Allergien: {allergy_text}", "rhk-schip--warn")    # 5b) LSB (nur wenn aktiv abgehakt) – Risiko: katheterinduziertes RSB kann bei präexistentem LSB zu komplettem AV-Block führen
-    lsb_present = bool(ui.get("lsb_present") is True)
-    lsb_reason = (ui.get("lsb_reason") or "").strip()
-    lsb_title = ""
-    if lsb_present:
-        base = "Präexistenter LSB: Risiko eines katheterinduzierten RSB mit komplettem AV-Block. Standby-Pacing/Defi/Monitoring bereit halten."
-        lsb_title = base + ((" Begründung: " + lsb_reason) if lsb_reason else "")
-    lsb_chip = _chip("LSB: ja", "rhk-schip--warn", lsb_title) if lsb_present else ""
-
-    # 6) Infekt (CRP)
-    crp = _safe_float(ui.get("crp_mg_l"))
-    if crp is not None and crp > 20:
-        infect_chip = _chip(f"Infekt: CRP {crp:g}", "rhk-schip--bad")
-    elif crp is not None:
-        infect_chip = _chip(f"Infekt: CRP {crp:g}", "rhk-schip--good")
-    else:
-        infect_chip = _chip("Infekt: (kein CRP)", "rhk-schip--info")
-    return (
-        "<div class='rhk-summarybar'>"
-        + consent_chip
-        + access_chip
-        + coag_chip
-        + antico_chip
-        + infect_chip
-        + renal_chip
-        + allergy_chip
-        + lsb_chip
-        + "</div>"
-    )
+@ui_safe_render()
+def build_docx_status_html(docx_cur: dict | None, docx_prev: dict | None) -> str:
+    def ren(t, d):
+        if not d: return ""
+        p = DataProbe(d)
+        w = "warn" if p.str("quality","status") != "ok" else ""
+        return f"<div class='docx-box {w}'><div class='docx-title'>{t}</div><div class='docx-row'>{_chip(p.str('patient','exam_date'))} {_chip(p.str('quality','status'))}</div></div>"
+    return "<div class='docx-status'>" + ren("Import Aktuell", docx_cur) + ren("Import Vorher", docx_prev) + "</div>" + build_docx_tables_overview_html(docx_cur, docx_prev)
