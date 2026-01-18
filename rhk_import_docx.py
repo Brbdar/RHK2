@@ -565,6 +565,18 @@ def parse_maclab_docx(path: str) -> Dict[str, Any]:
                     payload["phases"][pk]["co"]["fick_ci"] = _parse_float(raw)
                 elif "fick-hf" in lab:
                     payload["phases"][pk]["co"]["fick_hr"] = _parse_float(raw)
+                elif (('td' in lab) and ('hf' in lab) and ('fick' not in lab)) or ('td-hf' in lab) or ('tdhf' in lab):
+                    payload["phases"][pk]["co"]["td_hr"] = _parse_float(raw)
+                elif (('td' in lab) and ('sv' in lab) and ('fick' not in lab)) or ('td-sv' in lab) or ('tdsv' in lab):
+                    payload["phases"][pk]["co"]["td_sv_ml"] = _parse_float(raw)
+                elif (('td' in lab) and ('svi' in lab) and ('fick' not in lab)) or ('td-svi' in lab) or ('tdsvi' in lab):
+                    payload["phases"][pk]["co"]["td_svi_ml_m2"] = _parse_float(raw)
+                elif ('kof' in lab) or ('bsa' in lab) or ('körperoberfläche' in lab) or ('koerperoberflaeche' in lab):
+                    payload["phases"][pk]["co"]["bsa_m2"] = _parse_float(raw)
+                elif ('fick' in lab and 'sv' in lab):
+                    payload["phases"][pk]["co"]["fick_sv_ml"] = _parse_float(raw)
+                elif ('fick' in lab and 'svi' in lab):
+                    payload["phases"][pk]["co"]["fick_svi_ml_m2"] = _parse_float(raw)
     def _parse_resistance():
         mat = _find_table_by_title(tables, "Widerstandsergebnisse")
         if not mat:
@@ -605,14 +617,21 @@ def parse_maclab_docx(path: str) -> Dict[str, Any]:
                     continue
                 if lab.startswith("vo2"):
                     payload["phases"][pk]["flow"]["vo2_ml_min"] = _parse_float(raw)
-                elif "vo2 quelle" in lab or "vo2 quelle" in lab:
+                elif "vo2 quelle" in lab:
                     payload["phases"][pk]["flow"]["vo2_source"] = _clean(raw) or None
                 elif "a-vo2" in lab or "a vo2" in lab:
                     payload["phases"][pk]["flow"]["avo2diff_ml_dl"] = _parse_float(raw)
                 elif "fick-hzv" in lab:
                     payload["phases"][pk]["flow"]["fick_co_repeat"] = _parse_float(raw)
+                elif "qp/qs" in lab or "qpqs" in lab:
+                    payload["phases"][pk]["flow"]["qp_qs"] = _parse_float(raw)
+                elif lab.strip() == "qp" or lab.startswith("qp "):
+                    payload["phases"][pk]["flow"]["qp_l_min"] = _parse_float(raw)
+                elif lab.strip() == "qs" or lab.startswith("qs "):
+                    payload["phases"][pk]["flow"]["qs_l_min"] = _parse_float(raw)
                 else:
                     payload["phases"][pk]["flow"][lab] = raw
+
     def _parse_work():
         mat = _find_table_by_title(tables, "Schlagarbeit")
         if not mat:
@@ -626,10 +645,14 @@ def parse_maclab_docx(path: str) -> Dict[str, Any]:
             for pk, raw in colmap.items():
                 if pk not in payload["phases"]:
                     continue
-                if lab.startswith("rvsw-i") or "rvsw-i" in lab:
+                if lab.startswith("rvsw-i") or "rvsw-i" in lab or lab.startswith("rvswi") or "rvswi" in lab:
                     payload["phases"][pk]["work"]["rvswi_gm_m2"] = _parse_float(raw)
                 elif lab.startswith("rvsw") or "rvsw" in lab:
                     payload["phases"][pk]["work"]["rvsw_gm"] = _parse_float(raw)
+                elif lab.startswith("lvsw-i") or "lvsw-i" in lab or lab.startswith("lvswi") or "lvswi" in lab:
+                    payload["phases"][pk]["work"]["lvswi_gm_m2"] = _parse_float(raw)
+                elif lab.startswith("lvsw") or "lvsw" in lab:
+                    payload["phases"][pk]["work"]["lvsw_gm"] = _parse_float(raw)
                 else:
                     payload["phases"][pk]["work"][lab] = raw
 
@@ -914,17 +937,28 @@ def map_payload_to_ui(payload: Dict[str, Any], target: str = "current") -> Dict[
         # prev mapping: use Base 2 only (never Base 1)
         if pat.get("exam_date"):
             ui["prev_rhk_date"] = pat.get("exam_date")
+
+        # Pressures (if present)
+        if rest.get("spap") is not None:
+            ui["prev_spap"] = rest.get("spap")
+        if rest.get("dpap") is not None:
+            ui["prev_dpap"] = rest.get("dpap")
         if rest.get("mpap") is not None:
             ui["prev_mpap"] = rest.get("mpap")
         if rest.get("pawp") is not None:
             ui["prev_pawp"] = rest.get("pawp")
         if rest.get("rap") is not None:
             ui["prev_rap"] = rest.get("rap")
+
+        # HZV: keep method explicit and store CO + CI separately
+        co = rest.get("co_td") if rest.get("co_td") is not None else rest.get("co_fick")
         ci = rest.get("ci_td") if rest.get("ci_td") is not None else rest.get("ci_fick")
         if rest.get("co_td") is not None:
-            ui["co_method"] = "Thermodilution"
+            ui["prev_co_method"] = "Thermodilution"
         elif rest.get("co_fick") is not None:
-            ui["co_method"] = "Fick"
+            ui["prev_co_method"] = "Fick"
+        if co is not None:
+            ui["prev_co"] = co
         if ci is not None:
             ui["prev_ci"] = ci
         if rest.get("pvr_wu") is not None:

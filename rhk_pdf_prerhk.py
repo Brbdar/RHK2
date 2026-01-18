@@ -572,6 +572,9 @@ def _draw_prev_rhk_base_compact(
     prev_mpap: Any,
     prev_pawp: Any,
     prev_rap: Any,
+    prev_spap: Any,
+    prev_dpap: Any,
+    prev_co: Any,
     prev_ci: Any,
     prev_pvr: Any,
     prev_label: str,
@@ -604,12 +607,26 @@ def _draw_prev_rhk_base_compact(
     if _is_truthy(prev_is_initial):
         right.append(("Initial", "ja"))
 
+    # Pressures
+    if _fmt_num(prev_spap) is not None or _fmt_num(prev_dpap) is not None:
+        sp = _fmt_num(prev_spap)
+        dp = _fmt_num(prev_dpap)
+        if sp is not None and dp is not None:
+            left.append(("PAP", f"{sp}/{dp} mmHg"))
+        elif sp is not None:
+            left.append(("sPAP", f"{sp} mmHg"))
+        elif dp is not None:
+            left.append(("dPAP", f"{dp} mmHg"))
     if _fmt_num(prev_mpap) is not None:
         left.append(("mPAP", f"{_fmt_num(prev_mpap)} mmHg"))
     if _fmt_num(prev_pawp) is not None:
         left.append(("PAWP", f"{_fmt_num(prev_pawp)} mmHg"))
     if _fmt_num(prev_rap) is not None:
         left.append(("RAP", f"{_fmt_num(prev_rap)} mmHg"))
+
+    # Flow / resistance
+    if _fmt_num(prev_co) is not None:
+        right.append(("CO", f"{_fmt_num(prev_co)} L/min"))
     if _fmt_num(prev_ci) is not None:
         right.append(("CI", f"{_fmt_num(prev_ci)} L/min/m²"))
     if _fmt_num(prev_pvr) is not None:
@@ -665,24 +682,35 @@ def _draw_prev_rhk_base_compact(
         c.drawString(xc, yc - 3.8 * mm, value_txt)
 
     # Values (keep placeholders explicit)
+    spap_s = _fmt(prev_spap, unit="mmHg", ndigits=0) or None
+    dpap_s = _fmt(prev_dpap, unit="mmHg", ndigits=0) or None
+    pap_sd_s = (f"{spap_s.split()[0]}/{dpap_s.split()[0]} mmHg" if (spap_s and dpap_s) else (spap_s or dpap_s))
+
     mpap_s = _fmt(prev_mpap, unit="mmHg", ndigits=0) or "–"
     pawp_s = _fmt(prev_pawp, unit="mmHg", ndigits=0) or "–"
     rap_s = _fmt(prev_rap, unit="mmHg", ndigits=0) or "–"
+    co_s = _fmt(prev_co, unit="L/min", ndigits=1) or "–"
     ci_s = _fmt(prev_ci, unit="L/min/m²", ndigits=1) or "–"
     pvr_s = _fmt(prev_pvr, unit="WU", ndigits=1) or "–"
 
     cell_w = avail_w / 3.0
     # Row 1: pressures
     if (y - 6.0 * mm) >= (y_min + 6.0 * mm):
-        _cell(xL + 0*cell_w, y, "mPAP", mpap_s)
-        _cell(xL + 1*cell_w, y, "PAWP", pawp_s)
-        _cell(xL + 2*cell_w, y, "RAP", rap_s)
+        _cell(xL + 0*cell_w, y, "PAP", pap_sd_s or "–")
+        _cell(xL + 1*cell_w, y, "mPAP", mpap_s)
+        _cell(xL + 2*cell_w, y, "PAWP", pawp_s)
         y -= 10.5 * mm
 
-    # Row 2: CI + PVR
+    # Row 2: RAP + CO + CI
     if (y - 6.0 * mm) >= (y_min + 4.0 * mm):
-        _cell(xL + 0*cell_w, y, "CI", ci_s)
-        _cell(xL + 1*cell_w, y, "PVR", pvr_s)
+        _cell(xL + 0*cell_w, y, "RAP", rap_s)
+        _cell(xL + 1*cell_w, y, "CO", co_s)
+        _cell(xL + 2*cell_w, y, "CI", ci_s)
+        y -= 10.5 * mm
+
+    # Row 3: PVR (if space)
+    if (y - 6.0 * mm) >= (y_min + 4.0 * mm):
+        _cell(xL + 0*cell_w, y, "PVR", pvr_s)
         y -= 10.0 * mm
 
     # --- Comment (wrap into remaining space, no silent truncation) ---
@@ -777,6 +805,9 @@ def generate_prerhk_pdf(case_state: Dict[str, Any]) -> str:
     prev_mpap = ui.get("prev_mpap")
     prev_pawp = ui.get("prev_pawp")
     prev_rap = ui.get("prev_rap")
+    prev_spap = ui.get("prev_spap")
+    prev_dpap = ui.get("prev_dpap")
+    prev_co = ui.get("prev_co")
     prev_ci = ui.get("prev_ci")
     prev_pvr = ui.get("prev_pvr")
     prev_label = (ui.get("prev_label") or "").strip()
@@ -1089,7 +1120,7 @@ def generate_prerhk_pdf(case_state: Dict[str, Any]) -> str:
         return x is not None and str(x).strip() != ""
 
     has_prev_base = bool(prev_rhk_date) or any(
-        _has_val(v) for v in (prev_mpap, prev_pawp, prev_rap, prev_ci, prev_pvr)
+        _has_val(v) for v in (prev_spap, prev_dpap, prev_mpap, prev_pawp, prev_rap, prev_co, prev_ci, prev_pvr)
     ) or bool(prev_label)
 
     need_handwrite_ox = _is_truthy(dzl_flag) and _is_truthy(dzl_initial_test)
@@ -1733,6 +1764,9 @@ def generate_prerhk_pdf(case_state: Dict[str, Any]) -> str:
                 prev_mpap=prev_mpap,
                 prev_pawp=prev_pawp,
                 prev_rap=prev_rap,
+                prev_spap=prev_spap,
+                prev_dpap=prev_dpap,
+                prev_co=prev_co,
                 prev_ci=prev_ci,
                 prev_pvr=prev_pvr,
                 prev_label=prev_label,

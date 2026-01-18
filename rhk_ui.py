@@ -28,6 +28,7 @@ from rhk_reports import (
     build_echo_doctor_report_extended,
     build_internal_report,
     random_example,
+    example_suite_case,
     export_json,
     export_summary_json,
     build_summary_dict,
@@ -179,7 +180,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         )
 # Buttons top
         with gr.Row():
-            btn_example_top = gr.Button("Beispiel laden (random)", variant="secondary", elem_id="btn_example_top")
+            btn_example_top = gr.Button("Beispiel laden (Suite)", variant="secondary", elem_id="btn_example_top")
             btn_generate_top = gr.Button("Befund erstellen/aktualisieren", variant="secondary", elem_id="btn_generate_top")
             btn_clear_top = gr.Button("Befunde leeren", variant="secondary", elem_id="btn_clear_top")
             save_btn_top = gr.Button("Fall speichern (.json)", variant="secondary", elem_id="btn_save_top")
@@ -1435,7 +1436,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         # Buttons bottom (mirrored)
         with gr.Row():
-            btn_example_bottom = gr.Button("Beispiel laden (random)", variant="secondary", elem_id="btn_example_bottom")
+            btn_example_bottom = gr.Button("Beispiel laden (Suite)", variant="secondary", elem_id="btn_example_bottom")
             btn_generate_bottom = gr.Button("Befund erstellen/aktualisieren", variant="secondary", elem_id="btn_generate_bottom")
             btn_clear_bottom = gr.Button("Befunde leeren", variant="secondary", elem_id="btn_clear_bottom")
             save_btn_bottom = gr.Button("Fall speichern (.json)", variant="secondary", elem_id="btn_save_bottom")
@@ -1456,6 +1457,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         state_case_filename = gr.State(value="")  # remembered loaded case filename
         state_pmods_selected = gr.State(value={"lvl1": [], "lvl2": [], "lvl3": []})
         state_flags = gr.State(value={"dirty": False, "saved_at": None, "has_report": False, "report_stale": False})
+
+        # Beispielreihe: index for cycling through the fixed example suite
+        state_example_idx = gr.State(value=0)
 
         # DOCX import cache (current + previous catheter). Must exist even if user never imports.
         # Stored as full parsed payload dict (or None).
@@ -4100,13 +4104,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         # --- Example loader ---
 
-        def _load_example_ui():
-            # Ensure a fresh example on every click (avoid deterministic/cached outputs)
-            try:
-                seed = time.time_ns()
-            except Exception:
-                seed = int(time.time() * 1_000_000)
-            ui = random_example(seed=seed)
+        def _load_example_ui(example_idx):
+            # Beispielreihe: feste Suite, index wird in state_example_idx verwaltet.
+            ui = example_suite_case(example_idx)
 
             # --- P-Module preselection (robust & leak-free) ---
             # Important: On example load we must NOT set CheckboxGroup values to non-existing choices.
@@ -4128,7 +4128,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             ui["modules_lvl3"] = []
 
             vals = apply_ui_to_components(ui)
-            return (*vals, pending, "")
+            try:
+                next_idx = int(example_idx or 0) + 1
+            except Exception:
+                next_idx = 1
+            return (*vals, pending, "", next_idx)
 
         def _reset_flags_after_load():
             # New loaded example/file should be treated as clean until user edits.
@@ -4241,7 +4245,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             )
 
 
-        btn_example_top.click(_load_example_ui, inputs=[], outputs=input_components + [state_pmods_selected, state_case_filename])\
+        btn_example_top.click(
+            _load_example_ui,
+            inputs=[state_example_idx],
+            outputs=input_components + [state_pmods_selected, state_case_filename, state_example_idx],
+        )\
             .then(
         _post_example_load_and_generate,
         inputs=[
@@ -4268,7 +4276,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         ] + generate_outputs,
             )
 
-        btn_example_bottom.click(_load_example_ui, inputs=[], outputs=input_components + [state_pmods_selected, state_case_filename])\
+        btn_example_bottom.click(
+            _load_example_ui,
+            inputs=[state_example_idx],
+            outputs=input_components + [state_pmods_selected, state_case_filename, state_example_idx],
+        )\
             .then(
         _post_example_load_and_generate,
         inputs=[
@@ -4712,7 +4724,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         FILL_FROM_PREV_IF_MISSING = ["age", "sex", "height_cm", "weight_kg", "hb_g_dl"]
 
-        def _docx_import_current(file, prev_payload, *vals):
+        def _docx_import_current(file, prev_payload, prev_docx_payload, *vals):
             """Import current DOCX without deleting manual entries.
 
             Policy:
@@ -4725,6 +4737,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             prev_payload = prev_payload if isinstance(prev_payload, dict) else {}
             prev_keys = prev_payload.get("_ui_applied_keys_current") or []
             prev_vals = prev_payload.get("_ui_applied_values_current") or {}
+
+            # prev_docx_payload is the current state_docx_prev (needed for a live overview)
+            prev_docx_payload = prev_docx_payload if isinstance(prev_docx_payload, dict) else {}
 
             payload = parse_maclab_docx(file.name if hasattr(file, "name") else str(file))
             updates = map_payload_to_ui(payload, target="current")
@@ -4755,10 +4770,19 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 pass
 
             vals_out = apply_ui_to_components(ui_dict)
-            return (*vals_out, payload)
 
-        def _docx_import_prev(file, prev_payload, *vals):
+            # Live overview (no dependency on report generation)
+            try:
+                status_html = build_docx_status_html(payload, prev_docx_payload)
+            except Exception:
+                status_html = ""
+
+            return (*vals_out, payload, status_html)
+
+        def _docx_import_prev(file, prev_payload, cur_docx_payload, *vals):
             ui_dict = ui_get_raw(*vals)
+
+            cur_docx_payload = cur_docx_payload if isinstance(cur_docx_payload, dict) else {}
 
             prev_payload = prev_payload if isinstance(prev_payload, dict) else {}
             prev_keys = prev_payload.get("_ui_applied_keys_prev") or []
@@ -4797,7 +4821,14 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 pass
 
             vals_out = apply_ui_to_components(ui_dict)
-            return (*vals_out, payload)
+
+            # Live overview
+            try:
+                status_html = build_docx_status_html(cur_docx_payload, payload)
+            except Exception:
+                status_html = ""
+
+            return (*vals_out, payload, status_html)
 
 
         def _reset_pmods_after_import():
@@ -4897,7 +4928,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             )
             return (*sync_out, *cpet_out, *pre_cath_out, *gen_out)
 
-        docx_btn_top.upload(_docx_import_current, inputs=[docx_btn_top, state_docx_cur] + input_components, outputs=input_components + [state_docx_cur])\
+        # Update DOCX overview immediately on import (no dependency on report generation).
+        docx_btn_top.upload(
+            _docx_import_current,
+            inputs=[docx_btn_top, state_docx_cur, state_docx_prev] + input_components,
+            outputs=input_components + [state_docx_cur, import_status_html],
+        )\
             .then(
                 _post_docx_current_import_and_generate,
                 inputs=[
@@ -4922,7 +4958,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 ] + generate_outputs,
             )
 
-        docx_btn_bottom.upload(_docx_import_current, inputs=[docx_btn_bottom, state_docx_cur] + input_components, outputs=input_components + [state_docx_cur])\
+        docx_btn_bottom.upload(
+            _docx_import_current,
+            inputs=[docx_btn_bottom, state_docx_cur, state_docx_prev] + input_components,
+            outputs=input_components + [state_docx_cur, import_status_html],
+        )\
             .then(
                 _post_docx_current_import_and_generate,
                 inputs=[
@@ -4947,7 +4987,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 ] + generate_outputs,
             )
 
-        prev_docx_btn.upload(_docx_import_prev, inputs=[prev_docx_btn, state_docx_prev] + input_components, outputs=input_components + [state_docx_prev])\
+        prev_docx_btn.upload(
+            _docx_import_prev,
+            inputs=[prev_docx_btn, state_docx_prev, state_docx_cur] + input_components,
+            outputs=input_components + [state_docx_prev, import_status_html],
+        )\
             .then(
                 _post_docx_prev_import_and_generate,
                 inputs=[
@@ -4967,6 +5011,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 ] + input_components,
                 outputs=[
                     ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
+                    field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
                     cpet_details, cpet_risk_html,
                     pre_cath_html, pre_cath_home_html,
                 ] + generate_outputs,

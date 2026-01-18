@@ -1594,6 +1594,62 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
 
     ctx = build_render_ctx(case)
 
+    def _build_ph_etiology_dd_block(d: Dict[str, Any]) -> str:
+        """Return a compact differential etiology block for Interpretation.
+
+        Principles
+        - Uses only documented inputs (no assumptions, no imputation).
+        - Never turns suggestions into a definitive diagnosis.
+        - No procedural recommendations here (Procedere is a separate section).
+        """
+        try:
+            et = (d or {}).get("ph_etiology") or {}
+            cands = et.get("candidates") or []
+            if not isinstance(cands, list) or not cands:
+                return ""
+
+            labels = [str(c.get("label_doc") or "").strip() for c in cands]
+            labels = [x for x in labels if x]
+            if not labels:
+                return ""
+
+            clear = bool(et.get("clear_leader"))
+            head = "Ätiologische Einordnung: "
+            if clear:
+                head += f"Die Befunde sprechen am ehesten für eine führende {labels[0]}."
+                if len(labels) > 1:
+                    head += " Zusätzlich bestehen Hinweise auf " + ", ".join(labels[1:]) + "."
+            else:
+                head += (
+                    "Es ergeben sich Hinweise auf mehrere mögliche Ursachen oder Mechanismen ("
+                    + ", ".join(labels)
+                    + "). Eine eindeutige führende Zuordnung ist anhand der vorliegenden Angaben nicht sicher."
+                )
+
+            # Evidence (short, deterministic; max 4 groups, max 3 cues per group)
+            ev_lines: List[str] = []
+            for c in cands[:4]:
+                try:
+                    g = c.get("group")
+                    ev = c.get("evidence") or []
+                    if not isinstance(ev, list):
+                        continue
+                    ev = [str(x).strip() for x in ev if str(x).strip()]
+                    if not ev:
+                        continue
+                    ev_txt = "; ".join(ev[:3]) + ("; …" if len(ev) > 3 else "")
+                    ev_lines.append(f"Gruppe {g}: {ev_txt}.")
+                except Exception:
+                    continue
+
+            if ev_lines:
+                # Use dot bullet char to avoid markdown hyphens in narrative sections
+                ev_block = "\n" + "\n".join(["• " + ln for ln in ev_lines])
+                return (head + ev_block).strip()
+            return head.strip()
+        except Exception:
+            return ""
+
     def _hemo_interpretation_paragraph() -> str:
         """Generate a fluent, guideline-aligned interpretation paragraph placed *under* Beurteilung.
 
@@ -2177,10 +2233,15 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     if _db_ie:
         ie_parts.append(_db_ie)
 
-    # Etiologische Einordnung (ohne konkrete Maßnahmen – siehe Procedere)
-    _conc = _sanitize_concluding(concluding)
-    if _conc:
-        ie_parts.append(_conc)
+    # Ätiologie (Differenziallogik) – ohne konkrete Maßnahmen (siehe Procedere)
+    _dd = _build_ph_etiology_dd_block(der)
+    if _dd:
+        ie_parts.append(_dd)
+    else:
+        # Fallback: alte, knappe Schlussformulierung
+        _conc = _sanitize_concluding(concluding)
+        if _conc:
+            ie_parts.append(_conc)
 
     # NOTE: No recommendations in the interpretation block by requirement.
     _ie_txt = "\n\n".join([p for p in ie_parts if p]).strip()
@@ -3598,6 +3659,11 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
     ui["ph_known"] = scen in ("pah_pre", "cteph", "cpcph")
     ui["ph_suspected"] = not ui["ph_known"]
 
+    # Default: CHD/Shunt-Anamnese in Beispielen explizit setzen (UI-Gating)
+    ui["chd_pos"] = (scen == "shunt_asd")
+    ui["chd_type"] = "ASD (Vorhofseptumdefekt)" if ui["chd_pos"] else "keine Angabe"
+    ui["chd_desc"] = "" if not ui["chd_pos"] else "Bekannter ASD, Shuntkonstellation in der Stufenoxymetrie."
+
     # --- PH-Status Konsistenz + Details ---
     # In der Praxis schließen sich "PH-Diagnose bekannt" und "PH-Verdachtsdiagnose" gegenseitig aus.
     # Bei bekannter PH füllen wir deshalb zusätzliche Kontextfelder, damit die UI nicht "leer" wirkt.
@@ -3818,13 +3884,20 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
     ui["dlco_sb"] = rng.choice([35, 52, 68])
     ui["lufu_summary"] = rng.choice(["", "Leichte Diffusionsstörung.", "Obstruktives Muster."])
 
-
     # In einem Teil der Fälle explizit unauffällige Lufu setzen, damit P12 klar deaktiviert werden kann
     if scen == "no_ph" or rng.random() < 0.18:
         ui["lufu_obstructive"] = False
         ui["lufu_restrictive"] = False
         ui["lufu_diffusion"] = False
         ui["lufu_summary"] = rng.choice(["Unauffällig.", "Normalbefund.", "Keine relevanten Auffälligkeiten."])
+
+    # Langzeit-Sauerstofftherapie (für Ätiologie- und Modul-Logik)
+    if scen == "ild_ph":
+        ui["ltot"] = True
+        ui["ltot_flow_l_min"] = rng.choice([1.0, 2.0, 3.0])
+    else:
+        ui["ltot"] = False
+        ui["ltot_flow_l_min"] = None
     # --- Hämodynamik (Ruhe) ---
     if scen == "no_ph":
         spap, dpap, pawp, co, rap = 28, 10, 10, 5.2, 6
@@ -3899,6 +3972,11 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
         ui["sat_rv"] = 80
         ui["sat_pa"] = 80
         ui["sat_ao"] = 96
+
+        # Kontext: angeborener Herzfehler/Shunt
+        ui["chd_pos"] = True
+        ui["chd_type"] = "ASD (Vorhofseptumdefekt)"
+        ui["chd_desc"] = "Beispiel: ASD mit Links nach Rechts Shunt."
     else:
         ui["sat_svc"] = None
         ui["sat_ivc"] = None
@@ -3907,6 +3985,15 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
         ui["sat_pa"] = None
         ui["sat_ao"] = None
 
+        ui["chd_pos"] = False
+        ui["chd_type"] = "keine Angabe"
+        ui["chd_desc"] = ""
+
+        # Default: kein bekannter angeborener Shunt
+        ui["chd_pos"] = ui.get("chd_pos") if ui.get("chd_pos") is not None else False
+        ui["chd_type"] = ui.get("chd_type") or "keine Angabe"
+        ui["chd_desc"] = ui.get("chd_desc") or ""
+
     # --- Kurvenflags ---
     ui["wedge_v_wave"] = (scen in ("hfpef_ipcph", "cpcph")) and (rng.random() < 0.5)
     ui["wedge_a_wave"] = (scen in ("hfpef_ipcph", "cpcph")) and (rng.random() < 0.35)
@@ -3914,12 +4001,6 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
     ui["rap_v_wave"] = rng.random() < 0.15
     ui["rv_pseudo_dip"] = rng.random() < 0.1
     ui["rv_dip_plateau"] = rng.random() < 0.05
-
-    # --- Infekt/Immunologie (v.a. ILD) ---
-    ui["virology_pos"] = rng.choice([False, False, True])
-    ui["virology_desc"] = "HIV positiv." if ui["virology_pos"] else ""
-    ui["immunology_pos"] = (scen == "ild_ph") and rng.choice([False, True])
-    ui["immunology_desc"] = "ANA/ENA auffällig." if ui["immunology_pos"] else ""
 
     # --- Procedere/Module ---
     ui["procedere_free"] = ""
@@ -3968,6 +4049,281 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
         ui["prev_pawp"] = None
         ui["prev_ci"] = None
         ui["prev_pvr"] = None
+
+    return ui
+
+
+# =============================================================================
+# Beispielreihe (Suite)
+# =============================================================================
+
+def example_suite_case(index: Any = 0) -> Dict[str, Any]:
+    """Liefert ein Beispiel aus einer festen Suite.
+
+    Ziel: Über mehrere Beispiele hinweg sollen möglichst viele Funktionen getestet werden,
+    ohne Zufall und ohne implizite Datenannahmen.
+
+    - Wiederholtes Klicken lädt das nächste Beispiel (Index modulo Suite-Länge).
+    - Jede Suite belegt andere Pfade (RHK Ruhe/Belastung, Volumen, Vaso, Step-up,
+      CT/VQ/Lufu, CPET, PH Therapieepisoden inkl. Restart und Sotatercept, Legacy-Import).
+    """
+
+    try:
+        idx = int(index or 0)
+    except Exception:
+        idx = 0
+
+    def _tx(lines: List[List[str]]) -> str:
+        # 6 Spalten: Medikament, Status, seit, bis, Grund, Kommentar
+        out_lines: List[str] = []
+        for row in lines:
+            row = (row or []) + [""] * (6 - len(row or []))
+            out_lines.append("\t".join([str(c or "").strip() for c in row[:6]]).strip())
+        return "\n".join([ln for ln in out_lines if ln])
+
+    SUITE: List[Dict[str, Any]] = [
+        {
+            "id": "E01",
+            "label": "PAH Restart und Sotatercept",
+            "scenario": "pah_pre",
+            "modules": ["P14"],
+            "story": "Beispiel E01: PAH (präkapillär) mit Belastung und Vasoreaktivität. Therapieepisoden mit Restart und Sotatercept.",
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PAH (Gruppe 1)",
+                "ph_known_subtype": "idiopathische PAH",
+                "ph_first_dx": "03/2022",
+                "ph_reason_rhk": "Verlaufskontrolle",
+                "co_method": "Thermodilution",
+                "exercise_done": True,
+                "vaso_test_done": True,
+                "vaso_substance": "NO",
+                "vaso_response_desc": "Vasoreaktivitätskriterium erreicht (Abfall mPAP, CO stabil).",
+                "ph_tx_table": _tx([
+                    ["Opsumit (Macitentan)", "aktuell", "01/2024", "", "", ""],
+                    ["Sildenafil", "abgesetzt", "05/2023", "10/2023", "Unverträglichkeit/Nebenwirkung", "Kopfschmerz"],
+                    ["Sildenafil", "aktuell", "11/2023", "", "", "Restart"],
+                    ["Sotatercept", "geplant", "02/2026", "", "", "Therapieplanung"],
+                ]),
+                "ph_current_meds": [],
+                "ph_prev_meds": [],
+                "ph_new_meds": [],
+                "ph_stopped_meds": [],
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+                "allergies_present": True,
+                "allergies_list": ["Pflaster"],
+                "cpet_done": True,
+                "cpet_peak_vo2_ml_kg_min": 13.8,
+                "cpet_peak_vo2_pct_pred": 56,
+                "cpet_ve_vco2_slope": 42,
+                "cpet_petco2_vt1_mmhg": 30,
+                "cpet_spo2_nadir_pct": 90,
+                "cpet_rer_peak": 1.18,
+                "cpet_hr_peak_bpm": 156,
+            },
+        },
+        {
+            "id": "E02",
+            "label": "HIV assoziierte PAH",
+            "scenario": "pah_pre",
+            "modules": ["P14"],
+            "story": "Beispiel E02: Präkapilläre PH mit Risikofaktor HIV. Differenzialblock soll Gruppe 1 (HIV) ausweisen.",
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PAH (Gruppe 1)",
+                "ph_known_subtype": "HIV assoziierte PAH",
+                "virology_pos": True,
+                "virology_items": ["HIV"],
+                "virology_desc": "HIV positiv.",
+                "immunology_pos": False,
+                "immunology_items": [],
+                "immunology_desc": "",
+                "vq_done": True,
+                "vq_defect": False,
+                "ct_embolie": False,
+                "ct_mosaic": False,
+                "ph_tx_table": _tx([
+                    ["Opsumit (Macitentan)", "aktuell", "06/2024", "", "", ""],
+                    ["Tadalafil", "aktuell", "06/2024", "", "", ""],
+                ]),
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+                "cpet_done": True,
+                "cpet_peak_vo2_ml_kg_min": 12.0,
+                "cpet_peak_vo2_pct_pred": 49,
+                "cpet_ve_vco2_slope": 45,
+                "cpet_petco2_vt1_mmhg": 28,
+                "cpet_spo2_nadir_pct": 92,
+            },
+        },
+        {
+            "id": "E03",
+            "label": "CTEPH",
+            "scenario": "cteph",
+            "modules": ["P10"],
+            "story": "Beispiel E03: CTEPH Konstellation mit V/Q Defekten und CT Mosaik. Antikoagulation aktiv. Therapie mit Adempas.",
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "CTEPH (Gruppe 4)",
+                "ph_known_subtype": "inoperable CTEPH (BPA Evaluation)",
+                "vq_done": True,
+                "vq_defect": True,
+                "vq_desc": "Mehrsegmentale Perfusionsdefekte.",
+                "ct_embolie": True,
+                "ct_mosaic": True,
+                "anticoag_status": "ja",
+                "anticoag_indication": "CTEPH/CTEPD",
+                "anticoag_substance": "DOAC (Apixaban, Rivaroxaban)",
+                "ph_tx_table": _tx([
+                    ["Adempas (Riociguat)", "aktuell", "08/2024", "", "", ""],
+                ]),
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E04",
+            "label": "Gruppe 3 ILD Hypoxie",
+            "scenario": "ild_ph",
+            "modules": ["P12"],
+            "story": "Beispiel E04: PH Verdacht bei ILD. LTOT aktiv, Lufu restriktiv und DLCO reduziert. Differenzialblock soll Gruppe 3 priorisieren.",
+            "overrides": {
+                "ph_known": False,
+                "ph_suspected": True,
+                "ct_done": True,
+                "ct_ild": True,
+                "ct_emphysema": False,
+                "ltot": True,
+                "ltot_flow_l_min": 2.0,
+                "lufu_done": True,
+                "lufu_restrictive": True,
+                "lufu_diffusion": True,
+                "dlco_sb": 42,
+                "vq_done": False,
+                "virology_pos": False,
+                "immunology_pos": False,
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+                "cpet_done": True,
+                "cpet_peak_vo2_ml_kg_min": 11.2,
+                "cpet_peak_vo2_pct_pred": 45,
+                "cpet_ve_vco2_slope": 38,
+                "cpet_spo2_nadir_pct": 84,
+                "cpet_o2_supp_l_min": 2.0,
+            },
+        },
+        {
+            "id": "E05",
+            "label": "HFpEF iPcPH mit Volumen und Belastung",
+            "scenario": "hfpef_ipcph",
+            "modules": ["P09"],
+            "story": "Beispiel E05: iPcPH HFpEF Konstellation. Volumenbelastung und Belastungshämodynamik aktiv.",
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PH bei Linksherzerkrankung / HFpEF (Gruppe 2)",
+                "ph_known_subtype": "HFpEF mit postkapillärer PH",
+                "exercise_done": True,
+                "volume_challenge_done": True,
+                "volume_ml": 500,
+                "atrial_fib": True,
+                "la_enlarged": True,
+                "anticoag_status": "ja",
+                "anticoag_indication": "Vorhofflimmern",
+                "anticoag_substance": "DOAC (Apixaban, Rivaroxaban)",
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E06",
+            "label": "HFpEF cPcPH",
+            "scenario": "cpcph",
+            "modules": ["P09"],
+            "story": "Beispiel E06: cPcPH Muster bei Linksherzerkrankung. Erhöhte PAWP und erhöhte PVR.",
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PH bei Linksherzerkrankung / HFpEF (Gruppe 2)",
+                "ph_known_subtype": "cPcPH bei HFpEF",
+                "atrial_fib": True,
+                "la_enlarged": True,
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E07",
+            "label": "Shunt ASD",
+            "scenario": "shunt_asd",
+            "modules": ["P01"],
+            "story": "Beispiel E07: Step up in der Stufenoxymetrie bei ASD. Testet Shunt Logik.",
+            "overrides": {
+                "chd_pos": True,
+                "chd_type": "ASD (Vorhofseptumdefekt)",
+                "chd_desc": "ASD V.a. bzw. bekannt.",
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E08",
+            "label": "Legacy PH Therapie Import",
+            "scenario": "pah_pre",
+            "modules": ["P14"],
+            "story": "Beispiel E08: Legacy PH Therapie Felder gefüllt (Mehrfachlisten). Testet Button: Legacy Therapie in Episoden übernehmen.",
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PAH (Gruppe 1)",
+                "ph_known_subtype": "Systemsklerose assoziierte PAH",
+                "immunology_pos": True,
+                "immunology_items": ["Systemische Sklerose (Sklerodermie)"],
+                "immunology_desc": "Autoimmunerkrankung bekannt.",
+                "ph_tx_table": "",
+                "ph_current_meds": ["PDE‑5‑Hemmer", "Endothelin‑Rezeptorantagonist (ERA)"],
+                "ph_prev_meds": ["Prostazyklin‑Therapie / -Analogon"],
+                "ph_tx_status": "eskaliert",
+                "ph_new_meds": ["Sotatercept (BMPR2/Activin-Pfad)"],
+                "ph_stopped_meds": ["Prostazyklin‑Therapie / -Analogon"],
+                "ph_stop_reason": "Unverträglichkeit/Nebenwirkung",
+                "ph_stop_reason_text": "Beispiel: Flush und Hypotonie.",
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+    ]
+
+    cfg = SUITE[idx % len(SUITE)]
+
+    # Deterministische Basis aus random_example, dann gezielte Overrides
+    ui = random_example(scenario=str(cfg.get("scenario") or ""), seed=10_000 + (idx % 10_000))
+
+    # Sichtbarkeit/Orientierung in der UI
+    ui["firstname"] = "Test"
+    ui["name"] = f"{cfg.get('id')} {cfg.get('label')}"
+    ui["story"] = str(cfg.get("story") or ui.get("story") or "")
+
+    # Module
+    mods = list(cfg.get("modules") or [])
+    ui["modules"] = mods
+    ui["modules_lvl1"] = []
+    ui["modules_lvl2"] = []
+    ui["modules_lvl3"] = mods
+
+    # Standard: keine impliziten Angaben
+    ui.setdefault("allergies_present", False)
+    ui.setdefault("allergies_list", [])
+    ui.setdefault("allergies_other_text", "")
+    ui.setdefault("lsb_present", False)
+    ui.setdefault("lsb_reason", "")
+    ui.setdefault("anticoag_paused", False)
+
+    # Apply overrides (last write wins)
+    for k, v in (cfg.get("overrides") or {}).items():
+        ui[k] = v
+
+    # Konsistenz: bekannte PH impliziert kein Verdacht
+    if bool(ui.get("ph_known")):
+        ui["ph_suspected"] = False
 
     return ui
 

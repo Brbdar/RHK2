@@ -1893,6 +1893,10 @@ button[title*="Dark"] {
 .docx-status{display:flex;flex-direction:column;gap:10px;margin:8px 0 12px 0}
 .docx-box{border:1px solid rgba(0,0,0,.10);border-radius:14px;padding:10px 12px;background:#fff}
 .docx-box.warn{border-color:rgba(220,70,70,.35);background:rgba(220,70,70,.04)}
+/* DOCX Import Ampel (UI only; payload provides green/yellow/red) */
+.docx-box.good{border-color:rgba(34,197,94,.38);background:rgba(34,197,94,.06)}
+.docx-box.yellow{border-color:rgba(234,179,8,.45);background:rgba(234,179,8,.06)}
+.docx-box.bad{border-color:rgba(239,68,68,.40);background:rgba(239,68,68,.06)}
 .docx-title{font-weight:900;margin:0 0 6px 0}
 .docx-row{display:flex;flex-wrap:wrap;gap:8px}
 .chip{display:inline-flex;gap:6px;align-items:center;padding:5px 10px;border-radius:999px;border:1px solid rgba(0,0,0,.10);background:rgba(0,0,0,.02);font-size:12px}
