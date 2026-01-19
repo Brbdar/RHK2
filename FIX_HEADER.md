@@ -1,3 +1,3 @@
-Fix. v0.78: Vor-RHK Import: zusätzliche Ruhewerte werden gespeichert (sPAP, dPAP, CO inkl. Methode), sofern im DOCX vorhanden.
-Fix. v0.78: Pre-RHK PDF: Vor-RHK Base Block zeigt PAP (s/d), mPAP, PAWP, RAP, CO, CI, PVR statt nur CI/PVR.
-Fix. v0.78: Version bump.
+Fix. v0.83: Fall-Load: zentrale JSON-Migration (fehlende Keys werden sicher mit Defaults gefuellt).
+Fix. v0.83: Fall-Load: Validator erzeugt nur Warnungen bei unplausiblen/inkonsistenten Werten (kein Blockieren).
+Fix. v0.83: Fall-Load: serverseitiges Logging der Migration (ohne patientenbezogene Inhalte).
