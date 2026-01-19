@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import html
 import time
-import logging
-import os
 
 from rhk_base import *  # noqa: F401,F403
 
@@ -46,11 +44,6 @@ from rhk_reports import (
 from rhk_import_docx import parse_maclab_docx, map_payload_to_ui  # noqa: F401
 from rhk_ui_echo import build_echo_section, bind_echo_import, render_echo_import_views  # noqa: F401
 from rhk_ui_rhk import build_rhk_tab  # noqa: F401
-
-# Server-side logging (Render/stdout). Avoid logging any patient-identifying content.
-_LOG = logging.getLogger("rhk.case_load")
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # Deterministic CPET expert logic (Spiro-Logic wizard)
 # Performance: lazy import to reduce cold-start time.
@@ -1472,9 +1465,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         # Stored as full parsed payload dict (or None).
         state_docx_cur = gr.State(value=None)
         state_docx_prev = gr.State(value=None)
-        # Load-time migration/meta info (backwards compatibility + validator warnings)
-        state_case_load_meta = gr.State(value={})
-
 
         # Echo PDF Import bindings (Textlayer only)
         try:
@@ -3140,11 +3130,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             t_rep0 = t0
             t_ui0 = t0
 
-            # case_filename_state can be non-str (e.g., float NaN from old JSON/state); never .strip() on non-str
-            if isinstance(case_filename_state, str):
-                remembered_name = case_filename_state.strip()
-            else:
-                remembered_name = ''
+            remembered_name = (case_filename_state or '').strip()
             # Normalize: ensure .json extension
             if remembered_name and not remembered_name.lower().endswith('.json'):
                 remembered_name = remembered_name + '.json'
@@ -3178,7 +3164,49 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             # Beim Laden von Beispielen/JSON-Fällen halten wir die CheckboxGroup in Stage-1 absichtlich leer,
             # um Gradio "Value not in choices"-Fehler zu vermeiden. In diesem Fall übernehmen wir die
             # gewünschte Auswahl aus pmods_state (Seed), aber nur solange noch kein Report existiert und der Fall nicht "dirty" ist.
-            ui_mods = _normalize_module_ids((raw.get("modules_lvl1") or []) + (raw.get("modules_lvl2") or []) + (raw.get("modules_lvl3") or []) + (raw.get("modules") or []))
+            def _mods_list(_v: Any) -> List[Any]:
+                """Coerce module fields to list to avoid str+list TypeError.
+
+                Robust against legacy JSON/text encodings (e.g., "["P14"]", "['P14','P15']", "P14,P15").
+                """
+                if _v is None or _v == "":
+                    return []
+                if isinstance(_v, list):
+                    return _v
+                if isinstance(_v, (tuple, set)):
+                    return list(_v)
+                if isinstance(_v, str):
+                    s = _v.strip()
+                    if not s:
+                        return []
+                    # Try JSON / literal list
+                    try:
+                        import json as _json
+                        _parsed = _json.loads(s)
+                    except Exception:
+                        _parsed = None
+                    if _parsed is None:
+                        try:
+                            import ast as _ast
+                            _parsed = _ast.literal_eval(s)
+                        except Exception:
+                            _parsed = None
+                    if isinstance(_parsed, (list, tuple, set)):
+                        return list(_parsed)
+                    if isinstance(_parsed, str):
+                        s = _parsed.strip()
+                        if not s:
+                            return []
+                    # Split common delimiter forms
+                    try:
+                        import re as _re
+                        if "," in s or ";" in s:
+                            return [p.strip() for p in _re.split(r"[;,]", s) if p and p.strip()]
+                    except Exception:
+                        pass
+                    return [s]
+                return [_v]
+            ui_mods = _normalize_module_ids(_mods_list(raw.get("modules_lvl1")) + _mods_list(raw.get("modules_lvl2")) + _mods_list(raw.get("modules_lvl3")) + _mods_list(raw.get("modules")))
             seed_mods = _normalize_module_ids(((pmods_state or {}).get("lvl1") or []) + ((pmods_state or {}).get("lvl2") or []) + ((pmods_state or {}).get("lvl3") or []))
             if (not ui_mods) and seed_mods and (not flags.get("dirty")) and (not flags.get("has_report")):
                 raw["modules"] = seed_mods
@@ -3657,11 +3685,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             # Export should reflect the *current* UI values (even if user edited after last report generation).
             # We rebuild a minimal, deterministic case snapshot and then render the Pre-RHK PDF from it.
             flags = dict(flags_state or {})
-            # case_filename_state can be non-str (e.g., float NaN from old JSON/state); never .strip() on non-str
-            if isinstance(case_filename_state, str):
-                remembered_name = case_filename_state.strip()
-            else:
-                remembered_name = ''
+            remembered_name = (case_filename_state or '').strip()
             if remembered_name and not remembered_name.lower().endswith('.json'):
                 remembered_name = remembered_name + '.json'
 
@@ -3684,7 +3708,49 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     raw["egfr"] = raw.get("egfr_ml_min_1_73")
 
             # Modules: keep deterministic normalization (same logic as generation, but export-only).
-            ui_mods = _normalize_module_ids((raw.get("modules_lvl1") or []) + (raw.get("modules_lvl2") or []) + (raw.get("modules_lvl3") or []) + (raw.get("modules") or []))
+            def _mods_list(_v: Any) -> List[Any]:
+                """Coerce module fields to list to avoid str+list TypeError.
+
+                Robust against legacy JSON/text encodings (e.g., "["P14"]", "['P14','P15']", "P14,P15").
+                """
+                if _v is None or _v == "":
+                    return []
+                if isinstance(_v, list):
+                    return _v
+                if isinstance(_v, (tuple, set)):
+                    return list(_v)
+                if isinstance(_v, str):
+                    s = _v.strip()
+                    if not s:
+                        return []
+                    # Try JSON / literal list
+                    try:
+                        import json as _json
+                        _parsed = _json.loads(s)
+                    except Exception:
+                        _parsed = None
+                    if _parsed is None:
+                        try:
+                            import ast as _ast
+                            _parsed = _ast.literal_eval(s)
+                        except Exception:
+                            _parsed = None
+                    if isinstance(_parsed, (list, tuple, set)):
+                        return list(_parsed)
+                    if isinstance(_parsed, str):
+                        s = _parsed.strip()
+                        if not s:
+                            return []
+                    # Split common delimiter forms
+                    try:
+                        import re as _re
+                        if "," in s or ";" in s:
+                            return [p.strip() for p in _re.split(r"[;,]", s) if p and p.strip()]
+                    except Exception:
+                        pass
+                    return [s]
+                return [_v]
+            ui_mods = _normalize_module_ids(_mods_list(raw.get("modules_lvl1")) + _mods_list(raw.get("modules_lvl2")) + _mods_list(raw.get("modules_lvl3")) + _mods_list(raw.get("modules")))
             seed_mods = _normalize_module_ids(((pmods_state or {}).get("lvl1") or []) + ((pmods_state or {}).get("lvl2") or []) + ((pmods_state or {}).get("lvl3") or []))
             if (not ui_mods) and seed_mods and (not flags.get("dirty")) and (not flags.get("has_report")):
                 raw["modules"] = seed_mods
@@ -4275,6 +4341,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
             field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
             field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
+            field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
+            field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
             field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
             field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"],
@@ -4304,6 +4372,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         inputs=[
             state_pmods_selected,
             field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
+            field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
+            field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
             field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
@@ -4488,9 +4558,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             flags = dict(flags_state or {})
             ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            # case_filename can be non-str (e.g., float NaN); keep filename empty in that case
-            _cf = case_filename if isinstance(case_filename, str) else ''
-            remembered_name = _cf.strip() or None
+            remembered_name = (case_filename or "").strip() or None
 
             def _is_cloud_env() -> bool:
                 # Render/Cloud environments usually set PORT.
@@ -4681,91 +4749,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                         ui_dict["echo_done"] = True
             except Exception:
                 pass
-            # --- Load migration + validator (legacy JSON) ---
-            # Policy: Missing data stays missing (None/empty), never silently coerced to 0.
-            missing_ui_keys = []
-
-            def _comp_default(_k):
-                try:
-                    _c = field_components.get(_k)
-                    return getattr(_c, "value", None) if _c is not None else None
-                except Exception:
-                    return None
-
-            # 1) One-shot migration: fill missing UI-keys with safe defaults
-            try:
-                for _k in field_components.keys():
-                    if _k not in ui_dict:
-                        ui_dict[_k] = _comp_default(_k)
-                        missing_ui_keys.append(_k)
-            except Exception:
-                pass
-
-            def _num(_x):
-                try:
-                    if _x is None:
-                        return None
-                    if isinstance(_x, str) and _x.strip() == "":
-                        return None
-                    return float(_x)
-                except Exception:
-                    return None
-
-            # 2) Validator: warnings only (never blocks load)
-            validation_warnings = []
-            try:
-                _checks = [
-                    ("rap_rest", 0, 40, "RAP"),
-                    ("mpap_rest", 0, 120, "mPAP"),
-                    ("pawp_rest", 0, 50, "PAWP"),
-                    ("co_rest", 0.5, 20, "CO"),
-                    ("ci_rest", 0.5, 10, "CI"),
-                    ("pvr_rest", 0, 30, "PVR"),
-                ]
-                for _k, _lo, _hi, _label in _checks:
-                    _v = _num(ui_dict.get(_k))
-                    if _v is None:
-                        continue
-                    if (_v < _lo) or (_v > _hi):
-                        validation_warnings.append(
-                            f"Unplausibler Wert geladen: {_label}={_v:g} ({_k}). Bitte prüfen."
-                        )
-
-                # pressure consistency (if all present)
-                _sp = _num(ui_dict.get("spap_rest"))
-                _dp = _num(ui_dict.get("dpap_rest"))
-                _mp = _num(ui_dict.get("mpap_rest"))
-                if (_sp is not None) and (_dp is not None) and (_mp is not None):
-                    if not (_dp <= _mp <= _sp):
-                        validation_warnings.append(
-                            "Druckwerte inkonsistent geladen (dPAP <= mPAP <= sPAP nicht erfüllt). Bitte prüfen."
-                        )
-
-                # PVR consistency when possible (PVR ≈ (mPAP-PAWP)/CO)
-                _co = _num(ui_dict.get("co_rest"))
-                _pawp = _num(ui_dict.get("pawp_rest"))
-                _pvr = _num(ui_dict.get("pvr_rest"))
-                if (_co is not None) and (_pawp is not None) and (_mp is not None) and (_pvr is not None) and (_co > 0):
-                    _pvr_calc = (_mp - _pawp) / _co
-                    if abs(_pvr_calc - _pvr) > max(1.0, 0.5 * abs(_pvr_calc)):
-                        validation_warnings.append(
-                            "PVR inkonsistent geladen (≈(mPAP-PAWP)/CO). Bitte prüfen."
-                        )
-            except Exception:
-                pass
-
-            load_meta = {"missing_ui_keys": missing_ui_keys, "validation_warnings": validation_warnings}
-            try:
-                if missing_ui_keys or validation_warnings:
-                    # Do not log filenames or any patient identifiers.
-                    _LOG.warning(
-                        "case_load_migration missing_ui_keys=%s validation_warnings=%s",
-                        len(missing_ui_keys),
-                        len(validation_warnings),
-                    )
-            except Exception:
-                pass
-
             vals = apply_ui_to_components(ui_dict)
 
             try:
@@ -4792,7 +4775,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     docx_cur, docx_prev,
                     pdf_cur_reset, cur_html, echo_cur,
                     pdf_prev_reset, prev_html, echo_prev,
-                    cmp_html, details_html, btnu, loaded_name, load_meta)
+                    cmp_html, details_html, btnu, loaded_name)
 
         
 
@@ -5041,7 +5024,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         )\
             .then(
                 _post_docx_current_import_and_generate,
-            inputs=[                field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],                field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],                field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],                field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],                field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],                    field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
+                inputs=[
+                    field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
+                    field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
                     field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
                     field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
                     field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
@@ -5169,10 +5154,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         def _post_case_load_and_generate(
             # thorax + egfr + allergies
             ct_done, ct_ild, vq_done, creatinine_mg_dl, age, sex, allergies_present, allergies_list,
-            # PVOD/PCH + EIF2AK4 (Backwards compat: may be missing in older JSON)
             pvod_edema_on_vaso, pvod_edema_desc,
             eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
-            # CPET live risk
+            # CPET live-risk
             cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
             cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
             cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm, cpet_o2_pulse_pattern,
@@ -5198,12 +5182,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             limitation_override, limitation_override_text, next_steps_manual,
             nine_avail, nine_vt1, nine_vt1_method, nine_rcp,
             nine_eov, nine_flow, nine_vo2wr, nine_veeq, nine_comment,
-            # pre cath
+            # pre-cath
             consent_done, access_route, inr, ptt_s, platelets_g_l, anticoag_status, anticoag_paused,
             crp_mg_l, creatinine_mg_dl2, age2, sex2, allergies_present2, allergies_list2, allergies_other_text,
             lsb_present, lsb_reason,
             # states for generate
-            case_load_meta,
             pmods_sel_state, docx_cur_payload, docx_prev_payload, echo_cur_payload, echo_prev_payload, case_filename,
             *vals,
         ):
@@ -5212,49 +5195,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             # (inkl. JSON-Dumps, Clipboard-HTML, Plots) sehr langsam werden oder haengen.
             # Policy: Nach dem Laden KEINE automatische Generierung. Stattdessen wird der
             # Fall nur in die UI uebernommen und der Nutzer klickt gezielt "Befund erstellen".
-
-            # Backwards-Compat Guard
-            # In einigen Deployments/alten Event-Wirings koennen neuere Felder beim Laden alter JSON-Faelle
-            # fehlen. Diese Guards verhindern NameErrors und sorgen dafuer, dass der Fall trotzdem laedt.
-            try:
-                pvod_edema_on_vaso
-            except NameError:
-                pvod_edema_on_vaso = False
-            try:
-                pvod_edema_desc
-            except NameError:
-                pvod_edema_desc = ""
-            try:
-                eif2ak4_test_done
-            except NameError:
-                eif2ak4_test_done = False
-            try:
-                eif2ak4_result
-            except NameError:
-                eif2ak4_result = ""
-            try:
-                eif2ak4_date
-            except NameError:
-                eif2ak4_date = ""
-            try:
-                eif2ak4_note
-            except NameError:
-                eif2ak4_note = ""
-
             flags = {"dirty": False, "saved_at": None, "has_report": False, "report_stale": True, "warnings": []}
-
-            # Merge load-time migration/validator info into flags warnings
-            try:
-                _m = case_load_meta if isinstance(case_load_meta, dict) else {}
-                _missing = _m.get('missing_ui_keys') or []
-                _valw = _m.get('validation_warnings') or []
-                if _missing:
-                    flags['warnings'].append(f"Legacy-Fall: {len(_missing)} fehlende Felder wurden mit Defaults gefuellt.")
-                for _w in _valw:
-                    if isinstance(_w, str) and _w.strip():
-                        flags['warnings'].append(_w.strip())
-            except Exception:
-                pass
 
             sync_out = _sync_post_load(
                 ct_done, ct_ild, vq_done,
@@ -5341,12 +5282,15 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         import_pdf_prev, import_preview_prev_html, state_echo_prev,
         compare_echo_html, details_echo_html, btn_echo_apply,
         state_case_filename,
-        state_case_load_meta,
     ],
         )\
-        .then(        _post_case_load_and_generate,
+    .then(
+        _post_case_load_and_generate,
         inputs=[
-                field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],                field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],                field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],            field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
+            field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
+            field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
+            field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
+            field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
             field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
             field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"],
 
@@ -5376,20 +5320,15 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"],
             field_components["lsb_present"], field_components["lsb_reason"],
 
-            state_case_load_meta,
             state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename,
         ] + input_components,
-            # IMPORTANT: Outputs MUST match _post_case_load_and_generate return arity exactly.
-            # (No duplicates here; legacy copy/paste caused a 73 vs 65 mismatch and froze case loading.)
-            outputs=[
-                ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details,
-                acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
-                field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
-                cpet_details, cpet_risk_html,
-                cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html,
-                cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_spiro_report, cpet_chrono_followup,
-                pre_cath_html, pre_cath_home_html,
-            ] + generate_outputs,
+        outputs=[
+            ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
+            field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
+            cpet_details, cpet_risk_html,
+            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_spiro_report, cpet_chrono_followup,
+            pre_cath_html, pre_cath_home_html,
+        ] + generate_outputs,
     )
 
         load_btn_bottom.upload(
@@ -5402,13 +5341,16 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         import_pdf_prev, import_preview_prev_html, state_echo_prev,
         compare_echo_html, details_echo_html, btn_echo_apply,
         state_case_filename,
-        state_case_load_meta,
     ],
         )\
     .then(
         _post_case_load_and_generate,
         inputs=[
-                field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],                field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],                field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],                field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],            field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
+            field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
+            field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
+            field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
+            field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
+            field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
             field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"],
 
             field_components["cpet_done"],
@@ -5437,11 +5379,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"],
             field_components["lsb_present"], field_components["lsb_reason"],
 
-            state_case_load_meta,
             state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename,
         ] + input_components,
         outputs=[
-                ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],                field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],                cpet_details, cpet_risk_html,            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_spiro_report, cpet_chrono_followup,
+            ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
+            field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
+            cpet_details, cpet_risk_html,
+            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_spiro_report, cpet_chrono_followup,
             pre_cath_html, pre_cath_home_html,
         ] + generate_outputs,
     )
