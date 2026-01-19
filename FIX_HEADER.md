@@ -1,3 +1,3 @@
-Fix. v0.84: Fall-Load: Output-Mapping fuer _post_case_load_and_generate korrigiert (kein Haenger/ValueError 73 vs 65).
-Fix. v0.84: Fall-Load: Entfernt doppelte PVOD/EIF2AK4 Outputs im Load-Callback (Backwards-compat stabil).
-Fix. v0.84: Version bump.
+Fix. v0.85: Generate: case_filename_state robust (kein AttributeError bei alten JSON/NaN).
+Fix. v0.85: Pre-RHK Export und Save: Filename-Handling robust bei non-str (NaN).
+Fix. v0.85: Version bump.

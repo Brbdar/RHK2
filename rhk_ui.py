@@ -3140,7 +3140,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             t_rep0 = t0
             t_ui0 = t0
 
-            remembered_name = (case_filename_state or '').strip()
+            # case_filename_state can be non-str (e.g., float NaN from old JSON/state); never .strip() on non-str
+            if isinstance(case_filename_state, str):
+                remembered_name = case_filename_state.strip()
+            else:
+                remembered_name = ''
             # Normalize: ensure .json extension
             if remembered_name and not remembered_name.lower().endswith('.json'):
                 remembered_name = remembered_name + '.json'
@@ -3653,7 +3657,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             # Export should reflect the *current* UI values (even if user edited after last report generation).
             # We rebuild a minimal, deterministic case snapshot and then render the Pre-RHK PDF from it.
             flags = dict(flags_state or {})
-            remembered_name = (case_filename_state or '').strip()
+            # case_filename_state can be non-str (e.g., float NaN from old JSON/state); never .strip() on non-str
+            if isinstance(case_filename_state, str):
+                remembered_name = case_filename_state.strip()
+            else:
+                remembered_name = ''
             if remembered_name and not remembered_name.lower().endswith('.json'):
                 remembered_name = remembered_name + '.json'
 
@@ -4480,7 +4488,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             flags = dict(flags_state or {})
             ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            remembered_name = (case_filename or "").strip() or None
+            # case_filename can be non-str (e.g., float NaN); keep filename empty in that case
+            _cf = case_filename if isinstance(case_filename, str) else ''
+            remembered_name = _cf.strip() or None
 
             def _is_cloud_env() -> bool:
                 # Render/Cloud environments usually set PORT.

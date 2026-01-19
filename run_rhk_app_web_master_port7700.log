@@ -1,0 +1,13 @@
+* Running on local URL:  http://0.0.0.0:7700
+2026-01-19 11:44:38,939 INFO HTTP Request: GET http://localhost:7700/gradio_api/startup-events "HTTP/1.1 200 OK"
+2026-01-19 11:44:41,662 INFO HTTP Request: HEAD http://localhost:7700/ "HTTP/1.1 200 OK"
+* To create a public link, set `share=True` in `launch()`.
+Traceback (most recent call last):
+  File "C:\Users\Administrator\OneDrive\Forschung\RHK-BEfunder\rhk_app_web_master.py", line 179, in <module>
+    main()
+  File "C:\Users\Administrator\OneDrive\Forschung\RHK-BEfunder\rhk_app_web_master.py", line 170, in main
+    demo.launch(
+  File "C:\ProgramData\anaconda3\Lib\site-packages\gradio\blocks.py", line 2947, in launch
+    or int(os.getenv("GRADIO_DEBUG", "0")) == 1
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: invalid literal for int() with base 10: 'true'
