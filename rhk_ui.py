@@ -5369,10 +5369,17 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             state_case_load_meta,
             state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename,
         ] + input_components,
-            outputs=[                ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],                field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],                field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],                field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],            cpet_details, cpet_risk_html,
-            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_spiro_report, cpet_chrono_followup,
-            pre_cath_html, pre_cath_home_html,
-        ] + generate_outputs,
+            # IMPORTANT: Outputs MUST match _post_case_load_and_generate return arity exactly.
+            # (No duplicates here; legacy copy/paste caused a 73 vs 65 mismatch and froze case loading.)
+            outputs=[
+                ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details,
+                acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
+                field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
+                cpet_details, cpet_risk_html,
+                cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html,
+                cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_spiro_report, cpet_chrono_followup,
+                pre_cath_html, pre_cath_home_html,
+            ] + generate_outputs,
     )
 
         load_btn_bottom.upload(
