@@ -34,8 +34,8 @@ def build_rhk_tab(add) -> Dict[str, Any]:
                 "dzl_decision",
                 gr.Dropdown(
                     label="DZL",
-                    choices=["", "Genehmigt", "Abgelehnt"],
-                    value="",
+                    choices=["Noch nicht gefragt", "Genehmigt", "Abgelehnt"],
+                    value="Noch nicht gefragt",
                     visible=False,
                 ),
             )

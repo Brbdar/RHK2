@@ -1,3 +1,3 @@
-Fix. v0.81: Beispiel laden und Befund leeren: Module-Felder robust gegen String-Encodings normalisiert.
-Fix. v0.81: TypeError beim Generieren (modules_* str vs list) behoben.
-Fix. v0.81: Version bump.
+Fix. v0.86: eGFR Berechnung wiederhergestellt (compute_egfr Rueckgabe konsistent genutzt).
+Fix. v0.86: Studienhints: Nicht geeignet sowie Nicht beurteilbar Hinweis unter Zusätzliche Hinweise.
+Fix. v0.86: Version bump.

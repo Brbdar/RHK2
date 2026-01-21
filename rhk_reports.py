@@ -79,6 +79,13 @@ except Exception:  # pragma: no cover
 
 # Einige Render-Helpers liegen im Case-Modul (im Flat-Master waren sie vorher "weiter oben").
 from rhk_case import build_render_ctx, render_p01_dynamic, filter_module_text  # noqa: F401
+
+# Optional study pre-screen checks. App must run without it.
+try:
+    from rhk_study_checks import get_study_hints  # type: ignore
+except Exception:  # pragma: no cover
+    def get_study_hints(case):  # type: ignore
+        return []
 # ---------------------------------------------------------------------------
 # Small, conservative post-filters for narrative blocks
 # ---------------------------------------------------------------------------
@@ -1556,6 +1563,16 @@ def build_doctor_report_template(case: Dict[str, Any], blocks: Dict[str, TextBlo
     # ------------------------------------------------------------------
     hints: List[str] = []
 
+    # DZL status (UI only, no inference)
+    try:
+        if bool(ui.get("dzl_flag")):
+            _dzl = (ui.get("dzl_decision") or "").strip()
+            if not _dzl:
+                _dzl = "Noch nicht gefragt"
+            hints.append(f"DZL: {_dzl}.")
+    except Exception:
+        pass
+
     bmi = _safe_float(der.get("bmi"))
     if bmi is not None and bmi >= 30:
         hints.append("Adipositas kann Dyspnoe und Leistungsfähigkeit beeinflussen; Belastbarkeit im Kontext (Training, Lagerung, Atemmuster) interpretieren.")
@@ -1571,6 +1588,16 @@ def build_doctor_report_template(case: Dict[str, Any], blocks: Dict[str, TextBlo
             if "fehl" in ww.lower() or "unvoll" in ww.lower():
                 continue
             hints.append(ww)
+
+    # Study pre-screen (strictly based on existing captured fields)
+    try:
+        _study_hints = get_study_hints(case)
+        if isinstance(_study_hints, list):
+            for _h in _study_hints:
+                if str(_h).strip():
+                    hints.append(str(_h).strip())
+    except Exception:
+        pass
 
     if hints:
         _par("Zusätzliche Hinweise:")

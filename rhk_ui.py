@@ -492,7 +492,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                 add("entresto", gr.Checkbox(label="Entresto/ARNI? (BNP eingeschränkt)"))
                             with gr.Row():
                                 add("congestive_organopathy", gr.Radio(label="Hinweis auf congestive Organopathie?", choices=["keine Angabe", "ja", "nein"], value="keine Angabe"))
-                    
+
+                            # Studien Screening (Labor, klickbasiert)
+                            with gr.Row():
+                                _tri = ["Unklar / nicht erhoben", "Nein", "Ja"]
+                                add("study_liver_pathologic", gr.Dropdown(label="Leberwerte pathologisch (Screening)", choices=_tri, value=_tri[0]))
+                                add("study_renal_pathologic", gr.Dropdown(label="Nierenfunktion klinisch relevant eingeschränkt (Screening)", choices=_tri, value=_tri[0]))
+
                     # Card 4: Medikation & wichtige Zusatzangaben
                     with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
                         hdr_klinik_meds = gr.HTML("<div class='rhk-sec-head'><div class='rhk-sec-title'>Medikation & wichtige Zusatzangaben</div><div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span><div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>")
@@ -520,7 +526,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                             "sonstiges",
                                         ],
                                         value="keine Angabe",
-                                        visible=False,
+                                        visible=True,
                                     ),
                                 )
                             with gr.Row():
@@ -538,7 +544,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                             "Andere/unklar",
                                         ],
                                         value="keine Angabe",
-                                        visible=False,
+                                        visible=True,
                                     ),
                                 )
                                 anticoag_since = add(
@@ -546,7 +552,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                     gr.Textbox(
                                         label="seit wann (optional)",
                                         placeholder="MM/JJJJ",
-                                        visible=False,
+                                        visible=True,
                                     ),
                                 )
                             anticoag_note = add(
@@ -1215,7 +1221,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                         label="EIF2AK4 Ergebnis",
                                         choices=["unklar", "negativ", "positiv"],
                                         value="unklar",
-                                        visible=False,
+                                        visible=True,
                                     ),
                                 )
                                 add("eif2ak4_date", gr.Textbox(label="Datum (optional)", placeholder="TT.MM.JJJJ", visible=False))
@@ -1232,6 +1238,48 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                             with gr.Row():
                                 add("abd_sono_done", gr.Checkbox(label="Abdomen-Sono durchgeführt"))
                                 abd_desc = add("abd_sono_desc", gr.Textbox(label="Besondere Befunde?", lines=2, visible=False))
+
+
+
+                    # Studien Screening (klickbasiert)
+                    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+                        hdr_other_study = gr.HTML(
+                            "<div class='rhk-sec-head'><div class='rhk-sec-title'>Studien Screening</div>"
+                            "<div class='rhk-sec-progress is-optional'><span class='rhk-sec-count'>optional</span>"
+                            "<div class='rhk-sec-bar'><div style='width:0%'></div></div></div></div>"
+                        )
+                        with gr.Column(elem_classes=["rhk-sec-body"]):
+                            _tri = ["Unklar / nicht erhoben", "Nein", "Ja"]
+                            with gr.Row():
+                                add("study_other_trial_recent", gr.Dropdown(label="Andere klinische Studie aktuell oder innerhalb 30 Tage oder 5 HWZ", choices=_tri, value=_tri[0]))
+                                add("study_blood_donation_8w", gr.Dropdown(label="Blut oder Plasmaspende >=400 mL in den letzten 8 Wochen", choices=_tri, value=_tri[0]))
+                            with gr.Row():
+                                add("study_nicotine_active", gr.Dropdown(label="Aktiver Nikotin oder Tabakkonsum", choices=_tri, value=_tri[0]))
+                                add("study_caffeine_gt800", gr.Dropdown(label="Koffein >800 mg pro Tag", choices=_tri, value=_tri[0]))
+                            with gr.Row():
+                                add("study_meds_supp_4w", gr.Dropdown(label="Medikamente Supplemente oder Vitamine in den letzten 4 Wochen", choices=_tri, value=_tri[0]))
+                                add("study_cannabis_4w", gr.Dropdown(label="Cannabis in den letzten 4 Wochen", choices=_tri, value=_tri[0]))
+                            with gr.Row():
+                                add("study_alcohol_substance_misuse_1y", gr.Dropdown(label="Alkohol oder Substanzmissbrauch im letzten Jahr", choices=_tri, value=_tri[0]))
+                                add("study_alcohol_drug_test_or_unwilling_72h", gr.Dropdown(label="Positiver Alkohol oder Drogentest oder fehlende Abstinenzbereitschaft ab 72 h", choices=_tri, value=_tri[0]))
+                            with gr.Row():
+                                add("study_cruciferous_7d", gr.Dropdown(label="Kreuzbluetler in den letzten 7 Tagen", choices=_tri, value=_tri[0]))
+                                add("study_grapefruit_14d", gr.Dropdown(label="Grapefruitsaft in den letzten 14 Tagen", choices=_tri, value=_tri[0]))
+                            with gr.Row():
+                                add("study_pregnancy_lactation", gr.Dropdown(label="Schwangerschaft oder Stillzeit", choices=_tri, value=_tri[0]))
+                                add(
+                                    "study_childbearing_potential",
+                                    gr.Dropdown(
+                                        label="Gebärfaehigkeit (nur Frauen)",
+                                        choices=[
+                                            "Unklar / nicht erhoben",
+                                            "Nicht gebaerfaehig (postmenopausal oder OP)",
+                                            "Gebaerfaehig",
+                                        ],
+                                        value="Unklar / nicht erhoben",
+                                        visible=True,
+                                    ),
+                                )
 
                 # ---- Tab 6: Procedere & Module ----
                 with gr.TabItem("Procedere & Module", id=5):
@@ -1482,7 +1530,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             return gr.update(visible=bool(flag))
 
         def _update_egfr(creatinine, age, sex):
-            val = compute_egfr(creatinine, age, sex)
+            # compute_egfr returns (value, stage)
+            val, _stage = compute_egfr(creatinine, age, sex)
             if val is None:
                 return gr.update(value=None)
             try:
@@ -1492,7 +1541,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         def _update_pre_cath(consent_done, access_route, inr, ptt_s, platelets, anticoag_status, anticoag_paused, crp, creatinine, age, sex,
                              allergies_present, allergies_list, allergies_other_text, lsb_present, lsb_reason):
-            egfr_val = compute_egfr(creatinine, age, sex)
+            egfr_val, _egfr_stage = compute_egfr(creatinine, age, sex)
             try:
                 egfr_val = float(egfr_val) if egfr_val is not None else None
             except Exception:
@@ -2130,7 +2179,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         def _toggle_dzl(flag_val, cur_decision, cur_initial):
             if bool(flag_val):
                 return (
-                    gr.update(visible=True, value=(cur_decision or "")),
+                    gr.update(visible=True, value=(cur_decision if str(cur_decision or "").strip() else "Noch nicht gefragt")),
                     gr.update(visible=True, value=bool(cur_initial)),
                 )
             return (
@@ -3144,7 +3193,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             # for programmatic updates (e.g., DOCX import). We therefore ensure that eGFR is
             # always computed for case/report generation whenever inputs are available.
             try:
-                _egfr_val = compute_egfr(raw.get("creatinine_mg_dl"), raw.get("age"), raw.get("sex"))
+                _egfr_val, _egfr_stage = compute_egfr(raw.get("creatinine_mg_dl"), raw.get("age"), raw.get("sex"))
             except Exception:
                 _egfr_val = None
             if _egfr_val is not None:
@@ -3693,7 +3742,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             # eGFR is a non-interactive UI field (programmatic imports do not trigger callbacks) – ensure it is present.
             try:
-                _egfr_val = compute_egfr(raw.get("creatinine_mg_dl"), raw.get("age"), raw.get("sex"))
+                _egfr_val, _egfr_stage = compute_egfr(raw.get("creatinine_mg_dl"), raw.get("age"), raw.get("sex"))
             except Exception:
                 _egfr_val = None
             if _egfr_val is not None:
@@ -4309,13 +4358,50 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         lsb_present, lsb_reason,
             )
 
-            gen_out = _generate_with_pmods_apply(
+            try:
+                gen_out = _generate_with_pmods_apply(
         flags, pmods_sel_state,
         docx_cur_state, docx_prev_state,
         echo_state_cur_reset, echo_state_prev_reset,
         case_filename,
         *vals,
-            )
+                )
+            except Exception as e:
+                # Fail-safe: Example loading must never crash the app.
+                # Keep inputs as loaded; clear generated outputs and surface a warning.
+                warn = f"Beispiel laden: Generierung fehlgeschlagen: {type(e).__name__}: {e}"
+                flags = {"dirty": False, "saved_at": None, "has_report": False, "report_stale": False, "warnings": [warn], "fast_load": True}
+
+                modules_lvl1_update = gr.update(choices=[], value=[])
+                modules_lvl2_update = gr.update(choices=[], value=[])
+                modules_lvl3_update = gr.update(choices=base_module_choices, value=[])
+                pmods_disabled_dd_update = gr.update(choices=[], value=None)
+
+                gen_out = (
+                    None, None, None, None, None, None,
+                    build_dashboard_html(None),
+                    "", "", "", "", "",
+                    "{}",
+                    "{}",
+                    "", "", "",
+                    "", "", "",
+                    "",
+                    None,
+                    flags,
+                    {"lvl1": [], "lvl2": [], "lvl3": []},
+                    None,
+                    None,
+                    modules_lvl1_update,
+                    modules_lvl2_update,
+                    modules_lvl3_update,
+                    "",
+                    pmods_disabled_dd_update,
+                    build_sticky_summary_html(None, flags),
+                    "",
+                    "",
+                    "",
+                    "",
+                )
 
             return (
         *sync_out,
@@ -4339,8 +4425,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         inputs=[
             state_pmods_selected,
             field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
-            field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
-            field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
             field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
@@ -4372,8 +4456,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         inputs=[
             state_pmods_selected,
             field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
-            field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
-            field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
             field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
