@@ -854,33 +854,33 @@ def summarize_inputs(case: Dict[str, Any], *, mode: str = "default") -> str:
     # Echo
     if ui.get("echo_done") or any(ui.get(k) not in (None, "", False) for k in ["lvef", "la_enlarged", "ee_ratio", "pasp_echo"]):
         echo_bits: List[str] = []
-        lvef = _safe_float(ui.get("lvef"))
+        lvef = _safe_float_echo(ui.get("lvef"))
         if lvef is not None:
             echo_bits.append(f"LVEF {_fmt(lvef,0)}%")
         if ui.get("la_enlarged"):
             echo_bits.append("LA erweitert")
-        ee = _safe_float(ui.get("ee_ratio"))
+        ee = _safe_float_echo(ui.get("ee_ratio"))
         if ee is not None:
             echo_bits.append(f"E/e' {_fmt(ee,1)}")
-        pasp = _safe_float(ui.get("pasp_echo"))
+        pasp = _safe_float_echo(ui.get("pasp_echo"))
         if pasp is not None:
             echo_bits.append(f"sPAP {_fmt(pasp,0)} mmHg")
-        tapse = _safe_float(ui.get("tapse_mm"))
+        tapse = _safe_float_echo(ui.get("tapse_mm"))
         if tapse is not None:
             echo_bits.append(f"TAPSE {_fmt(tapse,0)} mm")
         if der.get("tapse_spap") is not None:
             echo_bits.append(f"TAPSE/sPAP {_fmt(der.get('tapse_spap'),2)}")
-        sprime = _safe_float(ui.get("s_prime_cm_s"))
+        sprime = _safe_float_echo(ui.get("s_prime_cm_s"))
         if sprime is not None:
             echo_bits.append(f"S' {_fmt(sprime,1)} cm/s")
-        raesa = _safe_float(ui.get("ra_esa_cm2"))
+        raesa = _safe_float_echo(ui.get("ra_esa_cm2"))
         if raesa is not None:
             echo_bits.append(f"RA ESA {_fmt(raesa,0)} cm²")
         if der.get("raai") is not None:
             echo_bits.append(f"RAAI {_fmt(der.get('raai'),1)} cm²/m²")
         if der.get("s_prime_raai") is not None:
             echo_bits.append(f"S'/RAAI {_fmt(der.get('s_prime_raai'),2)}")
-        ivcd = _safe_float(ui.get("ivc_diam_mm"))
+        ivcd = _safe_float_echo(ui.get("ivc_diam_mm"))
         if ivcd is not None:
             echo_bits.append(f"IVC {_fmt(ivcd,0)} mm")
         ivcc = ui.get("ivc_collapse")

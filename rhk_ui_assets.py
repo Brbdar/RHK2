@@ -1673,6 +1673,35 @@ button[title*="Dark"] {
 .spiro-edu__follow ul{ margin: 6px 0 0 18px; }
 .spiro-edu__follow li{ margin: 4px 0; }
 
+/* CPET 9 Felder Übersicht (didaktisches Raster, keine klinische Automatik) */
+.cpet9-grid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.cpet9-cell{
+  border: 1px solid rgba(0,0,0,0.06);
+  background: rgba(248,250,252,0.92);
+  border-radius: 14px;
+  padding: 8px 10px;
+}
+.cpet9-cell--good{ border-color: rgba(34,197,94,0.22); }
+.cpet9-cell--warn{ border-color: rgba(234,179,8,0.28); }
+.cpet9-cell--bad{ border-color: rgba(239,68,68,0.22); }
+.cpet9-k{
+  font-size: 11px;
+  font-weight: 850;
+  color: rgba(15, 23, 42, 0.72);
+  margin-bottom: 4px;
+}
+.cpet9-v{
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(15, 23, 42, 0.86);
+}
+
+
 
 /* ------------------------------------------------------------------
    Scrollable report panes (Arztbericht/Patientenbericht/Intern/Debug)

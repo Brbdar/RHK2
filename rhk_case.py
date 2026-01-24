@@ -183,8 +183,8 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
     # ---- Echo / imaging context ----
     lvef = _safe_float(ui.get("lvef"))
     la_enlarged = bool(ui.get("la_enlarged"))
-    ee_ratio = _safe_float(ui.get("ee_ratio"))
-    pasp_echo = _safe_float(ui.get("pasp_echo"))
+    ee_ratio = _safe_float_echo(ui.get("ee_ratio"))
+    pasp_echo = _safe_float_echo(ui.get("pasp_echo"))
     trv = _safe_float(ui.get("trv_ms"))
     pa_diam = _safe_float(ui.get("pa_diam_mm"))
     rv_lv_ratio = _safe_float(ui.get("rv_lv_ratio"))
@@ -225,8 +225,8 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
     rv_dip_plateau = bool(ui.get("rv_dip_plateau"))
 
     # ---- S'/RAAI ----
-    s_prime = _safe_float(ui.get("s_prime_cm_s"))
-    ra_esa_cm2 = _safe_float(ui.get("ra_esa_cm2"))
+    s_prime = _safe_float_echo(ui.get("s_prime_cm_s"))
+    ra_esa_cm2 = _safe_float_echo(ui.get("ra_esa_cm2"))
     raai = None
     sprime_raai = None
     if ra_esa_cm2 is not None and bsa is not None and bsa > 0:
@@ -239,7 +239,7 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
         sprime_raai_low = sprime_raai < SPRIME_RAAI_CUTOFF
 
     # ---- TAPSE/sPAP ----
-    tapse = _safe_float(ui.get("tapse_mm"))
+    tapse = _safe_float_echo(ui.get("tapse_mm"))
     tapse_spap = None
     tapse_spap_risk = None       # ESC/ERS 2022 – 3-Strata Einordnung
     tapse_spap_reduced = None
@@ -1736,7 +1736,7 @@ def build_render_ctx(case: Dict[str, Any]) -> Dict[str, Any]:
     # Kriterien (konservativ): PAWP erhöht + LA vergrößert + E/e′ erhöht
     # Ziel: präzisere Interpretation ohne Therapie-/Procedere-Inhalte.
     # ------------------------------------------------------------------
-    ee_ratio = _safe_float(ui.get("ee_ratio"))
+    ee_ratio = _safe_float_echo(ui.get("ee_ratio"))
     ee_high = (ee_ratio is not None and ee_ratio >= 14)
     hfpef_language = bool(env.get("pawp_gt15")) and bool(env.get("la_enlarged")) and ee_high
 

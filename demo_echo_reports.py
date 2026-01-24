@@ -1,5 +1,4 @@
-Filename: demo_echo_reports.py
-Full Content:
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """

@@ -1,5 +1,3 @@
-Filename: spiro_logic.py
-Full Content:
 """Spiro-Logic: deterministic CPET expert logic (Wasserman, ESC 2022, Guazzi).
 
 MASTERMIND EDITION:
@@ -18,6 +16,7 @@ Clinical design goals
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import html
 from typing import Any, Dict, List, Optional, Set, Final
 
 # --- 1. Central Clinical Configuration ---
@@ -282,21 +281,19 @@ def _fmt(x: Optional[float], nd: int = 1) -> str:
     return f"{x:.{nd}f}" if x is not None else ""
 
 def analyze_module_0_quality(d: CpetData, physics_alerts: List[str]) -> ModuleResult:
-    parts = []
-    followups = []
-    
-    # Append physics alerts first
+    parts: List[str] = []
+    followups: List[str] = []
+
     for alert in physics_alerts:
         parts.append(alert)
-        
-    # Maximality
+
     rer_ok = d.rer is not None and d.rer >= CpetThresholds.RER_MAX
     rer_high = d.rer is not None and d.rer >= CpetThresholds.RER_HIGH
     borg_ok = d.borg_rpe is not None and d.borg_rpe >= CpetThresholds.BORG_RPE_MAX
-    
+
     effort_status = "unklar"
     effort_ok = None
-    
+
     if rer_ok or borg_ok:
         effort_status = "maximal wahrscheinlich"
         effort_ok = True
@@ -306,234 +303,389 @@ def analyze_module_0_quality(d: CpetData, physics_alerts: List[str]) -> ModuleRe
     elif d.rer is not None or d.borg_rpe is not None:
         effort_status = "eher submaximal"
         effort_ok = False
-        
-    # Safety Stop
+
     safe_keys = {"angina", "ischämie", "synkope", "arrhythmie", "hypotonie", "desaturation"}
-    is_safe_stop = any(k in d.stop_reason.lower() for k in safe_keys)
-    
-    if d.stop_reason: parts.append(f"Testende: {d.stop_reason}.")
-    if d.stop_reason_text: parts.append(f"Details: {d.stop_reason_text}.")
-    if d.rer: parts.append(f"RER Peak {_fmt(d.rer, 2)}.")
-    if d.hr_pct: parts.append(f"HF Peak {_fmt(d.hr_pct, 0)} % Soll.")
-    if d.borg_rpe: parts.append(f"Borg RPE {_fmt(d.borg_rpe, 0)}.")
-    if effort_status != "unklar": parts.append(f"Ausbelastung: {effort_status}.")
-    
+    is_safe_stop = any(k in (d.stop_reason or "").lower() for k in safe_keys)
+
+    if d.stop_reason:
+        parts.append(f"Testende: {d.stop_reason}.")
+    if d.stop_reason_text:
+        parts.append(f"Details: {d.stop_reason_text}.")
+    if d.rer is not None:
+        parts.append(f"RER Peak {_fmt(d.rer, 2)}.")
+    if d.hr_pct is not None:
+        parts.append(f"HF Peak {_fmt(d.hr_pct, 0)} % Soll.")
+    if d.borg_rpe is not None:
+        parts.append(f"Borg RPE {_fmt(d.borg_rpe, 0)}.")
+    if effort_status != "unklar":
+        parts.append(f"Ausbelastung: {effort_status}.")
+
     if is_safe_stop:
-        parts.append("Sicherheitsabbruch (validiert submaximale Leistung).")
+        parts.append("Sicherheitsabbruch. Submaximale Leistung ist dann plausibel.")
     elif effort_ok is False:
         followups.append("Submaximale Leistung limitiert die Interpretation.")
-        
+        followups.append("Abbruchgrund, RER und Borg konsistent dokumentieren.")
+
     if d.hyperventilation and rer_ok:
-        followups.append("Hyperventilation: RER ggf. falsch hoch.")
-        
+        followups.append("Hyperventilation möglich. RER kann falsch hoch sein.")
+
+    if not d.stop_reason and effort_ok is None:
+        followups.append("Abbruchgrund ergänzen, sonst ist die Qualitätsbewertung unklar.")
+
     sev = "warn" if (effort_ok is False and not is_safe_stop) else "info"
-    if physics_alerts: sev = "bad"
-    
+    if physics_alerts:
+        sev = "bad"
+
     return ModuleResult(
-        title="Modul 0: Qualität", status=effort_status, severity=sev,
-        feedback=" ".join(parts),
-        teaching="RER ≥ 1.10 beweist metabolische Maximalleistung. Sicherheitsabbruch ist ein valider Endpunkt.",
+        title="Modul 0: Qualität",
+        status=effort_status,
+        severity=sev,
+        feedback=" ".join(parts) if parts else "Keine Qualitätsangaben.",
+        teaching="Ausbelastung wird über RER, Borg und Abbruchgrund beurteilt. Submaximale Tests sind interpretierbar, aber nur mit klarer Begründung. Sicherheitsabbruch ist ein valider Endpunkt.",
         followups=followups,
-        flags={"cpet_test_effort_ok_local": effort_ok, "cpet_stop_safety_local": is_safe_stop, "cpet_test_quality_status": effort_status}
+        flags={"cpet_test_effort_ok_local": effort_ok, "cpet_stop_safety_local": is_safe_stop, "cpet_test_quality_status": effort_status},
     )
 
 def analyze_module_1_drive(d: CpetData, m0: ModuleResult) -> ModuleResult:
-    parts = []
-    followups = []
-    
-    # Chronotropy Logic
-    chrono_susp = False
-    if d.rer and d.rer >= CpetThresholds.RER_MAX and d.hr_pct and d.hr_pct < CpetThresholds.HR_PRED_LOW:
-        chrono_susp = True
-        parts.append("Chronotrope Inkompetenz verdächtig (Maximaler RER, niedrige HF-Reserve).")
-        followups.append("Betablocker? Sinusknoten?")
-    elif d.hr_pct and d.hr_pct < CpetThresholds.HR_PRED_LOW and d.rer and d.rer >= CpetThresholds.RER_HIGH:
-         parts.append("HF-Anstieg niedrig im Verhältnis zur metabolischen Last.")
+    parts: List[str] = []
+    followups: List[str] = []
 
-    if d.hr_peak: parts.append(f"HF Peak {_fmt(d.hr_peak, 0)} bpm.")
-    if d.hr_pct: parts.append(f"({_fmt(d.hr_pct, 0)} % Soll).")
-    if d.beta_blocker: parts.append("Unter Betablockade.")
-    
+    chrono_susp = False
+
+    if d.rer is not None and d.rer >= CpetThresholds.RER_MAX and d.hr_pct is not None and d.hr_pct < CpetThresholds.HR_PRED_LOW:
+        chrono_susp = True
+        parts.append("Chronotrope Inkompetenz verdächtig. Hoher RER bei niedriger HF Reserve.")
+        followups.append("Betablocker und andere frequenzsenkende Medikation prüfen.")
+        followups.append("Sinusknotenerkrankung oder Schrittmacherstatus prüfen.")
+    elif d.hr_pct is not None and d.hr_pct < CpetThresholds.HR_PRED_LOW and d.rer is not None and d.rer >= CpetThresholds.RER_HIGH:
+        parts.append("HF Anstieg niedrig im Verhältnis zur metabolischen Last.")
+
+    if d.hr_peak is not None:
+        parts.append(f"HF Peak {_fmt(d.hr_peak, 0)} bpm.")
+    if d.hr_pct is not None:
+        parts.append(f"({_fmt(d.hr_pct, 0)} % Soll).")
+    if d.beta_blocker:
+        parts.append("Unter Betablockade.")
+
+    if chrono_susp and m0.flags.get("cpet_test_effort_ok_local") is False:
+        followups.append("Wenn Ausbelastung submaximal: chronotrope Aussage ist unsicher.")
+
     return ModuleResult(
-        title="Modul 1: Antrieb", status="chrono_fail" if chrono_susp else "ok",
+        title="Modul 1: Antrieb",
+        status="chrono_fail" if chrono_susp else "ok",
         severity="warn" if chrono_susp else "info",
-        feedback=" ".join(parts),
-        teaching="Chronotrope Inkompetenz (HF < 85% Soll bei RER > 1.10) limitiert das HZV.",
+        feedback=" ".join(parts) if parts else "Keine Chronotropie Angaben.",
+        teaching="Chronotrope Inkompetenz ist wahrscheinlich, wenn bei RER über 1.10 weniger als 85% der Soll HF erreicht werden. Sie limitiert das Herzzeitvolumen und kann Symptome erklären.",
         followups=followups,
-        flags={"cpet_chronotropic_suspected": chrono_susp}
+        flags={"cpet_chronotropic_suspected": chrono_susp},
     )
 
 def analyze_module_2_capacity(d: CpetData) -> ModuleResult:
+    followups: List[str] = []
     vo2 = d.vo2_peak_rel
     if vo2 is None:
-        return ModuleResult("Modul 2: Aerobe Kapazität", "missing", "warn", "Keine VO2 Daten.", "VO2peak ist Prognosemarker.", [], {})
-        
+        followups.append("VO2peak ergänzen, sonst keine Risiko Einordnung möglich.")
+        return ModuleResult(
+            title="Modul 2: Kapazität",
+            status="missing",
+            severity="warn",
+            feedback="Keine VO2 Daten.",
+            teaching="VO2peak ist Prognosemarker. Interpretation setzt eine nachvollziehbare Ausbelastung voraus.",
+            followups=followups,
+            flags={},
+        )
+
     risk = "high"
-    if vo2 > CpetThresholds.VO2_LOW_RISK: risk = "low"
-    elif vo2 >= CpetThresholds.VO2_INTERMEDIATE: risk = "intermediate"
-    
+    if vo2 > CpetThresholds.VO2_LOW_RISK:
+        risk = "low"
+    elif vo2 >= CpetThresholds.VO2_INTERMEDIATE:
+        risk = "intermediate"
+
     txt = f"V'O2peak {_fmt(vo2, 1)} mL/min/kg."
-    if d.vo2_pct: txt += f" ({_fmt(d.vo2_pct, 0)}% Soll)."
+    if d.vo2_pct:
+        txt += f" ({_fmt(d.vo2_pct, 0)}% Soll)."
     txt += f" Risiko (ESC PH): {risk.upper()}."
-    
+
+    if risk == "high":
+        followups.append("Wenn Ausbelastung unklar: Modul 0 prüfen, sonst Risiko kann überschätzt sein.")
+        followups.append("Bei PH: klinischen Verlauf, 6 MWD, BNP, Echo und RHK Befund integrieren.")
+    elif risk == "intermediate":
+        followups.append("Verlaufskontrolle einplanen und mit Symptomen und Belastbarkeit abgleichen.")
+
     sev = "bad" if risk == "high" else ("warn" if risk == "intermediate" else "info")
     return ModuleResult(
-        title="Modul 2: Kapazität", status=risk, severity=sev, feedback=txt,
-        teaching="VO2peak < 11 ml/min/kg gilt als Hochrisiko bei PH (ESC 2022).",
-        flags={"cpet_vo2_risk_band_local": risk}
+        title="Modul 2: Kapazität",
+        status=risk,
+        severity=sev,
+        feedback=txt,
+        teaching="Bei PH ist VO2peak < 11 ml/min/kg ein Hochrisiko Kriterium. Werte immer im Kontext von Effort und Abbruchgrund bewerten.",
+        followups=followups,
+        flags={"cpet_vo2_risk_band_local": risk},
     )
 
 def analyze_module_3_circ(d: CpetData) -> ModuleResult:
-    parts = []
-    followups = []
-    
-    plateau = d.o2_pulse_pattern in ("plateau", "fallend")
-    high_al = d.bp_dia_peak and d.bp_dia_peak >= 100
-    mismatch = plateau and high_al
-    
-    if d.o2_pulse_peak: parts.append(f"O2-Puls {_fmt(d.o2_pulse_peak, 1)} mL.")
-    if d.o2_pulse_pattern: parts.append(f"Verlauf: {d.o2_pulse_pattern}.")
-    if d.bp_sys_peak: parts.append(f"RR Peak {_fmt(d.bp_sys_peak,0)}/{_fmt(d.bp_dia_peak,0)} mmHg.")
-    
+    parts: List[str] = []
+    followups: List[str] = []
+
+    plateau = str(d.o2_pulse_pattern or "").lower() in ("plateau", "fallend")
+    high_al = d.bp_dia_peak is not None and d.bp_dia_peak >= 100
+    mismatch = bool(plateau and high_al)
+
+    if d.o2_pulse_peak is not None:
+        parts.append(f"O2 Puls {_fmt(d.o2_pulse_peak, 1)} mL.")
+    if d.o2_pulse_pattern:
+        parts.append(f"Verlauf: {d.o2_pulse_pattern}.")
+    if d.bp_sys_peak is not None or d.bp_dia_peak is not None:
+        parts.append(f"RR Peak {_fmt(d.bp_sys_peak,0)}/{_fmt(d.bp_dia_peak,0)} mmHg.")
+
     if mismatch:
-        parts.append("Afterload Mismatch (Plateau + hohe Nachlast).")
-        followups.append("Hypertonie-Management.")
+        parts.append("Afterload Mismatch. Plateau plus hohe Nachlast.")
+        followups.append("Belastungsblutdruck und antihypertensive Therapie prüfen.")
+        followups.append("Echo und ggf. RHK Kontext berücksichtigen.")
     elif plateau:
-        parts.append("Schlagvolumen-Limitierung (Plateau).")
-        
+        parts.append("Schlagvolumen Limitierung möglich.")
+        followups.append("Wenn gleichzeitig VE VCO2 Muster auffällig: zirkulatorisch pulmonal vaskulär abgrenzen.")
+
+    if not plateau and high_al:
+        followups.append("Isolierte hohe Nachlast kann die Limitation mitprägen.")
+
     sev = "warn" if (plateau or high_al) else "info"
     return ModuleResult(
-        title="Modul 3: Zirkulation", status="mismatch" if mismatch else "ok", severity=sev,
-        feedback=" ".join(parts),
-        teaching="O2-Puls-Plateau deutet auf SV-Limitierung hin.",
+        title="Modul 3: Zirkulation",
+        status="mismatch" if mismatch else "ok",
+        severity=sev,
+        feedback=" ".join(parts) if parts else "Keine Zirkulationsangaben.",
+        teaching="Ein O2 Puls Plateau spricht für eine Schlagvolumen Limitierung. Ein gleichzeitiger hoher diastolischer RR stützt eine Nachlast Problematik.",
         followups=followups,
-        flags={"cpet_afterload_mismatch": mismatch, "cpet_o2_pulse_plateau": plateau}
+        flags={"cpet_afterload_mismatch": mismatch, "cpet_o2_pulse_plateau": plateau},
     )
 
 def analyze_module_4_vent(d: CpetData) -> ModuleResult:
-    ve_high = d.ve_vco2_slope and d.ve_vco2_slope >= CpetThresholds.VE_VCO2_SLOPE_HIGH
+    parts: List[str] = []
+    followups: List[str] = []
+
+    ve_high = d.ve_vco2_slope is not None and d.ve_vco2_slope >= CpetThresholds.VE_VCO2_SLOPE_HIGH
     pet_start = d.pet_rest if d.pet_rest is not None else d.pet_vt1
-    pet_low = pet_start and pet_start < CpetThresholds.PETCO2_LOW
+    pet_low = pet_start is not None and pet_start < CpetThresholds.PETCO2_LOW
+
     pet_drop = False
-    if pet_start and d.pet_peak:
+    if pet_start is not None and d.pet_peak is not None:
         if d.pet_peak < (pet_start - CpetThresholds.PETCO2_DROP):
             pet_drop = True
-            
+
     mech_ok = d.br_pct is None or d.br_pct >= CpetThresholds.BR_NORMAL
     ph_pattern = bool(ve_high and (pet_drop or pet_low) and mech_ok)
-    
-    parts = []
-    if d.ve_vco2_slope: parts.append(f"V'E/V'CO2 Slope {_fmt(d.ve_vco2_slope, 0)}.")
-    if pet_start: parts.append(f"PETCO2 Start {_fmt(pet_start, 0)} mmHg.")
-    if d.pet_peak: parts.append(f"Peak {_fmt(d.pet_peak, 0)} mmHg.")
-    
-    if ph_pattern: parts.append("Muster: Pulmonal-vaskulär (PH-Verdacht).")
-    elif ve_high: parts.append("Ventilatorisch ineffizient.")
-    
+
+    if d.ve_vco2_slope is not None:
+        parts.append(f"VE VCO2 Slope {_fmt(d.ve_vco2_slope, 0)}.")
+    if pet_start is not None:
+        parts.append(f"PETCO2 Start {_fmt(pet_start, 0)} mmHg.")
+    if d.pet_peak is not None:
+        parts.append(f"Peak {_fmt(d.pet_peak, 0)} mmHg.")
+
+    if ph_pattern:
+        parts.append("Muster pulmonal vaskulär. PH Verdacht.")
+        followups.append("Abgleich mit Echo und RHK. Bei Bedarf V Q und CT Diagnostik.")
+        followups.append("Wenn Mechanik doch limitiert: gemischte Limitation erwägen.")
+    elif ve_high:
+        parts.append("Ventilatorisch ineffizient.")
+        followups.append("VE VCO2 Slope im Verlauf einordnen und mit PETCO2 Verlauf plausibilisieren.")
+
     sev = "bad" if ph_pattern else ("warn" if ve_high else "info")
     return ModuleResult(
-        title="Modul 4: Gasaustausch", status="ph" if ph_pattern else "ok", severity=sev,
-        feedback=" ".join(parts),
-        teaching="Hoher Slope + fallendes PETCO2 bei freier Mechanik ist typisch für PH.",
-        flags={"cpet_pulm_vasc_pattern": ph_pattern}
+        title="Modul 4: Gasaustausch",
+        status="ph" if ph_pattern else "ok",
+        severity=sev,
+        feedback=" ".join(parts) if parts else "Keine Gasaustauschangaben.",
+        teaching="Ein hoher VE VCO2 Slope zusammen mit niedrigem oder fallendem PETCO2 bei freier Mechanik ist typisch für ein pulmonal vaskuläres Muster.",
+        followups=followups,
+        flags={"cpet_pulm_vasc_pattern": ph_pattern},
     )
 
 def analyze_module_5_mech(d: CpetData) -> ModuleResult:
-    parts = []
+    parts: List[str] = []
+    followups: List[str] = []
     mech_lim = False
-    
-    # Calc ratio
+
     ratio = None
     if d.ve_peak and d.mvv and d.mvv > 0:
         ratio = d.ve_peak / d.mvv
-        if ratio >= CpetThresholds.VE_MVV_RATIO_HIGH: mech_lim = True
-    
+        if ratio >= CpetThresholds.VE_MVV_RATIO_HIGH:
+            mech_lim = True
+
     br_val = d.br_pct
     if br_val is None and ratio is not None:
-         br_val = (1.0 - ratio) * 100.0
+        br_val = (1.0 - ratio) * 100.0
 
     if br_val is not None and br_val < CpetThresholds.BR_LOW:
         mech_lim = True
+
     if d.flow_limit_visual == "ja":
         mech_lim = True
-        
-    if br_val is not None: parts.append(f"Atemreserve {_fmt(br_val, 0)}%.")
-    if ratio: parts.append(f"V'E/MVV {_fmt(ratio, 2)}.")
-    if d.flow_limit_visual == "ja": parts.append("Flow-Loop limitiert.")
-    
-    if mech_lim: parts.append("Ventilatorische Limitation.")
-    
+
+    if br_val is not None:
+        parts.append(f"Atemreserve {_fmt(br_val, 0)}%.")
+    if ratio is not None:
+        parts.append(f"V'E/MVV {_fmt(ratio, 2)}.")
+    if d.flow_limit_visual == "ja":
+        parts.append("Flow Volume Loops limitiert.")
+
+    if mech_lim:
+        followups.append("Mechanische Limitation: Lufu, Flow Volume Loops und ggf. Dynamik (Hyperinflation) prüfen.")
+        followups.append("Wenn gleichzeitig hoher VE VCO2 Slope: gemischte Limitation möglich.")
+
     return ModuleResult(
-        title="Modul 5: Mechanik", status="mech_lim" if mech_lim else "ok", severity="warn" if mech_lim else "info",
-        feedback=" ".join(parts),
-        teaching="Atemreserve < 15% spricht für mechanische Limitation.",
-        flags={"cpet_mechanical_limited_local": mech_lim, "cpet_ve_mvv_ratio_local": ratio}
+        title="Modul 5: Mechanik",
+        status="mech_lim" if mech_lim else "ok",
+        severity="warn" if mech_lim else "info",
+        feedback=" ".join(parts) if parts else "Keine mechanische Limitation dokumentiert.",
+        teaching="Atemreserve unter 15% oder VE zu MVV über 0.85 spricht für mechanische Limitation. Visuelle Flow Volume Limitierung verstärkt den Befund.",
+        followups=followups,
+        flags={"cpet_mechanical_limited_local": mech_lim, "cpet_ve_mvv_ratio_local": ratio},
     )
 
 def analyze_module_6_gas(d: CpetData) -> ModuleResult:
-    parts = []
+    parts: List[str] = []
+    followups: List[str] = []
+
     spo2_min = d.spo2_nadir if d.spo2_nadir is not None else d.spo2_peak
     desat = False
-    
-    if d.spo2_rest: parts.append(f"Ruhe {_fmt(d.spo2_rest,0)}%.")
-    if spo2_min: parts.append(f"Min {_fmt(spo2_min,0)}%.")
-    
-    if spo2_min and spo2_min < CpetThresholds.SPO2_DESAT_ABS: desat = True
-    if d.spo2_rest and spo2_min and (d.spo2_rest - spo2_min) >= CpetThresholds.SPO2_DROP_DELTA: desat = True
-    
-    if desat: parts.append("Relevante Desaturation.")
-    if d.o2_supp: parts.append(f"unter {_fmt(d.o2_supp, 1)}L O2.")
-    
+
+    if d.spo2_rest is not None:
+        parts.append(f"Ruhe {_fmt(d.spo2_rest, 0)}%.")
+    if spo2_min is not None:
+        parts.append(f"Minimum {_fmt(spo2_min, 0)}%.")
+
+    if spo2_min is not None and spo2_min < CpetThresholds.SPO2_DESAT_ABS:
+        desat = True
+    if d.spo2_rest is not None and spo2_min is not None and (d.spo2_rest - spo2_min) >= CpetThresholds.SPO2_DROP_DELTA:
+        desat = True
+
+    if desat:
+        parts.append("Relevante Desaturation.")
+        followups.append("Wenn Desaturation: Differenzialdiagnostik (Lufu, Diffusion, Bildgebung) und O2 Bedarf klären.")
+        if d.o2_supp is None:
+            followups.append("O2 Gabe während Test dokumentieren, sonst ist die Interpretation unsicher.")
+
+    if d.o2_supp is not None and d.o2_supp > 0:
+        parts.append(f"unter {_fmt(d.o2_supp, 1)} L O2.")
+
     return ModuleResult(
-        title="Modul 6: Oxygenierung", status="desat" if desat else "ok", severity="warn" if desat else "info",
-        feedback=" ".join(parts),
-        teaching="Desaturation < 88% oder Abfall > 4% ist pathologisch.",
-        flags={"cpet_desaturation_local": desat}
+        title="Modul 6: Oxygenierung",
+        status="desat" if desat else "ok",
+        severity="warn" if desat else "info",
+        feedback=" ".join(parts) if parts else "Keine Oxygenierungsdaten dokumentiert.",
+        teaching="Desaturation unter 88% oder ein Abfall um mindestens 4% gilt als pathologisch. O2 Gabe verändert die Aussage und muss dokumentiert sein.",
+        followups=followups,
+        flags={"cpet_desaturation_local": desat},
     )
 
 def analyze_module_7_safety(d: CpetData) -> ModuleResult:
-    parts = []
-    
-    htn = (d.bp_sys_peak and d.bp_sys_peak >= CpetThresholds.BP_SYS_CRITICAL) or \
-          (d.bp_dia_peak and d.bp_dia_peak >= CpetThresholds.BP_DIA_CRITICAL)
+    parts: List[str] = []
+    followups: List[str] = []
+
+    htn = (d.bp_sys_peak is not None and d.bp_sys_peak >= CpetThresholds.BP_SYS_CRITICAL) or (
+        d.bp_dia_peak is not None and d.bp_dia_peak >= CpetThresholds.BP_DIA_CRITICAL
+    )
+
     hypo = False
-    if d.bp_sys_rest and d.bp_sys_peak and d.bp_sys_peak < (d.bp_sys_rest - CpetThresholds.BP_SYS_DROP):
+    if d.bp_sys_rest is not None and d.bp_sys_peak is not None and d.bp_sys_peak < (d.bp_sys_rest - CpetThresholds.BP_SYS_DROP):
         hypo = True
-    if d.syncope: hypo = True
-    
-    ischemia = d.angina or ("senk" in d.st_changes) or ("elev" in d.st_changes)
-    
-    if htn: parts.append("Exzessive Hypertonie.")
-    if hypo: parts.append("Belastungshypotonie!")
-    if d.arrhythmia: parts.append(f"Arrhythmie ({d.arrhythmia_text}).")
-    if ischemia: parts.append("Ischämiezeichen.")
-    
-    red_flag = hypo or d.arrhythmia or ischemia
-    
+    if d.syncope:
+        hypo = True
+
+    ischemia = d.angina or ("senk" in (d.st_changes or "")) or ("hebung" in (d.st_changes or ""))
+
+    if htn:
+        parts.append("Exzessive Hypertonie.")
+    if hypo:
+        parts.append("Belastungshypotonie oder Synkope.")
+    if d.arrhythmia:
+        parts.append("Arrhythmie dokumentiert.")
+        if d.arrhythmia_text:
+            parts.append(f"Details: {d.arrhythmia_text}.")
+    if ischemia:
+        parts.append("Ischämiezeichen.")
+
+    red_flag = bool(hypo or d.arrhythmia or ischemia)
+
+    if red_flag:
+        followups.append("Safety Event: klinische Abklärung und Dokumentation im Befund priorisieren.")
+        followups.append("EKG Befund, Rhythmus und ggf. Troponin Verlauf berücksichtigen.")
+    elif htn:
+        followups.append("Hypertonie unter Belastung einordnen, Blutdruckmanagement prüfen.")
+
     return ModuleResult(
-        title="Modul 7: Sicherheit", status="bad" if red_flag else "ok", severity="bad" if red_flag else ("warn" if htn else "info"),
-        feedback=" ".join(parts) if parts else "Keine Akut-Events.",
-        teaching="Hypotonie, Ischämie oder maligne Arrhythmien sind Abbruchkriterien.",
-        flags={"cpet_safety_red_flag": red_flag, "cpet_severe_htn_local": htn}
+        title="Modul 7: Sicherheit",
+        status="bad" if red_flag else "ok",
+        severity="bad" if red_flag else ("warn" if htn else "info"),
+        feedback=" ".join(parts) if parts else "Keine Akut Events dokumentiert.",
+        teaching="Hypotonie, Ischämiezeichen oder relevante Arrhythmien sind Abbruchkriterien. Diese Befunde sind unabhängig von VO2 prognostisch und therapieentscheidend.",
+        followups=followups,
+        flags={"cpet_safety_red_flag": red_flag, "cpet_severe_htn_local": htn},
     )
 
 def analyze_module_9(d: CpetData) -> ModuleResult:
-    parts = []
+    parts: List[str] = []
+    followups: List[str] = []
+
     if not d.panel_available:
         parts.append("Nicht dokumentiert.")
+        followups.append("Wenn 9 Felder Grafik vorliegt: Checkbox aktivieren und die Muster strukturiert setzen.")
     else:
-        if d.eov: parts.append("EOV vorhanden (Cave!).")
-        if d.vt1_id == "ja": parts.append(f"VT1 erkannt ({d.vt1_method}).")
-        if d.rcp_id == "ja": parts.append("RCP erkannt.")
-        if d.vo2wr_pattern in ("plateau", "flach"): parts.append("VO2/W flach/Plateau.")
-        if d.flow_limit_visual == "ja": parts.append("Flow-Loop limitiert.")
-        if d.panel_comment: parts.append(f"Kommentar: {d.panel_comment}.")
-        
+        if d.eov:
+            parts.append("EOV vorhanden.")
+            followups.append("EOV ist prognostisch ungünstig. Abgleich mit klinischem Verlauf und Risiko Scores.")
+
+        if d.vt1_id:
+            if d.vt1_id == "ja":
+                parts.append(f"VT1 erkannt ({d.vt1_method}).")
+            else:
+                parts.append(f"VT1 {d.vt1_id}.")
+                if d.vt1_id == "unklar":
+                    followups.append("VT1 mit V Slope und VE VO2 Verlauf gegentesten, sonst unklar belassen.")
+
+        if d.rcp_id:
+            if d.rcp_id == "ja":
+                parts.append("RCP erkannt.")
+            else:
+                parts.append(f"RCP {d.rcp_id}.")
+
+        if d.vo2wr_pattern in ("plateau", "flach"):
+            parts.append("VO2 zu Leistung flach oder Plateau.")
+            followups.append("VO2 zu Leistung flach: zirkulatorische Limitation oder Afterload Mismatch erwägen.")
+
+        if d.flow_limit_visual:
+            if d.flow_limit_visual == "ja":
+                parts.append("Flow Volume Loops limitiert.")
+            elif d.flow_limit_visual == "unklar":
+                parts.append("Flow Volume Loops unklar.")
+
+        if d.veeq_pattern:
+            parts.append(f"Ventilatorische Äquivalente: {d.veeq_pattern}.")
+
+        if d.panel_comment:
+            parts.append(f"Kommentar: {d.panel_comment}.")
+
     return ModuleResult(
-        title="Modul 9: Panel", status="eov" if d.eov else "ok", severity="warn" if d.eov else "info",
-        feedback=" ".join(parts),
-        teaching="EOV ist ein schlechter prognostischer Marker.",
-        flags={"cpet_eov_present": d.eov}
+        title="Modul 9: 9 Felder Grafik",
+        status="eov" if d.eov else "ok",
+        severity="warn" if d.eov else "info",
+        feedback=" ".join(parts) if parts else "Keine Angaben.",
+        teaching="Die 9 Felder Grafik dient als visuelle Plausibilisierung. Schwellen (VT1, RCP) sind Ankerpunkte. EOV ist ein ungünstiger Prognosemarker.",
+        followups=followups,
+        flags={
+            "cpet_eov_present": d.eov,
+            "cpet_panel_available": bool(d.panel_available),
+            "cpet_panel_vt1": d.vt1_id,
+            "cpet_panel_vt1_method": d.vt1_method,
+            "cpet_panel_rcp": d.rcp_id,
+            "cpet_panel_eov": bool(d.eov),
+            "cpet_panel_flow_limit": d.flow_limit_visual,
+            "cpet_panel_vo2wr_pattern": d.vo2wr_pattern,
+            "cpet_panel_veeq_pattern": d.veeq_pattern,
+            "cpet_panel_comment": d.panel_comment,
+        },
     )
 
 def analyze_module_final(d: CpetData, modules: Dict[str, ModuleResult]) -> ModuleResult:
@@ -609,52 +761,705 @@ def analyze(ui: Dict[str, Any]) -> Optional[SpiroLogicResult]:
     summary = m_final.feedback
     if m7.severity == "bad": summary = "SICHERHEITSWARNUNG! " + summary
     
-    report_lines = [
-        "Spiroergometrie (Strukturiert):",
-        f"- {m0.feedback}",
-        f"- {m3.feedback}",
-        f"- {m4.feedback}",
-        f"=> {m_final.feedback}"
-    ]
+    # Deutscher Befundungsablauf, maschinenstabil und ohne Annahmen.
+    report_lines: List[str] = ["Spiroergometrie CPET:"]
+
+    # Qualität
+    q = []
+    if d.stop_reason:
+        q.append(f"Testende {d.stop_reason}.")
+    if d.rer is not None:
+        q.append(f"RER {_fmt(d.rer, 2)}.")
+    if d.borg_rpe is not None:
+        q.append(f"Borg {_fmt(d.borg_rpe, 0)}.")
+    if m0.status and m0.status != "unklar":
+        q.append(f"Ausbelastung {m0.status}.")
+    if q:
+        report_lines.append("Qualität: " + " ".join(q))
+
+    # Kapazität
+    k = []
+    if d.vo2_peak_rel is not None:
+        k.append(f"V'O2peak {_fmt(d.vo2_peak_rel, 1)} mL/min/kg.")
+    if d.vo2_pct is not None:
+        k.append(f"{_fmt(d.vo2_pct, 0)}% Soll.")
+    if m2.status and m2.status != "missing":
+        k.append(f"Risiko {m2.status.upper()}.")
+    if k:
+        report_lines.append("Kapazität: " + " ".join(k))
+
+    # Ventilation
+    v = []
+    if d.ve_vco2_slope is not None:
+        v.append(f"V'E V'CO2 Slope {_fmt(d.ve_vco2_slope, 0)}.")
+    pet_start = d.pet_rest if d.pet_rest is not None else d.pet_vt1
+    if pet_start is not None:
+        v.append(f"PETCO2 Start {_fmt(pet_start, 0)} mmHg.")
+    if d.pet_peak is not None:
+        v.append(f"Peak {_fmt(d.pet_peak, 0)} mmHg.")
+    if d.br_pct is not None:
+        v.append(f"Atemreserve {_fmt(d.br_pct, 0)}%.")
+    if v:
+        report_lines.append("Ventilation: " + " ".join(v))
+
+    # Oxygenierung
+    o = []
+    if d.spo2_rest is not None:
+        o.append(f"SpO2 Ruhe {_fmt(d.spo2_rest, 0)}%.")
+    spo2_min = d.spo2_nadir if d.spo2_nadir is not None else d.spo2_peak
+    if spo2_min is not None:
+        o.append(f"Min {_fmt(spo2_min, 0)}%.")
+    if d.o2_supp is not None and d.o2_supp > 0:
+        o.append(f"O2 {_fmt(d.o2_supp, 1)} L.")
+    if o:
+        report_lines.append("Oxygenierung: " + " ".join(o))
+
+    # Zirkulation
+    z = []
+    if d.o2_pulse_peak is not None:
+        z.append(f"O2 Puls {_fmt(d.o2_pulse_peak, 1)} mL.")
+    if d.o2_pulse_pattern:
+        z.append(f"Verlauf {d.o2_pulse_pattern}.")
+    if d.bp_sys_peak is not None or d.bp_dia_peak is not None:
+        z.append(f"RR Peak {_fmt(d.bp_sys_peak, 0)}/{_fmt(d.bp_dia_peak, 0)} mmHg.")
+    if d.hr_peak is not None and d.hr_pct is not None:
+        z.append(f"HF Peak {_fmt(d.hr_peak, 0)} bpm ({_fmt(d.hr_pct, 0)}% Soll).")
+    elif d.hr_peak is not None:
+        z.append(f"HF Peak {_fmt(d.hr_peak, 0)} bpm.")
+    if z:
+        report_lines.append("Zirkulation: " + " ".join(z))
+
+    # Sicherheit
+    if m7.severity == "bad":
+        report_lines.append("Sicherheit: Safety Event.")
+
+    # Kombinationshinweise (nur bei Datenlage)
+    hints: List[str] = []
+    pet_low = pet_start is not None and pet_start < CpetThresholds.PETCO2_LOW
+    pet_drop = False
+    if pet_start is not None and d.pet_peak is not None:
+        pet_drop = d.pet_peak < (pet_start - CpetThresholds.PETCO2_DROP)
+
+    ve_high = d.ve_vco2_slope is not None and d.ve_vco2_slope >= CpetThresholds.VE_VCO2_SLOPE_HIGH
+    ratio = None
+    if d.ve_peak is not None and d.mvv is not None and d.mvv > 0:
+        ratio = d.ve_peak / d.mvv
+    br_val = d.br_pct
+    if br_val is None and ratio is not None:
+        br_val = (1.0 - ratio) * 100.0
+    mech_ok = br_val is None or br_val >= CpetThresholds.BR_NORMAL
+    if ve_high and mech_ok and (pet_low or pet_drop):
+        hints.append("Hinweis: Muster pulmonal vaskulär.")
+    plateau = str(d.o2_pulse_pattern or "").lower() in ("plateau", "fallend")
+    afterload = d.bp_dia_peak is not None and d.bp_dia_peak >= 100
+    if plateau and afterload:
+        hints.append("Hinweis: Afterload Mismatch möglich.")
+    elif plateau:
+        hints.append("Hinweis: SV Limitierung möglich.")
+
+    if hints:
+        report_lines.append("Hinweise: " + " ".join(hints))
+
+    report_lines.append(f"Synthese: {m_final.feedback}")
     
+    # Fail-safe: never assume a flag is present.
+    lim_label = str((m_final.flags or {}).get('cpet_limitation_type_final') or 'unbestimmt')
+
     return SpiroLogicResult(
         module0=m0, module1=m1, module2=m2, module3=m3,
         module4=m4, module5_mech=m5, module6_gas=m6,
         module7_safety=m7, module9=m9, module_final=m_final,
         overall_summary=summary,
-        headline=f"CPET: {m_final.flags['cpet_limitation_type_final']}",
+        headline=f"CPET: {lim_label}",
         clinical_summary=summary,
         report_text="\n".join(report_lines),
-        derived={**m_final.flags, **m4.flags}
+        derived={**(m_final.flags or {}), **(m4.flags or {})}
     )
 
+
 def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
-    res = analyze(ui)
-    if not res: return {"report_text": ""}
-    
+    """Build all UI outputs for the CPET Wizard.
+
+    Requirements
+    - Fail-safe: MUST NOT raise, because the surrounding clinical UI must keep running.
+    - Didactic: if minimum inputs are missing, show deterministic guidance instead of empty output.
+    """
+
+    def _teaching_vo2_html() -> str:
+        """Didactic, read-only CPET teaching blocks for CPET beginners.
+
+        Strict rules:
+        - No assumptions about the individual case.
+        - No diagnoses.
+        - No auto-filled values.
+        """
+        # Use HTML <details> to keep UI compact. No italics.
+        # Text rules: short, clear, no assumptions, no diagnoses.
+        return (
+            "<details class='spiro-edu__details' open>"
+            "<summary class='spiro-edu__summary'>Lernmodul V'O2</summary>"
+            "<div class='spiro-edu__teach'>"
+            "<div class='spiro-edu__sub'>Was ist das</div>"
+            "<div>V'O2 ist die O2 Aufnahme pro Minute. Es ist der zentrale Summenparameter der CPET.</div>"
+            "<div class='spiro-edu__sub'>Merksatz</div>"
+            "<div>Fick: V'O2 = HZV × C(a v)O2.</div>"
+            "<ul>"
+            "<li>HZV steigt durch HF und SV.</li>"
+            "<li>C(a v)O2 steigt durch O2 Extraktion in der Muskulatur.</li>"
+            "</ul>"
+            "<div class='spiro-edu__sub'>Praxis</div>"
+            "<ul>"
+            "<li>V'O2peak ist der höchste gemessene Wert und wird klinisch berichtet.</li>"
+            "<li>V'O2 pro Watt ist als Orientierung oft ca. 10 mL/min/W am Fahrradergometer.</li>"
+            "</ul>"
+            "<div class='spiro-edu__sub'>Häufige Fehler</div>"
+            "<ul>"
+            "<li>Watt ist stärker protokollabhängig als V'O2.</li>"
+            "<li>mL/min/kg kann bei Adipositas verzerren. Prozent Soll hilft häufig.</li>"
+            "</ul>"
+            "</div>"
+            "</details>"
+
+            "<details class='spiro-edu__details'>"
+            "<summary class='spiro-edu__summary'>Lernmodul O2 Puls</summary>"
+            "<div class='spiro-edu__teach'>"
+            "<div class='spiro-edu__sub'>Definition</div>"
+            "<div>O2 Puls = V'O2 / HF. Das ist die O2 Menge pro Herzschlag.</div>"
+            "<div class='spiro-edu__sub'>Physiologie</div>"
+            "<div>Näherung: O2 Puls ≈ SV × C(a v)O2. Ohne C(a v)O2 ist es kein exakter SV Wert.</div>"
+            "<div class='spiro-edu__sub'>Typische Muster</div>"
+            "<ul>"
+            "<li>Gesund: O2 Puls steigt unter Belastung weiter an.</li>"
+            "<li>Plateau früh: Hinweis auf fehlende SV Reserve. Kontext prüfen.</li>"
+            "</ul>"
+            "<div class='spiro-edu__sub'>Einflussgrößen</div>"
+            "<div>Anämie oder Hypoxämie senken den O2 Puls, weil die Transportkapazität reduziert ist.</div>"
+            "</div>"
+            "</details>"
+
+            "<details class='spiro-edu__details'>"
+            "<summary class='spiro-edu__summary'>Lernmodul V'O2max und V'O2peak</summary>"
+            "<div class='spiro-edu__teach'>"
+            "<ul>"
+            "<li>V'O2max: Plateau trotz weiterer Laststeigerung.</li>"
+            "<li>V'O2peak: höchster Wert der Untersuchung.</li>"
+            "</ul>"
+            "<div class='spiro-edu__sub'>Praxis</div>"
+            "<div>Meist wird V'O2peak berichtet. Für die Einordnung sind Testqualität und Abbruchgrund zentral.</div>"
+            "</div>"
+            "</details>"
+
+            "<details class='spiro-edu__details'>"
+            "<summary class='spiro-edu__summary'>Lernmodul V'CO2</summary>"
+            "<div class='spiro-edu__teach'>"
+            "<div class='spiro-edu__sub'>Was ist das</div>"
+            "<div>V'CO2 ist die CO2 Abgabe pro Minute. Unter höherer Last steigt V'CO2 auch durch Säurepufferung.</div>"
+            "<div class='spiro-edu__sub'>Warum wichtig</div>"
+            "<div>V'CO2 ist atemvariabler als V'O2, weil Puffersysteme beteiligt sind.</div>"
+            "</div>"
+            "</details>"
+
+            "<details class='spiro-edu__details'>"
+            "<summary class='spiro-edu__summary'>Lernmodul AT, VAT und VCP</summary>"
+            "<div class='spiro-edu__teach'>"
+            "<div class='spiro-edu__sub'>AT und VAT</div>"
+            "<div>AT ist der Übergang zu relevantem anaerobem Anteil. VAT ist die indirekte Bestimmung über Atemgase.</div>"
+            "<div class='spiro-edu__sub'>V Slope</div>"
+            "<div>Im aeroben Bereich sind V'O2 und V'CO2 annähernd linear. Bei zunehmender Pufferung steigt V'CO2 stärker.</div>"
+            "<div class='spiro-edu__sub'>VCP</div>"
+            "<div>Oberhalb VCP steigt die Ventilation im Verhältnis zu V'CO2 überproportional.</div>"
+            "<div class='spiro-edu__sub'>Nutzen</div>"
+            "<div>AT ist weniger motivationsabhängig als Peak und beschreibt Dauerleistungsfähigkeit.</div>"
+            "</div>"
+            "</details>"
+        )
+
+
+
+    def _empty(msg: str) -> Dict[str, Any]:
+        teach = _teaching_vo2_html()
+        m = teach + f"<div class='docx-muted'>{html.escape(msg)}</div>"
+        # Teaching is shown in the live box. Do not duplicate inside module tabs.
+        mod0 = f"<div class='docx-muted'>{html.escape(msg)}</div>"
+        return {
+            "mod0_html": mod0,
+            "mod1_html": "",
+            "mod2_html": "",
+            "mod3_html": "",
+            "mod4_html": "",
+            "mod5_html": "",
+            "mod6_html": "",
+            "mod7_html": "",
+            "mod9_html": "",
+            "modfinal_html": "",
+            "overall_html": m,
+            "headline": "CPET",
+            "clinical_summary": "",
+            "report_text": "",
+            "derived": {},
+            "need_chrono_followups": False,
+            "suspect_ph": False,
+            "eov_present": False,
+        }
+
+    try:
+        res = analyze(ui)
+        if not res:
+            # Minimum input guidance: keep it deterministic and non-committal.
+            return _empty(
+                "CPET Wizard: Bitte mindestens RER, HF Peak, V'O2peak, V'E V'CO2 Slope und PETCO2 (Ruhe/V'T1 oder Peak) eingeben. "
+                "Fehlende Werte werden ausgeschlossen und nicht als 0 interpretiert."
+            )
+    except Exception as e:
+        # Do not crash clinical UI. Log to console for admins.
+        import traceback
+        print("SPIRO_LOGIC_ERROR: analyze() failed:", repr(e))
+        traceback.print_exc()
+        return _empty("CPET Wizard Fehler: Analyse konnte nicht ausgeführt werden (Details in Konsole).")
+
+    # Re-parse for deterministic, value based rendering blocks.
+    # This keeps reporting independent from any preformatted module strings.
+    try:
+        d = CpetData.parse(ui)
+    except Exception as e:
+        import traceback
+        print("SPIRO_LOGIC_ERROR: parse() failed:", repr(e))
+        traceback.print_exc()
+        return _empty("CPET Wizard Fehler: Eingaben konnten nicht geparst werden (Details in Konsole).")
+
+    def _sev_icon(sev: str) -> str:
+        if sev == "bad":
+            return "🔴"
+        if sev == "warn":
+            return "🟠"
+        return "🟢"
+
+    def _esc(x: str) -> str:
+        return html.escape(str(x or ""))
+
+    def _render_followups(items: List[str]) -> str:
+        items = [str(i).strip() for i in (items or []) if str(i).strip()]
+        if not items:
+            return ""
+        lis = "".join(f"<li>{_esc(i)}</li>" for i in items[:6])
+        return (
+            "<div class='spiro-edu__sub'>Nächste Schritte</div>"
+            "<div class='spiro-edu__follow'><ul>" + lis + "</ul></div>"
+        )
+
+    def _render_befundungsabfolge(d: CpetData, res: SpiroLogicResult) -> str:
+        # Deutscher Befundungsablauf: kurz, strukturiert, ohne Annahmen.
+        rows: List[str] = []
+
+        def _add(title: str, parts: List[str]) -> None:
+            parts = [str(p).strip() for p in (parts or []) if str(p).strip()]
+            if not parts:
+                return
+            rows.append(
+                "<li>" +
+                f"<span class='cpet9-k'>{_esc(title)}</span> " +
+                "<span class='cpet9-v'>" + _esc(" ".join(parts)) + "</span>" +
+                "</li>"
+            )
+
+        # 1 Qualität
+        q = []
+        if d.stop_reason:
+            q.append(f"Testende {d.stop_reason}.")
+        if d.rer is not None:
+            q.append(f"RER {_fmt(d.rer, 2)}.")
+        if d.borg_rpe is not None:
+            q.append(f"Borg {_fmt(d.borg_rpe, 0)}.")
+        if res.module0.status and res.module0.status != "unklar":
+            q.append(f"Ausbelastung {res.module0.status}.")
+        _add("Qualität", q)
+
+        # 2 Kapazität
+        k = []
+        if d.vo2_peak_rel is not None:
+            k.append(f"V'O2peak {_fmt(d.vo2_peak_rel, 1)} mL/min/kg.")
+        if d.vo2_pct is not None:
+            k.append(f"{_fmt(d.vo2_pct, 0)}% Soll.")
+        if res.module2.status and res.module2.status != "missing":
+            k.append(f"Risiko {res.module2.status.upper()}.")
+        _add("Kapazität", k)
+
+        # 3 Ventilation Mechanik
+        m = []
+        if d.br_pct is not None:
+            m.append(f"Atemreserve {_fmt(d.br_pct, 0)}%.")
+        if d.ve_peak is not None and d.mvv is not None and d.mvv > 0:
+            m.append(f"V'E MVV {_fmt(d.ve_peak / d.mvv, 2)}.")
+        if d.flow_limit_visual:
+            m.append(f"Flow Loops {d.flow_limit_visual}.")
+        if m:
+            _add("Ventilation Mechanik", m)
+
+        # 4 Ventilation Effizienz und PETCO2
+        g = []
+        if d.ve_vco2_slope is not None:
+            g.append(f"V'E V'CO2 Slope {_fmt(d.ve_vco2_slope, 0)}.")
+        if d.pet_vt1 is not None or d.pet_rest is not None:
+            pet_start = d.pet_rest if d.pet_rest is not None else d.pet_vt1
+            if pet_start is not None:
+                g.append(f"PETCO2 Start {_fmt(pet_start, 0)} mmHg.")
+        if d.pet_peak is not None:
+            g.append(f"Peak {_fmt(d.pet_peak, 0)} mmHg.")
+        _add("Ventilation Effizienz", g)
+
+        # 5 Oxygenierung
+        o = []
+        if d.spo2_rest is not None:
+            o.append(f"SpO2 Ruhe {_fmt(d.spo2_rest, 0)}%.")
+        spo2_min = d.spo2_nadir if d.spo2_nadir is not None else d.spo2_peak
+        if spo2_min is not None:
+            o.append(f"Min {_fmt(spo2_min, 0)}%.")
+        if d.o2_supp is not None and d.o2_supp > 0:
+            o.append(f"O2 {_fmt(d.o2_supp, 1)} L.")
+        _add("Oxygenierung", o)
+
+        # 6 Zirkulation
+        z = []
+        if d.o2_pulse_peak is not None:
+            z.append(f"O2 Puls {_fmt(d.o2_pulse_peak, 1)} mL.")
+        if d.o2_pulse_pattern:
+            z.append(f"Verlauf {d.o2_pulse_pattern}.")
+        if d.bp_sys_peak is not None or d.bp_dia_peak is not None:
+            z.append(f"RR Peak {_fmt(d.bp_sys_peak, 0)}/{_fmt(d.bp_dia_peak, 0)} mmHg.")
+        if d.hr_peak is not None:
+            if d.hr_pct is not None:
+                z.append(f"HF Peak {_fmt(d.hr_peak, 0)} bpm ({_fmt(d.hr_pct, 0)}% Soll).")
+            else:
+                z.append(f"HF Peak {_fmt(d.hr_peak, 0)} bpm.")
+        _add("Zirkulation", z)
+
+        # 7 Sicherheit
+        s = []
+        if res.module7_safety.severity == "bad":
+            s.append("Safety Event.")
+        if d.angina:
+            s.append("Angina.")
+        if d.syncope:
+            s.append("Synkope.")
+        if d.arrhythmia:
+            s.append("Arrhythmie.")
+        if d.st_changes:
+            s.append(f"ST {d.st_changes}.")
+        _add("Sicherheit", s)
+
+        # 8 Synthese
+        _add("Synthese", [res.module_final.feedback])
+
+        if not rows:
+            return ""
+
+        return (
+            "<div class='spiro-edu__sub'>Befundungsabfolge</div>"
+            "<div class='spiro-edu__follow'><ol>" + "".join(rows) + "</ol></div>"
+        )
+
+    def _render_interaktionshinweise(d: CpetData) -> str:
+        # Deterministische Hinweise aus Kombinationen von Eingaben.
+        hints: List[str] = []
+
+        # Pulmonal vaskulär Muster
+        pet_start = d.pet_rest if d.pet_rest is not None else d.pet_vt1
+        pet_low = pet_start is not None and pet_start < CpetThresholds.PETCO2_LOW
+        pet_drop = False
+        if pet_start is not None and d.pet_peak is not None:
+            pet_drop = d.pet_peak < (pet_start - CpetThresholds.PETCO2_DROP)
+
+        ve_high = d.ve_vco2_slope is not None and d.ve_vco2_slope >= CpetThresholds.VE_VCO2_SLOPE_HIGH
+        # Mechanik frei
+        ratio = None
+        if d.ve_peak is not None and d.mvv is not None and d.mvv > 0:
+            ratio = d.ve_peak / d.mvv
+        br_val = d.br_pct
+        if br_val is None and ratio is not None:
+            br_val = (1.0 - ratio) * 100.0
+        mech_ok = br_val is None or br_val >= CpetThresholds.BR_NORMAL
+
+        if ve_high and mech_ok and (pet_low or pet_drop):
+            parts = []
+            parts.append(f"V'E V'CO2 Slope {_fmt(d.ve_vco2_slope, 0)}")
+            if pet_start is not None:
+                parts.append(f"PETCO2 Start {_fmt(pet_start, 0)}")
+            if d.pet_peak is not None:
+                parts.append(f"Peak {_fmt(d.pet_peak, 0)}")
+            if br_val is not None:
+                parts.append(f"Atemreserve {_fmt(br_val, 0)}%")
+            hints.append(" ".join(parts) + " Hinweis für pulmonal vaskuläres Muster.")
+
+        # Mechanische Limitation
+        if br_val is not None and br_val < CpetThresholds.BR_LOW:
+            hints.append(f"Atemreserve {_fmt(br_val, 0)}% Hinweis für mechanische Limitation.")
+        elif ratio is not None and ratio >= CpetThresholds.VE_MVV_RATIO_HIGH:
+            hints.append(f"V'E MVV {_fmt(ratio, 2)} Hinweis für mechanische Limitation.")
+        if str(d.flow_limit_visual or "").lower() == "ja":
+            hints.append("Flow Volume Loops limitiert Hinweis für mechanische Limitation.")
+
+        # Zirkulation Afterload und SV
+        plateau = str(d.o2_pulse_pattern or "").lower() in ("plateau", "fallend")
+        afterload = d.bp_dia_peak is not None and d.bp_dia_peak >= 100
+        if plateau and afterload:
+            hints.append("O2 Puls Plateau plus hoher diast RR Hinweis für Afterload Mismatch.")
+        elif plateau:
+            hints.append("O2 Puls Plateau Hinweis für SV Limitierung.")
+
+        # Chronotropie
+        if d.rer is not None and d.rer >= CpetThresholds.RER_MAX and d.hr_pct is not None and d.hr_pct < CpetThresholds.HR_PRED_LOW:
+            hints.append(f"RER {_fmt(d.rer, 2)} bei HF {_fmt(d.hr_pct, 0)}% Soll Hinweis für chronotrope Inkompetenz.")
+
+        # Oxygenierung
+        spo2_min = d.spo2_nadir if d.spo2_nadir is not None else d.spo2_peak
+        if spo2_min is not None:
+            if spo2_min < CpetThresholds.SPO2_DESAT_ABS:
+                hints.append(f"SpO2 Minimum {_fmt(spo2_min, 0)}% Hinweis für Desaturation.")
+            elif d.spo2_rest is not None and (d.spo2_rest - spo2_min) >= CpetThresholds.SPO2_DROP_DELTA:
+                hints.append(f"SpO2 Abfall {_fmt(d.spo2_rest - spo2_min, 0)}% Hinweis für Desaturation.")
+
+        if not hints:
+            return ""
+
+        lis = "".join(f"<li>{_esc(h)}</li>" for h in hints[:10])
+        return (
+            "<div class='spiro-edu__sub'>Hinweise aus Eingaben</div>"
+            "<div class='spiro-edu__follow'><ul>" + lis + "</ul></div>"
+        )
+
+    def _render_9panel_grid(m: ModuleResult, d: CpetData) -> str:
+        f = m.flags or {}
+        if not bool(f.get("cpet_panel_available")):
+            return "<div class='docx-muted'>9 Felder Grafik nicht dokumentiert.</div>"
+
+        vt1 = str(f.get("cpet_panel_vt1") or "").strip().lower()
+        vt1m = str(f.get("cpet_panel_vt1_method") or "").strip()
+        rcp = str(f.get("cpet_panel_rcp") or "").strip().lower()
+        eov = bool(f.get("cpet_panel_eov"))
+        flow = str(f.get("cpet_panel_flow_limit") or "").strip().lower()
+        vo2wr = str(f.get("cpet_panel_vo2wr_pattern") or "").strip().lower()
+        veeq = str(f.get("cpet_panel_veeq_pattern") or "").strip().lower()
+        comment = str(f.get("cpet_panel_comment") or "").strip()
+
+        def _n(x: Optional[float], nd: int = 0) -> str:
+            if x is None:
+                return "nicht erhoben"
+            try:
+                return f"{x:.{nd}f}"
+            except Exception:
+                return "nicht erhoben"
+
+        # Derived convenience values used in classic nine panel reading.
+        pet_start = d.pet_rest if d.pet_rest is not None else d.pet_vt1
+        pet_low = pet_start is not None and pet_start < CpetThresholds.PETCO2_LOW
+        pet_drop = False
+        if pet_start is not None and d.pet_peak is not None:
+            pet_drop = d.pet_peak < (pet_start - CpetThresholds.PETCO2_DROP)
+
+        ve_slope = d.ve_vco2_slope
+        ve_high = ve_slope is not None and ve_slope >= CpetThresholds.VE_VCO2_SLOPE_HIGH
+        ve_elev = ve_slope is not None and ve_slope >= CpetThresholds.VE_VCO2_SLOPE_ELEVATED
+
+        ratio = None
+        if d.ve_peak is not None and d.mvv is not None and d.mvv > 0:
+            ratio = d.ve_peak / d.mvv
+        br_val = d.br_pct
+        if br_val is None and ratio is not None:
+            br_val = (1.0 - ratio) * 100.0
+        mech_lim = False
+        if ratio is not None and ratio >= CpetThresholds.VE_MVV_RATIO_HIGH:
+            mech_lim = True
+        if br_val is not None and br_val < CpetThresholds.BR_LOW:
+            mech_lim = True
+        if flow == "ja":
+            mech_lim = True
+
+        spo2_min = d.spo2_nadir if d.spo2_nadir is not None else d.spo2_peak
+        desat = False
+        if spo2_min is not None and spo2_min < CpetThresholds.SPO2_DESAT_ABS:
+            desat = True
+        if d.spo2_rest is not None and spo2_min is not None and (d.spo2_rest - spo2_min) >= CpetThresholds.SPO2_DROP_DELTA:
+            desat = True
+
+        plateau = str(d.o2_pulse_pattern or "").lower() in ("plateau", "fallend")
+        afterload = bool(d.bp_dia_peak is not None and d.bp_dia_peak >= 100)
+        circ_warn = bool(plateau or afterload)
+
+        def _cell(title: str, value: str, sev: str = "info") -> str:
+            cls = "cpet9-cell"
+            if sev == "warn":
+                cls += " cpet9-cell--warn"
+            elif sev == "bad":
+                cls += " cpet9-cell--bad"
+            elif sev == "good":
+                cls += " cpet9-cell--good"
+            return (
+                f"<div class='{cls}'>"
+                f"<div class='cpet9-k'>{_esc(title)}</div>"
+                f"<div class='cpet9-v'>{_esc(value)}</div>"
+                "</div>"
+            )
+
+        # Classic 3x3 didactic mapping: show the values that drive the interpretation.
+        # This is a teaching layer only. It must not overwrite manual clinical judgement.
+        c = []
+        c.append(_cell("V'E Verlauf", "EOV vorhanden" if eov else "kein EOV dokumentiert", "warn" if eov else "good"))
+
+        hr_txt = ""
+        if d.hr_peak is not None:
+            hr_txt += f"HF Peak {_n(d.hr_peak, 0)}"
+            if d.hr_pct is not None:
+                hr_txt += f" ({_n(d.hr_pct, 0)}% Soll)"
+        if d.o2_pulse_peak is not None:
+            if hr_txt:
+                hr_txt += "; "
+            hr_txt += f"O2 Puls {_n(d.o2_pulse_peak, 1)}"
+            if d.o2_pulse_pattern:
+                hr_txt += f" ({d.o2_pulse_pattern})"
+        if not hr_txt:
+            hr_txt = "nicht erhoben"
+        c.append(_cell("HF und O2 Puls", hr_txt, "warn" if circ_warn else "good"))
+
+        pet_txt = ""
+        if pet_start is not None:
+            pet_txt += f"Start {_n(pet_start, 0)}"
+        if d.pet_peak is not None:
+            pet_txt += f" Peak {_n(d.pet_peak, 0)}"
+        if not pet_txt:
+            pet_txt = "nicht erhoben"
+        pet_sev = "bad" if (pet_low and pet_drop) else ("warn" if (pet_low or pet_drop) else "good")
+        c.append(_cell("PETCO2 Verlauf", pet_txt, pet_sev))
+
+        sev_vo2wr = "warn" if vo2wr in ("flach", "plateau") else ("info" if vo2wr == "unklar" else "good")
+        vo2wr_txt = "unklar" if not vo2wr else vo2wr
+        if d.vo2_wr_slope is not None:
+            vo2wr_txt = f"{vo2wr_txt}; Slope {_n(d.vo2_wr_slope, 1)}"
+        c.append(_cell("VO2 zu Leistung", vo2wr_txt, sev_vo2wr))
+
+        ve_txt = "nicht erhoben"
+        if ve_slope is not None:
+            ve_txt = f"Slope {_n(ve_slope, 0)}"
+        ve_sev = "bad" if ve_high else ("warn" if ve_elev else "good")
+        c.append(_cell("V'E zu V'CO2", ve_txt, ve_sev))
+
+        sev_veeq = "warn" if veeq in ("frueh", "kein") else ("info" if veeq == "unklar" else "good")
+        veeq_txt = "unklar" if not veeq else veeq
+        c.append(_cell("Ventilatorische Äquivalente", veeq_txt, sev_veeq))
+
+        spo2_txt = ""
+        if d.spo2_rest is not None:
+            spo2_txt += f"Ruhe {_n(d.spo2_rest,0)}%"
+        if spo2_min is not None:
+            if spo2_txt:
+                spo2_txt += "; "
+            spo2_txt += f"Min {_n(spo2_min,0)}%"
+        if d.o2_supp is not None and d.o2_supp > 0:
+            spo2_txt += f"; O2 {_n(d.o2_supp,1)} L"
+        if not spo2_txt:
+            spo2_txt = "nicht erhoben"
+        c.append(_cell("SpO2 und O2", spo2_txt, "warn" if desat else "good"))
+
+        flow_txt = "unklar" if not flow else flow
+        mech_txt = ""
+        if br_val is not None:
+            mech_txt += f"Atemreserve {_n(br_val,0)}%"
+        if ratio is not None:
+            if mech_txt:
+                mech_txt += "; "
+            mech_txt += f"V'E MVV {_n(ratio,2)}"
+        if flow in ("ja", "unklar"):
+            if mech_txt:
+                mech_txt += "; "
+            mech_txt += f"Flow Loops {flow_txt}"
+        if not mech_txt:
+            mech_txt = "nicht erhoben"
+        c.append(_cell("Mechanik", mech_txt, "warn" if mech_lim else "good"))
+
+        thr = []
+        if vt1 == "ja":
+            thr.append("VT1 erkannt")
+            if vt1m:
+                thr.append(f"Methode {vt1m}")
+        elif vt1 in ("nein", "unklar"):
+            thr.append(f"VT1 {vt1 if vt1 else 'unklar'}")
+        if rcp == "ja":
+            thr.append("RCP erkannt")
+        elif rcp in ("nein", "unklar"):
+            thr.append(f"RCP {rcp if rcp else 'unklar'}")
+        thr_txt = ", ".join(thr) if thr else "keine Schwellenangabe"
+        c.append(_cell("Schwellen", thr_txt, "info"))
+
+        grid = "<div class='cpet9-grid'>" + "".join(c) + "</div>"
+        if comment:
+            grid += "<div class='spiro-edu__sub'>Kommentar</div><div class='spiro-edu__feedback'>" + _esc(comment) + "</div>"
+        return grid
+
     def _html(m: ModuleResult) -> str:
-        badge = "🔴" if m.severity == "bad" else ("🟠" if m.severity == "warn" else "🟢")
-        return (f"<div class='spiro-box'><div class='spiro-title'>{badge} {m.title}</div>"
-                f"<div class='spiro-content'>{m.feedback}</div>"
-                f"<div class='spiro-teach'>{m.teaching}</div></div>")
-                
-    return {
-        "mod0_html": _html(res.module0),
-        "mod1_html": _html(res.module1),
-        "mod2_html": _html(res.module2),
-        "mod3_html": _html(res.module3),
-        "mod4_html": _html(res.module4),
-        "mod5_html": _html(res.module5_mech),
-        "mod6_html": _html(res.module6_gas),
-        "mod7_html": _html(res.module7_safety),
-        "mod9_html": _html(res.module9),
-        "modfinal_html": _html(res.module_final),
-        "overall_html": f"<b>{res.headline}</b><br>{res.clinical_summary}",
-        "headline": res.headline,
-        "clinical_summary": res.clinical_summary,
-        "report_text": res.report_text,
-        "derived": res.derived,
-        "need_chrono_followups": res.module1.status == "chrono_fail",
-        "suspect_ph": res.module4.status == "ph",
-        "eov_present": res.module9.flags.get("cpet_eov_present", False),
-    }
+        icon = _sev_icon(m.severity)
+        extra = ""
+        if m.title.lower().startswith("modul 9"):
+            extra = _render_9panel_grid(m, d)
+
+        fb = _esc(m.feedback)
+        teach = _esc(m.teaching)
+
+        out = (
+            "<div class='spiro-edu'>"
+            f"<div class='spiro-edu__title'>{icon} {_esc(m.title)}</div>"
+            f"<div class='spiro-edu__feedback'>{fb}</div>"
+        )
+        if extra:
+            out += "<div class='spiro-edu__sub'>9 Felder Übersicht</div>" + extra
+        if teach:
+            out += "<div class='spiro-edu__sub'>Didaktik</div>" + f"<div class='spiro-edu__teach'>{teach}</div>"
+        out += _render_followups(m.followups)
+        out += "</div>"
+        return out
+
+    try:
+        # Prominent plausibility block (users should see this immediately).
+        physics_alerts = _validate_physics(d)
+        physics_html = ""
+        if physics_alerts:
+            lis = "".join(f"<li>{_esc(a)}</li>" for a in physics_alerts[:10])
+            physics_html = (
+                "<div class='spiro-edu__sub'>Plausibilitätschecks</div>"
+                "<div class='spiro-edu__follow'><ul>" + lis + "</ul></div>"
+            )
+
+        overall_html = (
+            "<div class='spiro-edu spiro-edu--overall'>"
+            f"<div class='spiro-edu__title'>{_esc(res.headline)}</div>"
+            f"<div class='spiro-edu__feedback'>{_esc(res.clinical_summary)}</div>"
+            + physics_html
+            + _render_befundungsabfolge(d, res)
+            + _render_interaktionshinweise(d)
+            + "</div>"
+        )
+
+        teach = _teaching_vo2_html()
+        return {
+            "mod0_html": _html(res.module0),
+            "mod1_html": _html(res.module1),
+            "mod2_html": _html(res.module2),
+            "mod3_html": _html(res.module3),
+            "mod4_html": _html(res.module4),
+            "mod5_html": _html(res.module5_mech),
+            "mod6_html": _html(res.module6_gas),
+            "mod7_html": _html(res.module7_safety),
+            "mod9_html": _html(res.module9),
+            "modfinal_html": _html(res.module_final),
+            "overall_html": teach + overall_html,
+            "headline": res.headline,
+            "clinical_summary": res.clinical_summary,
+            "report_text": res.report_text,
+            "derived": res.derived,
+            "need_chrono_followups": res.module1.status == "chrono_fail",
+            "suspect_ph": res.module4.status == "ph",
+            "eov_present": (res.module9.flags or {}).get("cpet_eov_present", False),
+        }
+    except Exception as e:
+        import traceback
+        print("SPIRO_LOGIC_ERROR: render() failed:", repr(e))
+        traceback.print_exc()
+        return _empty("CPET Wizard Fehler: Ausgabe konnte nicht gerendert werden (Details in Konsole).")

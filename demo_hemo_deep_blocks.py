@@ -1,5 +1,4 @@
-Filename: demo_hemo_deep_blocks.py
-Full Content:
+
 """Mini demo for deep hemodynamic interpretation blocks.
 
 Run:

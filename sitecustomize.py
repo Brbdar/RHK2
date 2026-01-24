@@ -1,5 +1,3 @@
-Filename: sitecustomize.py
-Full Content:
 """
 Clinical Runtime Shield & Environment Hardening.
 

@@ -63,6 +63,9 @@ def _norm_text(s: str) -> str:
     s = s.replace("$", " ").replace("~", " ").replace("|", " ").replace("`", "")
     # Units
     s = s.replace("cm²", "cm2").replace("m²", "m2")
+    # OCR artefacts: superscript '2' becomes '?' or is dropped
+    s = re.sub(r"\b(cm|m)\?\b", lambda m: m.group(1) + "2", s)
+    s = re.sub(r"\bml\s*/\s*(cm|m)\?\b", lambda m: f"ml/{m.group(1)}2", s, flags=re.IGNORECASE)
     # LaTeX-ish / converter variants
     s = re.sub(r"m\s*\^\s*2", "m2", s, flags=re.IGNORECASE)
     s = re.sub(r"m\s*\{\s*2\s*\}", "m2", s, flags=re.IGNORECASE)
@@ -723,29 +726,117 @@ def _extract_text_from_image(path: str) -> Tuple[str, Dict[str, Any]]:
     except Exception as e:
         return "", {"ok": False, "hint": f"Bild nicht lesbar: {e}", "pages": 1, "source": "image_ocr"}
 
-    # pytesseract first (best quality if available)
+    def _ocr_score(t: str) -> int:
+        """Heuristische Bewertung von OCR-Text für Echo-Screenshots.
+
+        Ziel: aus mehreren OCR-Versuchen die wahrscheinlich beste Variante wählen
+        (mehr relevante Echo-Labels erkannt).
+        """
+        if not t:
+            return 0
+        t = t.lower()
+        patterns = [
+            r"\bef\b", r"tapse", r"tr\s*vmax", r"tr\s*vmax", r"tr v", r"s\s*'", r"lavi",
+            r"e/e", r"pasp", r"spap", r"ava", r"mitr", r"aorten", r"trikus",
+        ]
+        s = 0
+        for p in patterns:
+            if re.search(p, t):
+                s += 1
+        # Bonus: je länger (aber gedeckelt) desto besser (reduziert leere OCR)
+        s += min(10, max(0, len(t) // 200))
+        return s
+
+    def _iter_variants(im: "Image.Image"):
+        """Generiere robuste OCR-Varianten für beliebige Echo-Screenshots."""
+        try:
+            from PIL import ImageOps, ImageEnhance
+        except Exception:
+            yield ("orig", im)
+            return
+
+        base = im.convert("RGB")
+        yield ("orig", base)
+
+        # 1) Graustufen + autocontrast
+        g = ImageOps.grayscale(base)
+        yield ("gray", g)
+        yield ("gray_autocontrast", ImageOps.autocontrast(g))
+
+        # 2) Kontrastverstärkung
+        try:
+            yield ("gray_contrast2", ImageEnhance.Contrast(g).enhance(2.0))
+        except Exception:
+            pass
+
+        # 3) Skalierung (kleine Screenshots)
+        try:
+            w, h = base.size
+            if max(w, h) < 2000:
+                yield ("gray_x2", g.resize((w * 2, h * 2)))
+        except Exception:
+            pass
+
+        # 4) Simple threshold (für Tabellen)
+        try:
+            g2 = ImageOps.autocontrast(g)
+            bw = g2.point(lambda x: 0 if x < 160 else 255, mode="1")
+            yield ("bw", bw)
+        except Exception:
+            pass
+
+    # --- Multi-pass OCR: try several image variants, pick best by heuristic score
+    best_txt = ""
+    best_score = 0
+
+    # pytesseract (if available)
     try:
         import pytesseract
-        txt = _norm_text(pytesseract.image_to_string(img))
-        if len(txt.strip()) >= 20:
-            return txt, {"ok": True, "hint": "", "pages": 1, "source": "image_ocr:tesseract"}
+        configs = [
+            "--psm 6",
+            "--psm 4",
+            "--psm 6 -c preserve_interword_spaces=1",
+        ]
+        for vname, vimg in _iter_variants(img):
+            for cfg in configs:
+                try:
+                    t = pytesseract.image_to_string(vimg, lang="deu+eng", config=cfg)
+                    t = _norm_text(t)
+                    sc = _ocr_score(t)
+                    if sc > best_score:
+                        best_score, best_txt = sc, t
+                except Exception:
+                    continue
+        if best_score >= 4 and len(best_txt.strip()) >= 20:
+            return best_txt, {"ok": True, "hint": "", "pages": 1, "source": "image_ocr:tesseract"}
     except Exception:
         pass
 
-    # rapidocr fallback
+    # rapidocr fallback (if available)
     try:
         from rapidocr_onnxruntime import RapidOCR
         import numpy as np
         ocr = RapidOCR()
-        arr = np.array(img)
-        result, _ = ocr(arr)
-        if result:
-            txt = _norm_text("\n".join([r[1] for r in result if r and len(r) >= 2]))
-            if len(txt.strip()) >= 20:
-                return txt, {"ok": True, "hint": "", "pages": 1, "source": "image_ocr:rapidocr"}
+        for vname, vimg in _iter_variants(img):
+            try:
+                arr = np.array(vimg)
+                result, _ = ocr(arr)
+                if result:
+                    t = _norm_text("\n".join([r[1] for r in result if r and len(r) >= 2]))
+                    sc = _ocr_score(t)
+                    if sc > best_score:
+                        best_score, best_txt = sc, t
+            except Exception:
+                continue
+        if best_score >= 4 and len(best_txt.strip()) >= 20:
+            return best_txt, {"ok": True, "hint": "", "pages": 1, "source": "image_ocr:rapidocr"}
     except Exception as e:
         meta["hint"] = f"OCR Backend nicht verfügbar: {e}"
 
+    # If we got *some* text but low score, still return it (caller can decide)
+    if len(best_txt.strip()) >= 20:
+        meta.update({"ok": True, "hint": "OCR mit niedriger Zuverlässigkeit.", "source": "image_ocr"})
+        return best_txt, meta
     return "", meta
 
 
@@ -767,30 +858,87 @@ def _ocr_pdf_first_page(pdf_bytes: bytes) -> Tuple[str, Dict[str, Any]]:
     except Exception as e:
         return "", {"ok": False, "hint": f"PDF Render fehlgeschlagen: {e}", "pages": 1, "source": "pdf_ocr"}
 
-    # rapidocr first
+    # Robust multi-pass OCR similar to screenshots: try multiple render variants
+    best_txt = ""
+    best_score = 0
+
+    def _ocr_score(t: str) -> int:
+        if not t:
+            return 0
+        t = t.lower()
+        patterns = [r"\bef\b", r"tapse", r"tr\s*vmax", r"lavi", r"e/e", r"pasp", r"spap", r"aorten", r"trikus"]
+        s = sum(1 for p in patterns if re.search(p, t))
+        s += min(10, max(0, len(t) // 200))
+        return s
+
+    def _iter_variants(im: "Image.Image"):
+        try:
+            from PIL import ImageOps, ImageEnhance
+        except Exception:
+            yield ("orig", im)
+            return
+        base = im.convert("RGB")
+        yield ("orig", base)
+        g = ImageOps.grayscale(base)
+        yield ("gray", g)
+        yield ("gray_autocontrast", ImageOps.autocontrast(g))
+        try:
+            yield ("gray_contrast2", ImageEnhance.Contrast(g).enhance(2.0))
+        except Exception:
+            pass
+        try:
+            w, h = base.size
+            if max(w, h) < 2000:
+                yield ("gray_x2", g.resize((w * 2, h * 2)))
+        except Exception:
+            pass
+        try:
+            g2 = ImageOps.autocontrast(g)
+            bw = g2.point(lambda x: 0 if x < 160 else 255, mode="1")
+            yield ("bw", bw)
+        except Exception:
+            pass
+
+    # rapidocr first (if available)
     try:
         from rapidocr_onnxruntime import RapidOCR
         import numpy as np
         ocr = RapidOCR()
-        arr = np.array(img)
-        result, _ = ocr(arr)
-        if result:
-            txt = _norm_text("\n".join([r[1] for r in result if r and len(r) >= 2]))
-            if len(txt.strip()) >= 20:
-                return txt, {"ok": True, "hint": "", "pages": 1, "source": "pdf_ocr:rapidocr"}
+        for vname, vimg in _iter_variants(img):
+            try:
+                arr = np.array(vimg)
+                result, _ = ocr(arr)
+                if not result:
+                    continue
+                t = _norm_text("\n".join([r[1] for r in result if r and len(r) >= 2]))
+                sc = _ocr_score(t)
+                if sc > best_score:
+                    best_score, best_txt = sc, t
+            except Exception:
+                continue
     except Exception:
         pass
 
-    # pytesseract fallback
+    # pytesseract fallback (if available)
     try:
         import pytesseract
-        txt = _norm_text(pytesseract.image_to_string(img))
-        if len(txt.strip()) >= 20:
-            return txt, {"ok": True, "hint": "", "pages": 1, "source": "pdf_ocr:tesseract"}
+        configs = ["--psm 6", "--psm 4", "--psm 6 -c preserve_interword_spaces=1"]
+        for vname, vimg in _iter_variants(img):
+            for cfg in configs:
+                try:
+                    t = _norm_text(pytesseract.image_to_string(vimg, lang="deu+eng", config=cfg))
+                    sc = _ocr_score(t)
+                    if sc > best_score:
+                        best_score, best_txt = sc, t
+                except Exception:
+                    continue
     except Exception as e:
         meta["hint"] = f"OCR Backend nicht verfügbar: {e}"
-        return "", meta
 
+    if best_score >= 4 and len(best_txt.strip()) >= 20:
+        return best_txt, {"ok": True, "hint": "", "pages": 1, "source": "pdf_ocr"}
+    if len(best_txt.strip()) >= 20:
+        return best_txt, {"ok": True, "hint": "OCR mit niedriger Zuverlässigkeit.", "pages": 1, "source": "pdf_ocr"}
     return "", {"ok": False, "hint": "OCR lieferte keinen verwertbaren Text.", "pages": 1, "source": "pdf_ocr"}
 
     def _windows_ocr(img_path: str) -> Tuple[str, Dict[str, Any]]:

@@ -23,6 +23,9 @@ def _as_float(v: Any) -> Optional[float]:
         x = float(v)
         if x != x:
             return None
+        # Echo: 0/0.0 wird als fehlend behandelt (kein stilles "0")
+        if abs(x) < 1e-12:
+            return None
         return x
     except Exception:
         return None

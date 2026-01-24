@@ -279,26 +279,89 @@ def _extract_phase_table(mat: List[List[str]]) -> Tuple[List[str], Dict[str, Dic
     Expects mat[0] = [title, phase1, phase2, ...]
     """
     header = mat[0]
+    # IMPORTANT:
+    # MacLab-Exports enthalten gelegentlich Spacer-Spalten (leere Header-Zellen) und/oder
+    # verschobene Datenzellen unter leeren Header-Spalten (insb. bei "Base 2"-Only Tabellen).
+    #
+    # Ziel:
+    # - Phase-Spalten robust erkennen (Base 1 / Base 2 / Ergometrie ...)
+    # - Werte auch dann korrekt lesen, wenn sie in eine benachbarte leere Spalte gerutscht sind
+    #   (ohne jemals Base 1 als Base 2 zu interpretieren).
+
+    # 1) Anchors = non-empty header cells (excluding title column 0)
+    anchors: List[Tuple[int, str]] = []  # (anchor_col_idx, phase_key)
     phases: List[str] = []
-    col_keys: List[str] = []
-    for h in header[1:]:
-        if _clean(h) == "":
+    for col_idx in range(1, len(header)):
+        h = _clean(header[col_idx])
+        if h == "":
             continue
         pk = _to_phase_key(h)
         phases.append(pk)
-        col_keys.append(pk)
+        anchors.append((col_idx, pk))
+
+    # label columns are everything left of the first detected phase anchor
+    min_phase_idx = min([c for c, _ in anchors], default=1)
+
+    # 2) For each anchor, build a small set of candidate columns:
+    #    anchor itself + directly adjacent empty-header columns (left/right) until next non-empty header.
+    #    This fixes cases where values are shifted into a blank neighbor column.
+    phase_candidates: List[Tuple[str, int, List[int]]] = []  # (phase_key, anchor_idx, candidate_cols)
+    for anchor_idx, pk in anchors:
+        cols = {anchor_idx}
+        # expand left over empty headers
+        j = anchor_idx - 1
+        while j >= 1:
+            if _clean(header[j]) != "":
+                break
+            cols.add(j)
+            j -= 1
+        # expand right over empty headers
+        j = anchor_idx + 1
+        while j < len(header):
+            if _clean(header[j]) != "":
+                break
+            cols.add(j)
+            j += 1
+        phase_candidates.append((pk, anchor_idx, sorted(cols)))
+
+    def _pick_row_label(row: List[str]) -> str:
+        # Prefer textual labels (letters) in the columns left of the first phase.
+        # Fallback to first non-empty cell.
+        for i in range(0, min(min_phase_idx, len(row))):
+            v = _clean(row[i])
+            if v and re.search(r"[A-Za-zÄÖÜäöüß]", v):
+                return v
+        for i in range(0, min(min_phase_idx, len(row))):
+            v = _clean(row[i])
+            if v:
+                return v
+        for v in row:
+            vv = _clean(v)
+            if vv:
+                return vv
+        return ""
+
     rows: Dict[str, Dict[str, str]] = {}
     for r in mat[1:]:
         if not r:
             continue
-        row_label = _clean(r[0])
+        row_label = _pick_row_label(r)
         if row_label == "":
             continue
         row_map: Dict[str, str] = {}
-        # iterate through same number of columns; ignore trailing empties
-        for j, pk in enumerate(col_keys, start=1):
-            if j < len(r):
-                row_map[pk] = _clean(r[j])
+        for pk, anchor_idx, cand_cols in phase_candidates:
+            val = ""
+            # Prefer anchor cell if present; otherwise take the rightmost non-empty among candidates.
+            if anchor_idx < len(r):
+                val = _clean(r[anchor_idx])
+            if val == "":
+                for c in sorted(cand_cols, reverse=True):
+                    if c < len(r):
+                        vv = _clean(r[c])
+                        if vv != "":
+                            val = vv
+                            break
+            row_map[pk] = val
         rows[row_label] = row_map
     return phases, rows
 

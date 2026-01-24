@@ -808,6 +808,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                     "<div class='docx-muted'>Spiro-Logic: interaktive CPET Befundung mit Live Erklärung und Plausibilitätschecks. Die vorhandene Risikostratifizierung bleibt unverändert.</div>"
                                 )
 
+                                # Live explanation box (always visible inside CPET card).
+                                # This is intentionally placed ABOVE the module tabs so users get immediate feedback.
+                                cpet_live_html = gr.HTML(
+                                    value="<div class='docx-muted'>Live Erklärung erscheint nach Eingabe von CPET Werten.</div>"
+                                )
+
                                 # Wizard modules (deterministic, no AI)
                                 with gr.Tabs():
                                     # ------------------ Modul 0 ------------------
@@ -988,7 +994,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                                 add("cpet_9panel_available", gr.Checkbox(label="9 Felder Grafik beurteilt", info="Aktivieren, wenn die 9 Felder Grafik beurteilt wurde. Dann werden Kurvenmuster strukturiert dokumentiert."))
 
                                                 with gr.Column(visible=False) as cpet_9panel_details:
-                                                    gr.HTML("<div class='docx-muted'>Kurvenmuster werden als Befundentscheidungen dokumentiert. Diese Angaben werden nicht automatisch überschrieben.</div>")
+                                                    gr.HTML("<div class='docx-muted'>Dokumentiere nur Muster, die du sicher gesehen hast. Unklar bleibt unklar. VT1 und RCP sind Ankerpunkte. EOV und Flow Volume Loops Limitation sind Warnzeichen. Diese Angaben werden nicht automatisch überschrieben.</div>")
                                                     with gr.Row():
                                                         add(
                                                             "cpet_9panel_vt1_identified",
@@ -1796,12 +1802,28 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                  o2pulse_pct, vo2_wr_slope, vo2_vt1,
                                  spo2_nadir, rer_peak, hr_peak,
                                  o2_pulse_pattern):
+            # Show the CPET card details as soon as any CPET value is entered.
+            # This prevents the "no live explanation" situation when users forget to tick CPET done.
+            try:
+                has_any = any(
+                    _is_filled(v)
+                    for v in [
+                        peak_vo2, peak_vo2_pct, vevco2_slope, petco2_vt1, vevco2_vt1,
+                        o2pulse_pct, vo2_wr_slope, vo2_vt1, spo2_nadir, rer_peak, hr_peak, o2_pulse_pattern,
+                    ]
+                )
+            except Exception:
+                has_any = bool(cpet_done_v)
+
+            show_details = bool(cpet_done_v) or bool(has_any)
             return (
-                gr.update(visible=bool(cpet_done_v)),
+                gr.update(visible=show_details),
                 _render_cpet_risk_html(cpet_done_v, peak_vo2, peak_vo2_pct, vevco2_slope, petco2_vt1, vevco2_vt1, o2pulse_pct, vo2_wr_slope, vo2_vt1, spo2_nadir, rer_peak, hr_peak, o2_pulse_pattern),
             )
 
         # Spiro-Logic wizard: live education + pattern recognition (deterministic)
+        # Keep a tiny cache to avoid re-running analysis when inputs did not change (UI feels "live").
+        _cpet_wiz_cache = {"sig": None, "out": None}
         def _sync_post_load_cpet_wizard(
             cpet_done_v,
             stop_reason, stop_reason_text,
@@ -1825,8 +1847,42 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             nine_avail, nine_vt1, nine_vt1_method, nine_rcp,
             nine_eov, nine_flow, nine_vo2wr, nine_veeq, nine_comment,
         ):
+            done_flag = bool(cpet_done_v)
+
+            # If CPET is marked done but no meaningful values are present, keep UI responsive
+            _core_vals = [
+                stop_reason, borg_rpe, borg_dysp, borg_leg, rer_peak, hr_peak, hr_pct,
+                peak_vo2, peak_vo2_pct, o2p_ml, o2p_pattern, o2p_slope,
+                bp_sys_rest, bp_dia_rest, bp_sys, bp_dia,
+                vevco2_slope, pet_rest, pet_peak, pet_vt1, br_pct, vevco2_vt1,
+                spo2_rest, spo2_peak, spo2_nadir, o2_supp, vo2_wr_slope,
+                ve_peak, mvv, mvv_source,
+                angina, dizziness, syncope, palpitations,
+                arrhythmia, st_changes,
+                beta_blocker, sinus_node, hypervent,
+                limitation_override,
+                nine_avail, nine_vt1, nine_vt1_method, nine_rcp,
+                nine_eov, nine_flow, nine_vo2wr, nine_veeq,
+            ]
+            try:
+                has_any = any(_is_filled(v) for v in _core_vals)
+            except Exception:
+                has_any = True
+            if not has_any:
+                msg = "<div class='docx-muted'>Bitte CPET Werte eingeben.</div>"
+                return (
+                    msg,
+                    "", "", "", "", "", "", "", "",
+                    "",
+                    msg,
+                    msg,
+                    "",
+                    gr.update(visible=False),
+                )
+
             ui_tmp = {
-                "cpet_done": bool(cpet_done_v),
+                # For the wizard logic we treat "done" as the user flag, but we allow preview even if not set.
+                "cpet_done": done_flag,
                 "cpet_stop_reason": stop_reason,
                 "cpet_stop_reason_text": stop_reason_text,
                 "cpet_borg_rpe": borg_rpe,
@@ -1883,9 +1939,30 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "cpet_9panel_comment": nine_comment,
             }
             try:
-                out = _get_spiro_logic().build_wizard_outputs(ui_tmp)
-            except Exception:
-                msg = "<div class='docx-muted'>Spiro-Logic CPET-Wizard konnte nicht ausgeführt werden. Ausgabe deaktiviert.</div>"
+                sig = tuple((k, ui_tmp.get(k)) for k in sorted(ui_tmp.keys()))
+                if _cpet_wiz_cache.get("sig") == sig and isinstance(_cpet_wiz_cache.get("out"), dict):
+                    out = _cpet_wiz_cache.get("out")
+                else:
+                    out = _get_spiro_logic().build_wizard_outputs(ui_tmp)
+                    _cpet_wiz_cache["sig"] = sig
+                    _cpet_wiz_cache["out"] = out
+            except Exception as e:
+                # Fail-safe: never crash the clinical UI. Log details for admins.
+                import traceback
+                print("CPET_WIZARD_ERROR:", repr(e))
+                traceback.print_exc()
+                # Show teaching only once in the live box to avoid redundancy.
+                teach = (
+                    "<details class='spiro-edu__details' open>"
+                    "<summary class='spiro-edu__summary'>Lernmodul V'O2</summary>"
+                    "<div class='spiro-edu__teach'>"
+                    "<div class='spiro-edu__sub'>Merksatz</div>"
+                    "<div>Fick: V'O2 = HZV × C(a v)O2.</div>"
+                    "<div class='spiro-edu__sub'>Hinweis</div>"
+                    "<div>Dieses Lernmodul ist nur lesen und trifft keine Aussagen zum individuellen Befund.</div>"
+                    "</div></details>"
+                )
+                msg = "<div class='docx-muted'>Spiro-Logic CPET Wizard konnte nicht ausgeführt werden. Details in Konsole.</div>"
                 out = {
                     "mod0_html": msg,
                     "mod1_html": "",
@@ -1897,7 +1974,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     "mod7_html": "",
                     "mod9_html": "",
                     "modfinal_html": "",
-                    "overall_html": msg,
+                    "overall_html": teach + msg,
+                    "live_html": teach + msg,
                     "report_text": "",
                     "need_chrono_followups": False,
                 }
@@ -1907,6 +1985,17 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             # Report text for copy use
             report_text = out.get("report_text") or ""
+
+            # Live box should show the most helpful content immediately.
+            live_html = out.get("overall_html") or ""
+            overall_html = out.get("overall_html") or ""
+            if not done_flag:
+                note = (
+                    "<div class='docx-muted'>Hinweis: CPET ist nicht als durchgeführt markiert. "
+                    "Spiro-Logic läuft als Vorschau und wird nicht automatisch in den Bericht übernommen.</div>"
+                )
+                live_html = note + live_html
+                overall_html = note + overall_html
 
             return (
                 out.get("mod0_html") or "",
@@ -1919,7 +2008,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 out.get("mod7_html") or "",
                 out.get("mod9_html") or "",
                 out.get("modfinal_html") or "",
-                out.get("overall_html") or "",
+                overall_html,
+                live_html,
                 report_text,
                 gr.update(visible=show_follow),
             )
@@ -2121,12 +2211,27 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "cpet_9panel_eov", "cpet_9panel_flowvol_limit", "cpet_9panel_vo2wr_pattern", "cpet_9panel_veeq_pattern", "cpet_9panel_comment",
             ):
                 if _k in field_components:
-                    _bind_change(
-                        field_components[_k],
-                        _sync_post_load_cpet_wizard,
-                        inputs=_cpet_wiz_inputs,
-                        outputs=[cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_spiro_report, cpet_chrono_followup],
-                    )
+                    _comp = field_components[_k]
+                    try:
+                        _cname = (_comp.__class__.__name__ or "").lower()
+                    except Exception:
+                        _cname = ""
+
+                    # Performance: for text/number inputs, update Spiro-Logic on blur (avoid per-keystroke roundtrips).
+                    if _cname in ("textbox", "number") and hasattr(_comp, "blur"):
+                        _bind_blur(
+                            _comp,
+                            _sync_post_load_cpet_wizard,
+                            inputs=_cpet_wiz_inputs,
+                            outputs=[cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_spiro_report, cpet_chrono_followup],
+                        )
+                    else:
+                        _bind_change(
+                            _comp,
+                            _sync_post_load_cpet_wizard,
+                            inputs=_cpet_wiz_inputs,
+                            outputs=[cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_spiro_report, cpet_chrono_followup],
+                        )
         except Exception:
             pass
 
@@ -3168,9 +3273,38 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 else:
                     out.append(coerced)
             return out
-        def _generate(flags_state, pmods_state, docx_cur_state, docx_prev_state, echo_cur_state, echo_prev_state, case_filename_state, *vals):
+        def _generate(case_state_prev, flags_state, pmods_state, docx_cur_state, docx_prev_state, echo_cur_state, echo_prev_state, case_filename_state, *vals):
             flags = dict(flags_state or {})
 
+
+            # Persistenz-Schutz: vorhandene (geladen/importierte) Werte dürfen beim Speichern nicht verloren gehen.
+            # Policy:
+            # - Unbekannte/legacy Keys aus einem geladenen Fall bleiben erhalten.
+            # - Skalar-Inputs werden NICHT durch None/"" überschrieben (keine stillen Datenverluste).
+            prev_case = case_state_prev if isinstance(case_state_prev, dict) else {}
+
+            def _is_empty_scalar(v):
+                if v is None:
+                    return True
+                if isinstance(v, str) and v.strip() == "":
+                    return True
+                return False
+
+            def _deep_merge_preserve(prev, new):
+                # Dict: rekursiv mergen, neue Werte überschreiben, unbekannte Altkeys bleiben erhalten.
+                if isinstance(prev, dict) and isinstance(new, dict):
+                    out = dict(prev)
+                    for k, nv in new.items():
+                        pv = out.get(k)
+                        out[k] = _deep_merge_preserve(pv, nv)
+                    return out
+                # Liste/Tuple/Set: immer new (damit Nutzer*innen bewusst entfernen können).
+                if isinstance(new, (list, tuple, set)):
+                    return list(new) if not isinstance(new, list) else new
+                # Skalar: new nur übernehmen, wenn nicht leer; sonst prev behalten.
+                if _is_empty_scalar(new) and not _is_empty_scalar(prev):
+                    return prev
+                return new
             # Optional lightweight profiling (console only). Enable with env var RHK_PERF=1.
             perf_on = os.getenv("RHK_PERF", "0").strip() == "1"
             t0 = time.perf_counter() if perf_on else 0.0
@@ -3265,6 +3399,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 t_case0 = time.perf_counter()
             case = build_case(raw, rules)
 
+
+            # Merge: preserve loaded/imported/legacy keys and prevent silent drops
+            try:
+                case = _deep_merge_preserve(prev_case, case)
+            except Exception:
+                pass
             # Arztbericht: muss die vollständige Hämodynamik (Ruhe + Provokation), Slopes und Interpretation enthalten.
             # Das kompakte Template bleibt für DOCX-Layouts im Code, wird hier aber nicht als primärer Bericht verwendet.
             if perf_on:
@@ -3722,8 +3862,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             modules_cards_html,
         ]
 
-        btn_generate_top.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
-        btn_generate_bottom.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
+        btn_generate_top.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
+        btn_generate_bottom.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
 
         # DOCX export for the doctor report (Muster-Layout)
         # Use DownloadButton to keep the UI compact.
@@ -3841,7 +3981,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             try:
                 btn.click(
                     _export_prerhk_pdf,
-                    inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                    inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
                     outputs=[btn_prerhk_pdf, copy_feedback],
                     trigger_mode="always_last",
                     queue=False,
@@ -3851,7 +3991,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 try:
                     btn.click(
                         _export_prerhk_pdf,
-                        inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                        inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
                         outputs=[btn_prerhk_pdf, copy_feedback],
                         trigger_mode="always_last",
                         queue=False,
@@ -3859,7 +3999,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 except TypeError:
                     btn.click(
                         _export_prerhk_pdf,
-                        inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                        inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
                         outputs=[btn_prerhk_pdf, copy_feedback],
                     )
 
@@ -4527,7 +4667,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "", "", "",                                    # copy_*_plain
                 "", "", "",                                    # copy_*_html
                 "",                                            # copy_feedback
-                None,                                          # state_case
+                case_loaded_payload,                            # state_case (geladenes JSON bleibt erhalten)
                 flags0,                                        # state_flags
                 {"lvl1": [], "lvl2": [], "lvl3": []},          # state_pmods_selected
                 None,                                          # state_docx_cur
@@ -4705,9 +4845,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         _save_outputs = [file_out, file_summary_out, state_flags, sticky_summary_html, copy_feedback]
 
-        save_btn_top.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
+        save_btn_top.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_save_case, inputs=[state_case, state_flags, state_case_filename], outputs=_save_outputs)
-        save_btn_bottom.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
+        save_btn_bottom.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_save_case, inputs=[state_case, state_flags, state_case_filename], outputs=_save_outputs)
 
         # --- Load case ---
@@ -4752,6 +4892,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             ui_dict["modules_lvl3"] = []
 
             imports = (data.get("imports") if isinstance(data, dict) else None) or {}
+
+            # Vollständigen Fall-Payload behalten (inkl. unbekannter Keys)
+            loaded_case_payload = data if isinstance(data, dict) else {"ui": ui_dict}
+            if not isinstance(loaded_case_payload, dict):
+                loaded_case_payload = {"ui": ui_dict}
+
             if not isinstance(imports, dict):
                 imports = {}
 
@@ -4857,12 +5003,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     docx_cur, docx_prev,
                     pdf_cur_reset, cur_html, echo_cur,
                     pdf_prev_reset, prev_html, echo_prev,
-                    cmp_html, details_html, btnu, loaded_name)
-
-        
-
-
-        # -------------------------
+                    cmp_html, details_html, btnu, loaded_name,
+                    loaded_case_payload)
+# -------------------------
         # DOCX Import (Mac-Lab)
         # -------------------------
         DOCX_WIPE_CURRENT = {
@@ -5217,7 +5360,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 outputs=input_components + [state_docx_cur],
             ).then(
                 _generate_with_pmods_apply,
-                inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
                 outputs=generate_outputs,
             )
 
@@ -5228,7 +5371,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 outputs=input_components + [state_docx_prev],
             ).then(
                 _generate_with_pmods_apply,
-                inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
                 outputs=generate_outputs,
             )
 
@@ -5269,7 +5412,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             crp_mg_l, creatinine_mg_dl2, age2, sex2, allergies_present2, allergies_list2, allergies_other_text,
             lsb_present, lsb_reason,
             # states for generate
-            pmods_sel_state, docx_cur_payload, docx_prev_payload, echo_cur_payload, echo_prev_payload, case_filename,
+            pmods_sel_state, docx_cur_payload, docx_prev_payload, echo_cur_payload, echo_prev_payload, case_filename, case_loaded_payload,
             *vals,
         ):
             # IMPORTANT (Stabilitaet/Kompatibilitaet)
@@ -5335,7 +5478,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "", "", "",                                    # copy_*_plain
                 "", "", "",                                    # copy_*_html
                 "⚠️ Fall geladen. Bitte Befund erstellen.",      # copy_feedback
-                None,                                          # state_case
+                case_loaded_payload,                            # state_case (geladenes JSON bleibt erhalten)
                 flags,                                         # state_flags
                 (pmods_sel_state or {"lvl1": [], "lvl2": [], "lvl3": []}),  # state_pmods_selected
                 docx_cur_payload,                              # state_docx_cur
@@ -5364,6 +5507,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         import_pdf_prev, import_preview_prev_html, state_echo_prev,
         compare_echo_html, details_echo_html, btn_echo_apply,
         state_case_filename,
+        state_case,
     ],
         )\
     .then(
@@ -5402,13 +5546,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"],
             field_components["lsb_present"], field_components["lsb_reason"],
 
-            state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename,
+            state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename, state_case,
         ] + input_components,
         outputs=[
             ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
             field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             cpet_details, cpet_risk_html,
-            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_spiro_report, cpet_chrono_followup,
+            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_spiro_report, cpet_chrono_followup,
             pre_cath_html, pre_cath_home_html,
         ] + generate_outputs,
     )
@@ -5423,6 +5567,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         import_pdf_prev, import_preview_prev_html, state_echo_prev,
         compare_echo_html, details_echo_html, btn_echo_apply,
         state_case_filename,
+        state_case,
     ],
         )\
     .then(
@@ -5461,13 +5606,13 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"],
             field_components["lsb_present"], field_components["lsb_reason"],
 
-            state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename,
+            state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename, state_case,
         ] + input_components,
         outputs=[
             ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
             field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             cpet_details, cpet_risk_html,
-            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_spiro_report, cpet_chrono_followup,
+            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_spiro_report, cpet_chrono_followup,
             pre_cath_html, pre_cath_home_html,
         ] + generate_outputs,
     )

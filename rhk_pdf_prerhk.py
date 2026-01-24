@@ -952,16 +952,32 @@ def generate_prerhk_pdf(case_state: Dict[str, Any]) -> str:
 
     # --- Echo essentials (RH / PH) ---
     # Use only fields already present in UI and used elsewhere.
+    def _echo_num(x: Any) -> Optional[float]:
+        """Echo: fehlende Werte können als 0/0.0 ankommen -> als None behandeln."""
+        try:
+            if x is None or x == "":
+                return None
+            if isinstance(x, bool):
+                return None
+            f = float(x)
+            if f != f:  # NaN
+                return None
+            if abs(f) < 1e-12:
+                return None
+            return f
+        except Exception:
+            return None
+
     def _echo_line(label: str, val: Any, unit: str = "", nd: int = 0):
         s = _fmt(val, unit=unit, ndigits=nd)
         return (label, s or "")
 
     echo_pairs: List[Tuple[str,str]] = []
     # RV function
-    tapse = ui.get("tapse_mm")
-    sprime = ui.get("s_prime_cm_s")
-    rvfac = ui.get("rvfac_pct")
-    rvef3d = ui.get("rv_3d_ef_pct")
+    tapse = _echo_num(ui.get("tapse_mm"))
+    sprime = _echo_num(ui.get("s_prime_cm_s"))
+    rvfac = _echo_num(ui.get("rvfac_pct"))
+    rvef3d = _echo_num(ui.get("rv_3d_ef_pct"))
     echo_pairs.append(_echo_line("TAPSE", tapse, "mm", 0))
     echo_pairs.append(_echo_line("S′", sprime, "cm/s", 1))
     if rvef3d is not None and str(rvef3d).strip() != "":
@@ -970,9 +986,9 @@ def generate_prerhk_pdf(case_state: Dict[str, Any]) -> str:
         echo_pairs.append(_echo_line("RV FAC", rvfac, "%", 0))
 
     # PH signs
-    trv = ui.get("trv_ms")
-    pasp = ui.get("pasp_echo")
-    paat = ui.get("paat_ms")
+    trv = _echo_num(ui.get("trv_ms"))
+    pasp = _echo_num(ui.get("pasp_echo"))
+    paat = _echo_num(ui.get("paat_ms"))
     sept = ui.get("septal_flattening")
     notch = ui.get("rvot_notch")
     if trv is not None and str(trv).strip() != "":
@@ -986,8 +1002,8 @@ def generate_prerhk_pdf(case_state: Dict[str, Any]) -> str:
         echo_pairs.append(("RVOT notch", str(notch)))
 
     # congestion / RA IVC
-    ra_esa = ui.get("ra_esa_cm2")
-    ivc_d = ui.get("ivc_diam_mm")
+    ra_esa = _echo_num(ui.get("ra_esa_cm2"))
+    ivc_d = _echo_num(ui.get("ivc_diam_mm"))
     ivc_ci = ui.get("ivc_collapse_index_pct")
     rap_est = ui.get("rap_estimate") or ui.get("rap_est") or ui.get("rap_echo")
     if ra_esa is not None and str(ra_esa).strip() != "":

@@ -39,7 +39,7 @@ except Exception:  # pragma: no cover
 
 APP_NAME = "RHK Befundassistent"
 # Versioning: ab v28.x nur noch eine Dezimalstelle (z.B. v28.5)
-APP_VERSION = "v0.86"
+APP_VERSION = "v0.98"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 _FALLBACK_FIX_LOG = [
     "Fix. v0.23: HFpEF-spezifische sprachliche Verfeinerung bei passender Echo- und Hämodynamik-Konstellation ergänzt",
@@ -402,6 +402,22 @@ def _safe_float(x: Any) -> Optional[float]:
         except Exception:
             return None
     return None
+
+
+def _safe_float_echo(x: Any) -> Optional[float]:
+    """Echo-spezifische Float-Normalisierung.
+
+    Hintergrund: In der UI oder beim Import können fehlende Echo-Werte als 0/0.0
+    ankommen. Echo-Parameter sind physiologisch nicht sinnvoll als 0 und dürfen
+    nicht als vorhandener Wert interpretiert werden.
+    """
+    v = _safe_float(x)
+    if v is None:
+        return None
+    # 0/"0" als fehlend behandeln
+    if abs(v) < 1e-12:
+        return None
+    return v
 
 
 def _escape_html(s: Any) -> str:
@@ -1643,22 +1659,22 @@ def collect_plausibility_warnings(ui: Dict[str, Any], derived: Dict[str, Any]) -
             )
 
     # --- Echo (nur grob) ---
-    rng("lvef", _safe_float(ui.get("lvef")), 10, 80, severity="warn")
-    rng("tapse_mm", _safe_float(ui.get("tapse_mm")), 5, 30, severity="warn")
-    rng("s_prime_cm_s", _safe_float(ui.get("s_prime_cm_s")), 3, 25, severity="warn")
-    rng("pasp_echo", _safe_float(ui.get("pasp_echo")), 10, 120, severity="warn")
-    rng("trv_ms", _safe_float(ui.get("trv_ms")), 1.0, 6.0, severity="warn")
-    rng("ra_esa_cm2", _safe_float(ui.get("ra_esa_cm2")), 5, 40, severity="warn")
-    rng("ee_ratio", _safe_float(ui.get("ee_ratio")), 1, 30, severity="warn")
+    rng("lvef", _safe_float_echo(ui.get("lvef")), 10, 80, severity="warn")
+    rng("tapse_mm", _safe_float_echo(ui.get("tapse_mm")), 5, 30, severity="warn")
+    rng("s_prime_cm_s", _safe_float_echo(ui.get("s_prime_cm_s")), 3, 25, severity="warn")
+    rng("pasp_echo", _safe_float_echo(ui.get("pasp_echo")), 10, 120, severity="warn")
+    rng("trv_ms", _safe_float_echo(ui.get("trv_ms")), 1.0, 6.0, severity="warn")
+    rng("ra_esa_cm2", _safe_float_echo(ui.get("ra_esa_cm2")), 5, 40, severity="warn")
+    rng("ee_ratio", _safe_float_echo(ui.get("ee_ratio")), 1, 30, severity="warn")
 
     # Interpretations-Hinweise (konservativ)
-    if _safe_float(ui.get("pasp_echo")) is not None and _safe_float(ui.get("trv_ms")) is None:
+    if _safe_float_echo(ui.get("pasp_echo")) is not None and _safe_float_echo(ui.get("trv_ms")) is None:
         add(
             code="echo_pasp_without_trv",
             severity="info",
             message="sPAP (Echo) ist angegeben, TRV jedoch nicht. Die Einordnung im Echo kann dadurch eingeschränkt sein.",
             fields=["pasp_echo", "trv_ms"],
-            values={"pasp_echo": _safe_float(ui.get('pasp_echo'))},
+            values={"pasp_echo": _safe_float_echo(ui.get('pasp_echo'))},
         )
 
     # Serialisieren als dicts
