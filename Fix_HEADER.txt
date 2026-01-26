@@ -1,3 +1,3 @@
-Fix. v0.98: Persistenzschutz beim Speichern (geladene/importierte Werte werden nicht stillschweigend verworfen).
-Fix. v0.98: Case-Load behält vollständigen JSON-Payload im State (Legacy/Unknown Keys bleiben erhalten).
-Fix. v0.98: Generate-Calls nutzen Case-State als Baseline (keine Datenverluste durch Regeneration).
+Fix. v0.96: CPET Lernlayer erweitert um O2 Puls Konzept (Definition, Muster, Einflussgroessen Anämie, Hypoxaemie)
+Fix. v0.96: CPET Lernlayer erweitert um V'O2max vs V'O2peak inkl. Dokumentation Abbruchgrund und Ausbelastungshinweise
+Fix. v0.96: CPET Lernlayer erweitert um V'CO2, AT/VAT und VCP (V Slope, isokapnische Pufferung, Grenzen)

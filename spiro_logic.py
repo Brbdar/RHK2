@@ -894,68 +894,66 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
         - No auto-filled values.
         """
         # Use HTML <details> to keep UI compact. No italics.
-        # Text rules: short, clear, no assumptions, no diagnoses.
         return (
             "<details class='spiro-edu__details' open>"
-            "<summary class='spiro-edu__summary'>Lernmodul V'O2</summary>"
+            "<summary class='spiro-edu__summary'>Lernmodul V'O2 (Sauerstoffaufnahme)</summary>"
             "<div class='spiro-edu__teach'>"
-            "<div class='spiro-edu__sub'>Was ist das</div>"
-            "<div>V'O2 ist die O2 Aufnahme pro Minute. Es ist der zentrale Summenparameter der CPET.</div>"
-            "<div class='spiro-edu__sub'>Merksatz</div>"
-            "<div>Fick: V'O2 = HZV × C(a v)O2.</div>"
+            "<div class='spiro-edu__sub'>Kernaussage</div>"
+            "<div>V'O2 ist der zentrale integrative Parameter der CPET. Er bildet das Zusammenspiel von Lunge, Kreislauf und Muskulatur ab.</div>"
+            "<div class='spiro-edu__sub'>Fick Prinzip</div>"
+            "<div>V'O2 = Herzzeitvolumen × C(a v)O2.</div>"
             "<ul>"
-            "<li>HZV steigt durch HF und SV.</li>"
-            "<li>C(a v)O2 steigt durch O2 Extraktion in der Muskulatur.</li>"
+            "<li>Herzzeitvolumen steigt durch Herzfrequenzanstieg und Schlagvolumenanstieg.</li>"
+            "<li>C(a v)O2 steigt durch gesteigerte periphere Sauerstoffextraktion in der arbeitenden Muskulatur.</li>"
             "</ul>"
-            "<div class='spiro-edu__sub'>Praxis</div>"
-            "<ul>"
-            "<li>V'O2peak ist der höchste gemessene Wert und wird klinisch berichtet.</li>"
-            "<li>V'O2 pro Watt ist als Orientierung oft ca. 10 mL/min/W am Fahrradergometer.</li>"
-            "</ul>"
-            "<div class='spiro-edu__sub'>Häufige Fehler</div>"
-            "<ul>"
-            "<li>Watt ist stärker protokollabhängig als V'O2.</li>"
-            "<li>mL/min/kg kann bei Adipositas verzerren. Prozent Soll hilft häufig.</li>"
-            "</ul>"
+            "<div class='spiro-edu__sub'>Kinetik und Effizienz (Fahrradergometer)</div>"
+            "<div>Unter standardisierten Bedingungen steigt V'O2 mit der Leistung meist annähernd linear. Als grobe Orientierung werden etwa 10 ml pro Minute und Watt angegeben. Abweichungen können durch Effizienz, Protokoll, Trainingszustand, Körperzusammensetzung oder frühes Abbrechen entstehen.</div>"
+            "<div class='spiro-edu__sub'>Normierung</div>"
+            "<div>V'O2 kann absolut (L/min) oder relativ (ml/min/kg) angegeben werden. Bei Adipositas kann die kg Normierung die Einordnung verzerren. Ergänzend sind Prozent vom Sollwert oder andere Referenzen hilfreich.</div>"
+            "<div class='spiro-edu__sub'>Ausbelastung, Mindesthinweise</div>"
+            "<div>V'O2 Werte sind nur als maximal zu interpretieren, wenn Hinweise auf ausreichende Ausbelastung vorliegen, z. B. RER, subjektive Erschöpfung, Herzfrequenzverhalten und Verlauf der Laststeigerung. Diese Hinweise ersetzen keine klinische Beurteilung.</div>"
             "</div>"
             "</details>"
 
             "<details class='spiro-edu__details'>"
-            "<summary class='spiro-edu__summary'>Lernmodul O2 Puls</summary>"
+            "<summary class='spiro-edu__summary'>Lernmodul O2 Puls (V'O2 / Herzfrequenz)</summary>"
             "<div class='spiro-edu__teach'>"
             "<div class='spiro-edu__sub'>Definition</div>"
-            "<div>O2 Puls = V'O2 / HF. Das ist die O2 Menge pro Herzschlag.</div>"
-            "<div class='spiro-edu__sub'>Physiologie</div>"
-            "<div>Näherung: O2 Puls ≈ SV × C(a v)O2. Ohne C(a v)O2 ist es kein exakter SV Wert.</div>"
+            "<div>O2 Puls = V'O2 / Herzfrequenz zu einem Zeitpunkt der Untersuchung. Er entspricht der aufgenommenen Sauerstoffmenge pro Herzschlag.</div>"
+            "<div class='spiro-edu__sub'>Physiologischer Bezug</div>"
+            "<div>O2 Puls ist näherungsweise das Produkt aus Schlagvolumen und C(a v)O2. Er korreliert häufig mit dem Schlagvolumen, ist jedoch ohne direkte Messung der arteriovenösen Differenz nicht exakt quantifizierbar.</div>"
             "<div class='spiro-edu__sub'>Typische Muster</div>"
             "<ul>"
-            "<li>Gesund: O2 Puls steigt unter Belastung weiter an.</li>"
-            "<li>Plateau früh: Hinweis auf fehlende SV Reserve. Kontext prüfen.</li>"
+            "<li>Bei Gesunden sollte der O2 Puls unter Belastung kontinuierlich ansteigen.</li>"
+            "<li>Eine frühe Plateau Bildung oder ein Abfall kann auf eine fehlende Schlagvolumenreserve oder eine begrenzte periphere Extraktion hinweisen. Die Einordnung erfordert immer Kontext und Plausibilitätsprüfung.</li>"
             "</ul>"
             "<div class='spiro-edu__sub'>Einflussgrößen</div>"
-            "<div>Anämie oder Hypoxämie senken den O2 Puls, weil die Transportkapazität reduziert ist.</div>"
+            "<div>Anämie oder arterielle Hypoxämie können den O2 Puls deutlich vermindern, da die Sauerstofftransportkapazität reduziert ist.</div>"
             "</div>"
             "</details>"
 
             "<details class='spiro-edu__details'>"
             "<summary class='spiro-edu__summary'>Lernmodul V'O2max und V'O2peak</summary>"
             "<div class='spiro-edu__teach'>"
+            "<div class='spiro-edu__sub'>Begriffe</div>"
             "<ul>"
-            "<li>V'O2max: Plateau trotz weiterer Laststeigerung.</li>"
-            "<li>V'O2peak: höchster Wert der Untersuchung.</li>"
+            "<li>V'O2max: höchstmögliche O2 Aufnahme, die trotz weiterer Laststeigerung und maximaler Anstrengung nicht weiter steigt (Plateau).</li>"
+            "<li>V'O2peak: höchster gemessener Wert in der Untersuchung, klinischer Standard.</li>"
             "</ul>"
-            "<div class='spiro-edu__sub'>Praxis</div>"
-            "<div>Meist wird V'O2peak berichtet. Für die Einordnung sind Testqualität und Abbruchgrund zentral.</div>"
+            "<div class='spiro-edu__sub'>Praktischer Hinweis</div>"
+            "<div>Eine einzelne CPET bestimmt in der Regel V'O2peak. Ob dieser Wert die tatsächliche maximale Leistungsfähigkeit widerspiegelt, hängt von der erreichten Ausbelastung ab. Der Hauptgrund für den Belastungsabbruch sollte immer dokumentiert werden.</div>"
             "</div>"
             "</details>"
 
             "<details class='spiro-edu__details'>"
-            "<summary class='spiro-edu__summary'>Lernmodul V'CO2</summary>"
+            "<summary class='spiro-edu__summary'>Lernmodul V'CO2 (Kohlendioxidabgabe)</summary>"
             "<div class='spiro-edu__teach'>"
-            "<div class='spiro-edu__sub'>Was ist das</div>"
-            "<div>V'CO2 ist die CO2 Abgabe pro Minute. Unter höherer Last steigt V'CO2 auch durch Säurepufferung.</div>"
-            "<div class='spiro-edu__sub'>Warum wichtig</div>"
-            "<div>V'CO2 ist atemvariabler als V'O2, weil Puffersysteme beteiligt sind.</div>"
+            "<div class='spiro-edu__sub'>Grundprinzip</div>"
+            "<div>V'CO2 spiegelt die CO2 Abgabe über die Lunge wider. CO2 entsteht als Endprodukt des Stoffwechsels und dient unter Belastung auch der Elimination von Säureäquivalenten, um den pH Wert zu stabilisieren.</div>"
+            "<div class='spiro-edu__sub'>Warum V'CO2 komplexer ist als V'O2</div>"
+            "<div>Zwischen zellulärer CO2 Produktion und Abatmung liegen Puffersysteme (v. a. Bicarbonat). Deshalb ist V'CO2 meist stärker atemvariabel als V'O2.</div>"
+            "<div class='spiro-edu__sub'>Substrate und Anaerobie</div>"
+            "<div>Der respiratorische Quotient hängt von den verwendeten Substraten ab. Bei anaeroben Anteilen entsteht zusätzlich CO2 durch Bicarbonatpufferung von Säure, was für die Schwellenbestimmung genutzt wird.</div>"
             "</div>"
             "</details>"
 
@@ -963,13 +961,13 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
             "<summary class='spiro-edu__summary'>Lernmodul AT, VAT und VCP</summary>"
             "<div class='spiro-edu__teach'>"
             "<div class='spiro-edu__sub'>AT und VAT</div>"
-            "<div>AT ist der Übergang zu relevantem anaerobem Anteil. VAT ist die indirekte Bestimmung über Atemgase.</div>"
-            "<div class='spiro-edu__sub'>V Slope</div>"
-            "<div>Im aeroben Bereich sind V'O2 und V'CO2 annähernd linear. Bei zunehmender Pufferung steigt V'CO2 stärker.</div>"
+            "<div>Die anaerobe Schwelle (AT) beschreibt den Übergang zu relevantem anaerobem Stoffwechsel, wenn das Sauerstoffangebot den Bedarf der Muskulatur nicht mehr vollständig deckt. Die ventilatorische anaerobe Schwelle (VAT) ist die indirekte Bestimmung über den Atemgasverlauf und bildet häufig einen Bereich des aerob anaeroben Übergangs ab.</div>"
+            "<div class='spiro-edu__sub'>V Slope Methode</div>"
+            "<div>Im aeroben Bereich besteht zwischen V'O2 und V'CO2 ein annähernd linearer Zusammenhang. Mit zunehmender Säurepufferung steigt V'CO2 überproportional. Der Knickpunkt in der V'CO2 zu V'O2 Beziehung wird zur VAT Bestimmung genutzt.</div>"
             "<div class='spiro-edu__sub'>VCP</div>"
-            "<div>Oberhalb VCP steigt die Ventilation im Verhältnis zu V'CO2 überproportional.</div>"
-            "<div class='spiro-edu__sub'>Nutzen</div>"
-            "<div>AT ist weniger motivationsabhängig als Peak und beschreibt Dauerleistungsfähigkeit.</div>"
+            "<div>Oberhalb eines weiteren Punktes (VCP) steigt die Ventilation im Verhältnis zu V'CO2 überproportional an, da der Atemantrieb zusätzlich durch die Säurelast stimuliert wird. Graphisch lässt sich dies z. B. in der Beziehung Ventilation zu V'CO2 darstellen.</div>"
+            "<div class='spiro-edu__sub'>Klinischer Nutzen</div>"
+            "<div>Die AT ist im Vergleich zur maximalen Leistung weniger motivationsabhängig und eignet sich zur Beurteilung der Dauerleistungsfähigkeit. Sehr niedrige AT Werte im Verhältnis zu Referenzen können auf eine frühe Limitierung des Sauerstofftransportes hinweisen und sollten im Gesamtkontext eingeordnet werden.</div>"
             "</div>"
             "</details>"
         )
@@ -979,10 +977,8 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
     def _empty(msg: str) -> Dict[str, Any]:
         teach = _teaching_vo2_html()
         m = teach + f"<div class='docx-muted'>{html.escape(msg)}</div>"
-        # Teaching is shown in the live box. Do not duplicate inside module tabs.
-        mod0 = f"<div class='docx-muted'>{html.escape(msg)}</div>"
         return {
-            "mod0_html": mod0,
+            "mod0_html": m,
             "mod1_html": "",
             "mod2_html": "",
             "mod3_html": "",
@@ -1135,7 +1131,7 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
 
         # 7 Sicherheit
         s = []
-        if res.module7_safety.severity == "bad":
+        if res.module7.severity == "bad":
             s.append("Safety Event.")
         if d.angina:
             s.append("Angina.")
@@ -1437,9 +1433,8 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
             + "</div>"
         )
 
-        teach = _teaching_vo2_html()
         return {
-            "mod0_html": _html(res.module0),
+            "mod0_html": _teaching_vo2_html() + _html(res.module0),
             "mod1_html": _html(res.module1),
             "mod2_html": _html(res.module2),
             "mod3_html": _html(res.module3),
@@ -1449,7 +1444,7 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
             "mod7_html": _html(res.module7_safety),
             "mod9_html": _html(res.module9),
             "modfinal_html": _html(res.module_final),
-            "overall_html": teach + overall_html,
+            "overall_html": overall_html,
             "headline": res.headline,
             "clinical_summary": res.clinical_summary,
             "report_text": res.report_text,

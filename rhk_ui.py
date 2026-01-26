@@ -1951,18 +1951,22 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 import traceback
                 print("CPET_WIZARD_ERROR:", repr(e))
                 traceback.print_exc()
-                # Show teaching only once in the live box to avoid redundancy.
                 teach = (
                     "<details class='spiro-edu__details' open>"
-                    "<summary class='spiro-edu__summary'>Lernmodul V'O2</summary>"
+                    "<summary class='spiro-edu__summary'>Lernmodul V'O2 (Sauerstoffaufnahme)</summary>"
                     "<div class='spiro-edu__teach'>"
-                    "<div class='spiro-edu__sub'>Merksatz</div>"
-                    "<div>Fick: V'O2 = HZV × C(a v)O2.</div>"
+                    "<div class='spiro-edu__sub'>Kernaussage</div>"
+                    "<div>V'O2 ist der zentrale integrative Parameter der CPET. Er bildet das Zusammenspiel von Lunge, Kreislauf und Muskulatur ab.</div>"
+                    "<div class='spiro-edu__sub'>Fick Prinzip</div>"
+                    "<div>V'O2 = Herzzeitvolumen × C(a v)O2.</div>"
                     "<div class='spiro-edu__sub'>Hinweis</div>"
-                    "<div>Dieses Lernmodul ist nur lesen und trifft keine Aussagen zum individuellen Befund.</div>"
+                    "<div>Dieses Lernmodul ist read only. Es trifft keine Aussagen zum individuellen Befund.</div>"
                     "</div></details>"
                 )
-                msg = "<div class='docx-muted'>Spiro-Logic CPET Wizard konnte nicht ausgeführt werden. Details in Konsole.</div>"
+                msg = teach + (
+                    "<div class='docx-muted'>Spiro-Logic CPET-Wizard konnte nicht ausgeführt werden. "
+                    "Ausgabe deaktiviert (Details in Konsole).</div>"
+                )
                 out = {
                     "mod0_html": msg,
                     "mod1_html": "",
@@ -1974,8 +1978,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     "mod7_html": "",
                     "mod9_html": "",
                     "modfinal_html": "",
-                    "overall_html": teach + msg,
-                    "live_html": teach + msg,
+                    "overall_html": msg,
+                    "live_html": msg,
                     "report_text": "",
                     "need_chrono_followups": False,
                 }
@@ -3273,38 +3277,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 else:
                     out.append(coerced)
             return out
-        def _generate(case_state_prev, flags_state, pmods_state, docx_cur_state, docx_prev_state, echo_cur_state, echo_prev_state, case_filename_state, *vals):
+        def _generate(flags_state, pmods_state, docx_cur_state, docx_prev_state, echo_cur_state, echo_prev_state, case_filename_state, *vals):
             flags = dict(flags_state or {})
 
-
-            # Persistenz-Schutz: vorhandene (geladen/importierte) Werte dürfen beim Speichern nicht verloren gehen.
-            # Policy:
-            # - Unbekannte/legacy Keys aus einem geladenen Fall bleiben erhalten.
-            # - Skalar-Inputs werden NICHT durch None/"" überschrieben (keine stillen Datenverluste).
-            prev_case = case_state_prev if isinstance(case_state_prev, dict) else {}
-
-            def _is_empty_scalar(v):
-                if v is None:
-                    return True
-                if isinstance(v, str) and v.strip() == "":
-                    return True
-                return False
-
-            def _deep_merge_preserve(prev, new):
-                # Dict: rekursiv mergen, neue Werte überschreiben, unbekannte Altkeys bleiben erhalten.
-                if isinstance(prev, dict) and isinstance(new, dict):
-                    out = dict(prev)
-                    for k, nv in new.items():
-                        pv = out.get(k)
-                        out[k] = _deep_merge_preserve(pv, nv)
-                    return out
-                # Liste/Tuple/Set: immer new (damit Nutzer*innen bewusst entfernen können).
-                if isinstance(new, (list, tuple, set)):
-                    return list(new) if not isinstance(new, list) else new
-                # Skalar: new nur übernehmen, wenn nicht leer; sonst prev behalten.
-                if _is_empty_scalar(new) and not _is_empty_scalar(prev):
-                    return prev
-                return new
             # Optional lightweight profiling (console only). Enable with env var RHK_PERF=1.
             perf_on = os.getenv("RHK_PERF", "0").strip() == "1"
             t0 = time.perf_counter() if perf_on else 0.0
@@ -3399,12 +3374,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 t_case0 = time.perf_counter()
             case = build_case(raw, rules)
 
-
-            # Merge: preserve loaded/imported/legacy keys and prevent silent drops
-            try:
-                case = _deep_merge_preserve(prev_case, case)
-            except Exception:
-                pass
             # Arztbericht: muss die vollständige Hämodynamik (Ruhe + Provokation), Slopes und Interpretation enthalten.
             # Das kompakte Template bleibt für DOCX-Layouts im Code, wird hier aber nicht als primärer Bericht verwendet.
             if perf_on:
@@ -3862,8 +3831,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             modules_cards_html,
         ]
 
-        btn_generate_top.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
-        btn_generate_bottom.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
+        btn_generate_top.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
+        btn_generate_bottom.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
 
         # DOCX export for the doctor report (Muster-Layout)
         # Use DownloadButton to keep the UI compact.
@@ -3981,7 +3950,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             try:
                 btn.click(
                     _export_prerhk_pdf,
-                    inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                    inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
                     outputs=[btn_prerhk_pdf, copy_feedback],
                     trigger_mode="always_last",
                     queue=False,
@@ -3991,7 +3960,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 try:
                     btn.click(
                         _export_prerhk_pdf,
-                        inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                        inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
                         outputs=[btn_prerhk_pdf, copy_feedback],
                         trigger_mode="always_last",
                         queue=False,
@@ -3999,7 +3968,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 except TypeError:
                     btn.click(
                         _export_prerhk_pdf,
-                        inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                        inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
                         outputs=[btn_prerhk_pdf, copy_feedback],
                     )
 
@@ -4667,7 +4636,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "", "", "",                                    # copy_*_plain
                 "", "", "",                                    # copy_*_html
                 "",                                            # copy_feedback
-                case_loaded_payload,                            # state_case (geladenes JSON bleibt erhalten)
+                None,                                          # state_case
                 flags0,                                        # state_flags
                 {"lvl1": [], "lvl2": [], "lvl3": []},          # state_pmods_selected
                 None,                                          # state_docx_cur
@@ -4845,9 +4814,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         _save_outputs = [file_out, file_summary_out, state_flags, sticky_summary_html, copy_feedback]
 
-        save_btn_top.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
+        save_btn_top.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_save_case, inputs=[state_case, state_flags, state_case_filename], outputs=_save_outputs)
-        save_btn_bottom.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
+        save_btn_bottom.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_save_case, inputs=[state_case, state_flags, state_case_filename], outputs=_save_outputs)
 
         # --- Load case ---
@@ -4892,12 +4861,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             ui_dict["modules_lvl3"] = []
 
             imports = (data.get("imports") if isinstance(data, dict) else None) or {}
-
-            # Vollständigen Fall-Payload behalten (inkl. unbekannter Keys)
-            loaded_case_payload = data if isinstance(data, dict) else {"ui": ui_dict}
-            if not isinstance(loaded_case_payload, dict):
-                loaded_case_payload = {"ui": ui_dict}
-
             if not isinstance(imports, dict):
                 imports = {}
 
@@ -5003,9 +4966,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     docx_cur, docx_prev,
                     pdf_cur_reset, cur_html, echo_cur,
                     pdf_prev_reset, prev_html, echo_prev,
-                    cmp_html, details_html, btnu, loaded_name,
-                    loaded_case_payload)
-# -------------------------
+                    cmp_html, details_html, btnu, loaded_name)
+
+        
+
+
+        # -------------------------
         # DOCX Import (Mac-Lab)
         # -------------------------
         DOCX_WIPE_CURRENT = {
@@ -5360,7 +5326,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 outputs=input_components + [state_docx_cur],
             ).then(
                 _generate_with_pmods_apply,
-                inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
                 outputs=generate_outputs,
             )
 
@@ -5371,7 +5337,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 outputs=input_components + [state_docx_prev],
             ).then(
                 _generate_with_pmods_apply,
-                inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
+                inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
                 outputs=generate_outputs,
             )
 
@@ -5412,7 +5378,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             crp_mg_l, creatinine_mg_dl2, age2, sex2, allergies_present2, allergies_list2, allergies_other_text,
             lsb_present, lsb_reason,
             # states for generate
-            pmods_sel_state, docx_cur_payload, docx_prev_payload, echo_cur_payload, echo_prev_payload, case_filename, case_loaded_payload,
+            pmods_sel_state, docx_cur_payload, docx_prev_payload, echo_cur_payload, echo_prev_payload, case_filename,
             *vals,
         ):
             # IMPORTANT (Stabilitaet/Kompatibilitaet)
@@ -5478,7 +5444,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "", "", "",                                    # copy_*_plain
                 "", "", "",                                    # copy_*_html
                 "⚠️ Fall geladen. Bitte Befund erstellen.",      # copy_feedback
-                case_loaded_payload,                            # state_case (geladenes JSON bleibt erhalten)
+                None,                                          # state_case
                 flags,                                         # state_flags
                 (pmods_sel_state or {"lvl1": [], "lvl2": [], "lvl3": []}),  # state_pmods_selected
                 docx_cur_payload,                              # state_docx_cur
@@ -5507,7 +5473,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         import_pdf_prev, import_preview_prev_html, state_echo_prev,
         compare_echo_html, details_echo_html, btn_echo_apply,
         state_case_filename,
-        state_case,
     ],
         )\
     .then(
@@ -5546,7 +5511,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"],
             field_components["lsb_present"], field_components["lsb_reason"],
 
-            state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename, state_case,
+            state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename,
         ] + input_components,
         outputs=[
             ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
@@ -5567,7 +5532,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         import_pdf_prev, import_preview_prev_html, state_echo_prev,
         compare_echo_html, details_echo_html, btn_echo_apply,
         state_case_filename,
-        state_case,
     ],
         )\
     .then(
@@ -5606,7 +5570,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             field_components["crp_mg_l"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"], field_components["allergies_other_text"],
             field_components["lsb_present"], field_components["lsb_reason"],
 
-            state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename, state_case,
+            state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename,
         ] + input_components,
         outputs=[
             ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
