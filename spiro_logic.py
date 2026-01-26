@@ -975,10 +975,10 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
 
 
     def _empty(msg: str) -> Dict[str, Any]:
-        teach = _teaching_vo2_html()
-        m = teach + f"<div class='docx-muted'>{html.escape(msg)}</div>"
+        teaching_html = _teaching_vo2_html()
+        msg_html = f"<div class='docx-muted'>{html.escape(msg)}</div>"
         return {
-            "mod0_html": m,
+            "mod0_html": msg_html,
             "mod1_html": "",
             "mod2_html": "",
             "mod3_html": "",
@@ -988,7 +988,9 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
             "mod7_html": "",
             "mod9_html": "",
             "modfinal_html": "",
-            "overall_html": m,
+            "live_html": msg_html,
+            "overall_html": msg_html,
+            "teaching_html": teaching_html,
             "headline": "CPET",
             "clinical_summary": "",
             "report_text": "",
@@ -1131,7 +1133,9 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
 
         # 7 Sicherheit
         s = []
-        if res.module7.severity == "bad":
+        # Result field name is module7_safety (historically some renderers used module7).
+        _m7 = getattr(res, "module7_safety", None)
+        if _m7 is not None and getattr(_m7, "severity", None) == "bad":
             s.append("Safety Event.")
         if d.angina:
             s.append("Angina.")
@@ -1423,18 +1427,123 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
                 "<div class='spiro-edu__follow'><ul>" + lis + "</ul></div>"
             )
 
-        overall_html = (
-            "<div class='spiro-edu spiro-edu--overall'>"
+        def _render_overall_structured() -> str:
+            # Arzt zu Arzt, kurz, strukturiert. Keine Didaktik hier.
+            lines_q = []
+            sr = ui.get("cpet_stop_reason")
+            sr_txt = _esc(str(sr)) if _is_filled(sr) else "nicht angegeben"
+            rer = _try_num(ui.get("cpet_rer_peak"))
+            if rer is not None:
+                lines_q.append(f"Testende: {sr_txt}. RER {_n(rer,2)}")
+            else:
+                lines_q.append(f"Testende: {sr_txt}. RER nicht angegeben")
+
+            vo2 = _try_num(ui.get("cpet_peak_vo2_ml_kg_min"))
+            vo2pct = _try_num(ui.get("cpet_peak_vo2_pct_pred"))
+            v_reached = str(ui.get("cpet_vo2_peak_reached") or "unklar").strip().lower()
+            cap = []
+            if vo2 is not None:
+                cap.append(f"V'O2peak {_n(vo2,1)} mL/min/kg")
+            if vo2pct is not None:
+                cap.append(f"{_n(vo2pct,0)}% Soll")
+            if cap:
+                lines_cap = [". ".join(cap) + "."]
+            else:
+                lines_cap = ["V'O2peak nicht angegeben."]
+            lines_cap.append(f"Peak V'O2 erreicht: {v_reached if v_reached else 'unklar' }.")
+
+            vevco2 = _try_num(ui.get("cpet_ve_vco2_slope"))
+            pet = _try_num(ui.get("cpet_petco2_vt1_mmhg"))
+            vent = []
+            if vevco2 is not None:
+                vent.append(f"V'E V'CO2 Slope {_n(vevco2,0)}")
+            if pet is not None:
+                vent.append(f"PETCO2 VT1 {_n(pet,0)} mmHg")
+            lines_vent = [(". ".join(vent) + ".") if vent else "Ventilationsparameter nicht vollständig angegeben."]
+
+            spo2 = _try_num(ui.get("cpet_spo2_nadir_pct"))
+            lines_ox = [f"SpO2 Nadir {_n(spo2,0)}%." if spo2 is not None else "SpO2 Nadir nicht angegeben."]
+
+            hr = _try_num(ui.get("cpet_hr_peak_bpm"))
+            o2p_pat = ui.get("cpet_o2_pulse_pattern")
+            circ = []
+            if hr is not None:
+                circ.append(f"HF Peak {_n(hr,0)} bpm")
+            if _is_filled(o2p_pat):
+                circ.append(f"O2 Puls Muster { _esc(str(o2p_pat)) }")
+            lines_circ = [(". ".join(circ) + ".") if circ else "Zirkulationsparameter nicht vollständig angegeben."]
+
+            # Kurze, kriteriumsbasierte Einordnung ohne Diagnose.
+            synth = []
+            if (vo2pct is not None) and (v_reached != "ja"):
+                synth.append("Interpretation eingeschränkt, da Peak V'O2 nicht sicher erreicht.")
+            if vo2pct is not None:
+                if vo2pct >= 85:
+                    synth.append("Kapazität normwertig nach %Soll.")
+                elif 65 <= vo2pct <= 84:
+                    synth.append("Kapazität leicht vermindert nach %Soll.")
+                elif 50 <= vo2pct <= 64:
+                    synth.append("Kapazität mäßig vermindert nach %Soll.")
+                elif vo2pct < 50:
+                    synth.append("Kapazität schwer vermindert nach %Soll.")
+            else:
+                synth.append("%Soll fehlt, Graduierung nicht möglich.")
+
+            # Follow-ups (nur wenn Daten fehlen).
+            follow = []
+            if str(ui.get("cpet_vo2_peak_reached") or "unklar").strip().lower() == "unklar" and (ui.get("cpet_done") is True):
+                follow.append("Peak V'O2 erreicht bestätigen/verneinen.")
+            if (vo2 is None) and (ui.get("cpet_done") is True):
+                follow.append("V'O2peak ergänzen.")
+            if (vo2pct is None) and (ui.get("cpet_done") is True):
+                follow.append("V'O2peak %Soll ergänzen.")
+
+            def _blk(title: str, lines: list) -> str:
+                li = "".join(f"<li>{_esc(str(x))}</li>" for x in lines if _is_filled(x))
+                return f"<div class='spiro-edu__sub'>{_esc(title)}</div><div class='spiro-edu__follow'><ul>{li}</ul></div>"
+
+            out = (
+                "<div class='spiro-edu spiro-edu--overall'>"
+                f"<div class='spiro-edu__title'>{_esc(res.headline)}</div>"
+                + _blk("Qualität", lines_q)
+                + _blk("Kapazität", lines_cap)
+                + _blk("Ventilation", lines_vent)
+                + _blk("Oxygenierung", lines_ox)
+                + _blk("Zirkulation", lines_circ)
+            )
+            if synth:
+                out += _blk("Synthese", synth)
+            if physics_html:
+                out += physics_html
+            if follow:
+                out += _blk("Follow-ups", follow)
+            out += "</div>"
+            return out
+
+        overall_html = _render_overall_structured()
+
+        live_html = (
+            "<div class='spiro-edu spiro-edu--live'>"
             f"<div class='spiro-edu__title'>{_esc(res.headline)}</div>"
             f"<div class='spiro-edu__feedback'>{_esc(res.clinical_summary)}</div>"
             + physics_html
-            + _render_befundungsabfolge(d, res)
-            + _render_interaktionshinweise(d)
             + "</div>"
         )
+        # Step 1 Pflicht-Check: Peak VO2 erreicht? (manuelle Bestätigung)
+        try:
+            if (ui.get("cpet_done") is True) and (str(ui.get("cpet_vo2_peak_reached") or "unklar").strip().lower() == "unklar"):
+                warn = "<div class='spiro-edu__follow'><b>Follow-up:</b> Feld „Peak V'O2 erreicht?“ prüfen und bestätigen/verneinen. Interpretation ggf. eingeschränkt.</div>"
+                live_html = live_html.replace("</div>", warn + "</div>", 1)
+                overall_html = overall_html.replace("</div>", warn + "</div>", 1)
+        except Exception:
+            pass
+
+
+        # Teaching: didaktische Inhalte, inkl. Befundungsabfolge/Interaktionshinweise.
+        teaching_html = _teaching_vo2_html() + _render_befundungsabfolge(d, res) + _render_interaktionshinweise(d)
 
         return {
-            "mod0_html": _teaching_vo2_html() + _html(res.module0),
+            "mod0_html": _html(res.module0),
             "mod1_html": _html(res.module1),
             "mod2_html": _html(res.module2),
             "mod3_html": _html(res.module3),
@@ -1444,7 +1553,9 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
             "mod7_html": _html(res.module7_safety),
             "mod9_html": _html(res.module9),
             "modfinal_html": _html(res.module_final),
+            "live_html": live_html,
             "overall_html": overall_html,
+            "teaching_html": teaching_html,
             "headline": res.headline,
             "clinical_summary": res.clinical_summary,
             "report_text": res.report_text,
@@ -1458,3 +1569,33 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
         print("SPIRO_LOGIC_ERROR: render() failed:", repr(e))
         traceback.print_exc()
         return _empty("CPET Wizard Fehler: Ausgabe konnte nicht gerendert werden (Details in Konsole).")
+
+
+def build_cpet_outputs(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Single CPET builder for UI output blocks.
+
+    Returns dict with keys:
+      - live_html (kompakt, klinisch)
+      - overall_html (strukturierter klinischer Block)
+      - teaching_html (Lernmodule, nie in live/overall doppelt)
+      - optional flags/followups
+    Fail-safe: Exceptions must not block the UI.
+    """
+    try:
+        out = build_wizard_outputs(data or {})
+        # Ensure required keys exist
+        out.setdefault("live_html", out.get("overall_html") or "")
+        out.setdefault("overall_html", out.get("overall_html") or "")
+        out.setdefault("teaching_html", out.get("teaching_html") or "")
+        return out
+    except Exception as e:
+        msg = f"<div class='docx-muted'>CPET-Ausgabe konnte nicht erstellt werden. Details in Log. ({type(e).__name__})</div>"
+        return {
+            "live_html": msg,
+            "overall_html": msg,
+            "teaching_html": "",
+            "report_text": "",
+            "need_chrono_followups": False,
+            "suspect_ph": False,
+            "eov_present": False,
+        }

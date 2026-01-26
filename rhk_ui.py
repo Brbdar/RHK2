@@ -81,6 +81,14 @@ def _get_spiro_logic():
                         "report_text": "",
                         "need_chrono_followups": False,
                     }
+
+                @staticmethod
+                def build_cpet_outputs(_ui: Dict[str, Any]):
+                    out = _FallbackSpiroLogic.build_wizard_outputs(_ui)
+                    msg = out.get("overall_html") or ""
+                    out.setdefault("live_html", msg)
+                    out.setdefault("teaching_html", "")
+                    return out
             _SPIRO_LOGIC = _FallbackSpiroLogic()
     return _SPIRO_LOGIC
 
@@ -799,7 +807,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                             with gr.Row():
                                 add("cpet_done", gr.Checkbox(label="CPET durchgeführt"))
                                 add("cpet_protocol", gr.Dropdown(label="Protokoll (optional)", choices=["Rampe", "Stufenprotokoll", "Semi supine", "Laufband", "Sonstiges"], value="Rampe"))
-                                add("cpet_site", gr.Textbox(label="Ort/Setup (optional)"))
+                                add("cpet_setup", gr.Textbox(label="Ort/Setup (optional)"))
+                                add("cpet_site", gr.Textbox(label="Ort/Setup (legacy, hidden)", visible=False))
 
                             cpet_risk_html = gr.HTML(value="<div class='docx-muted'>Keine CPET Daten erfasst.</div>")
 
@@ -813,6 +822,10 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                 cpet_live_html = gr.HTML(
                                     value="<div class='docx-muted'>Live Erklärung erscheint nach Eingabe von CPET Werten.</div>"
                                 )
+
+                                with gr.Accordion("Lernmodus CPET", open=False):
+                                    cpet_teaching_html = gr.HTML(value="<div class='docx-muted'>Lernmodule erscheinen nach Eingabe oder beim Laden.</div>")
+
 
                                 # Wizard modules (deterministic, no AI)
                                 with gr.Tabs():
@@ -844,8 +857,10 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                                 add("cpet_stop_reason_text", gr.Textbox(label="Details Abbruchgrund (optional)", lines=2, info="Freitext zum Abbruchgrund, zB Symptome oder Ereignisse."))
                                                 with gr.Row():
                                                     add("cpet_borg_rpe", gr.Number(label="Borg RPE (0–10, optional)", info="Borg RPE Gesamtanstrengung (0 bis 10). Unterstützt die Beurteilung der Ausbelastung."))
-                                                    add("cpet_borg_dyspnea", gr.Number(label="Borg Dyspnoe (0–10, optional)", info="Borg Dyspnoe (0 bis 10). Hilft Atemnot von Beinlimitierung zu trennen."))
-                                                    add("cpet_borg_leg", gr.Number(label="Borg Beine (0–10, optional)", info="Borg Beine (0 bis 10). Hinweis auf periphere Limitierung."))
+                                                    add("cpet_borg_dyspnoe", gr.Number(label="Borg Dyspnoe (0–10, optional)", info="Borg Dyspnoe (0 bis 10). Hilft Atemnot von Beinlimitierung zu trennen."))
+                                                    add("cpet_borg_dyspnea", gr.Number(label="Borg Dyspnoe (legacy, hidden)", visible=False))
+                                                    add("cpet_borg_legs", gr.Number(label="Borg Beine (0–10, optional)", info="Borg Beine (0 bis 10). Hinweis auf periphere Limitierung."))
+                                                    add("cpet_borg_leg", gr.Number(label="Borg Beine (legacy, hidden)", visible=False))
                                             with gr.Column(scale=1):
                                                 cpet_mod0_html = gr.HTML(value="<div class='docx-muted'>Bitte Testqualität dokumentieren.</div>")
 
@@ -879,10 +894,17 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                                     add("cpet_peak_vo2_ml_kg_min", gr.Number(label="V'O2max/kg (mL/min/kg)", info="V'O2max/kg (mL/min/kg). Prognostisch zentral. Surrogat der Pumpfunktion nach dem Fick Prinzip."))
                                                     add("cpet_peak_vo2_pct_pred", gr.Number(label="V'O2 Peak (% Soll)", info="V'O2 Peak in Prozent des Sollwerts. Erlaubt Vergleich über Alter und Geschlecht."))
                                                     add("cpet_peak_vo2_ml_min", gr.Number(label="V'O2 Peak (mL/min, optional)"))
+                                                with gr.Row():
+                                                    add("cpet_vo2_peak_reached", gr.Dropdown(label="Peak V\'O2 erreicht?", choices=["unklar", "ja", "nein"], value="unklar", info="Pflicht für Step 1. Bei unklar: Interpretation eingeschränkt."))
                                                 with gr.Accordion("Schwellenwerte (optional)", open=False):
                                                     with gr.Row():
                                                         add("cpet_vo2_vt1_ml_kg_min", gr.Number(label="V'O2 VT1 (mL/min/kg, optional)"))
                                                         add("cpet_vo2_vt1_ml_min", gr.Number(label="V'O2 VT1 (mL/min, optional)"))
+                                                    with gr.Row():
+                                                        add("cpet_vt1_method", gr.Dropdown(label="AT Methode", choices=["Automatik", "V-Slope", "VE/VO2-Min", "PETO2-Min", "Kombiniert", "Sonstiges"], value="Automatik"))
+                                                        add("cpet_vt1_manual_checked", gr.Dropdown(label="AT manuell geprüft", choices=["unklar", "ja", "nein"], value="unklar"))
+                                                    with gr.Row():
+                                                        add("cpet_vt1_time_min", gr.Number(label="AT Zeitpunkt (min, optional)"))
                                                     with gr.Row():
                                                         add("cpet_vo2_vt2_ml_min", gr.Number(label="V'O2 VT2 (mL/min, optional)"))
 
@@ -1723,8 +1745,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 gr.update(visible=show_eif),
             )
 
-        def _render_cpet_risk_html(cpet_done_v,
+        def _render_cpet_risk_html(
+                                  cpet_done_v,
                                   peak_vo2, peak_vo2_pct,
+                                  vo2_peak_reached,
+                                  vt1_method, vt1_manual_checked, vt1_time_min,
                                   vevco2_slope, petco2_vt1, vevco2_vt1,
                                   o2pulse_pct, vo2_wr_slope, vo2_vt1,
                                   spo2_nadir, rer_peak, hr_peak,
@@ -1736,6 +1761,10 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "cpet_done": True,
                 "cpet_peak_vo2_ml_kg_min": peak_vo2,
                 "cpet_peak_vo2_pct_pred": peak_vo2_pct,
+                "cpet_vo2_peak_reached": vo2_peak_reached,
+                "cpet_vt1_method": vt1_method,
+                "cpet_vt1_manual_checked": vt1_manual_checked,
+                "cpet_vt1_time_min": vt1_time_min,
                 "cpet_ve_vco2_slope": vevco2_slope,
                 "cpet_petco2_vt1_mmhg": petco2_vt1,
                 "cpet_ve_vco2_vt1": vevco2_vt1,
@@ -1796,20 +1825,27 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             return "<div class='rhk-summarybar'>" + "".join(chips) + notes_html + "</div>"
 
-        def _sync_post_load_cpet(cpet_done_v,
-                                 peak_vo2, peak_vo2_pct,
-                                 vevco2_slope, petco2_vt1, vevco2_vt1,
-                                 o2pulse_pct, vo2_wr_slope, vo2_vt1,
-                                 spo2_nadir, rer_peak, hr_peak,
-                                 o2_pulse_pattern):
+        def _sync_post_load_cpet(
+            cpet_done_v,
+            peak_vo2, peak_vo2_pct,
+            vo2_peak_reached,
+            vt1_method, vt1_manual_checked, vt1_time_min,
+            vevco2_slope, petco2_vt1, vevco2_vt1,
+            o2pulse_pct, vo2_wr_slope, vo2_vt1,
+            spo2_nadir, rer_peak, hr_peak,
+            o2_pulse_pattern,
+        ):
             # Show the CPET card details as soon as any CPET value is entered.
             # This prevents the "no live explanation" situation when users forget to tick CPET done.
             try:
                 has_any = any(
                     _is_filled(v)
                     for v in [
-                        peak_vo2, peak_vo2_pct, vevco2_slope, petco2_vt1, vevco2_vt1,
-                        o2pulse_pct, vo2_wr_slope, vo2_vt1, spo2_nadir, rer_peak, hr_peak, o2_pulse_pattern,
+                        peak_vo2, peak_vo2_pct,
+                        vo2_peak_reached, vt1_method, vt1_manual_checked, vt1_time_min,
+                        vevco2_slope, petco2_vt1, vevco2_vt1,
+                        o2pulse_pct, vo2_wr_slope, vo2_vt1,
+                        spo2_nadir, rer_peak, hr_peak, o2_pulse_pattern,
                     ]
                 )
             except Exception:
@@ -1818,7 +1854,16 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             show_details = bool(cpet_done_v) or bool(has_any)
             return (
                 gr.update(visible=show_details),
-                _render_cpet_risk_html(cpet_done_v, peak_vo2, peak_vo2_pct, vevco2_slope, petco2_vt1, vevco2_vt1, o2pulse_pct, vo2_wr_slope, vo2_vt1, spo2_nadir, rer_peak, hr_peak, o2_pulse_pattern),
+                _render_cpet_risk_html(
+                    cpet_done_v,
+                    peak_vo2, peak_vo2_pct,
+                    vo2_peak_reached,
+                    vt1_method, vt1_manual_checked, vt1_time_min,
+                    vevco2_slope, petco2_vt1, vevco2_vt1,
+                    o2pulse_pct, vo2_wr_slope, vo2_vt1,
+                    spo2_nadir, rer_peak, hr_peak,
+                    o2_pulse_pattern,
+                ),
             )
 
         # Spiro-Logic wizard: live education + pattern recognition (deterministic)
@@ -1827,9 +1872,10 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         def _sync_post_load_cpet_wizard(
             cpet_done_v,
             stop_reason, stop_reason_text,
-            borg_rpe, borg_dysp, borg_leg,
+            borg_rpe, borg_dyspnoe, borg_legs,
             rer_peak, hr_peak, hr_pct,
-            peak_vo2, peak_vo2_pct,
+            peak_vo2, peak_vo2_pct, vo2_peak_reached,
+            vt1_method, vt1_manual_checked, vt1_time_min,
             o2p_ml, o2p_pattern, o2p_slope,
             bp_sys_rest, bp_dia_rest,
             bp_sys, bp_dia,
@@ -1851,8 +1897,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             # If CPET is marked done but no meaningful values are present, keep UI responsive
             _core_vals = [
-                stop_reason, borg_rpe, borg_dysp, borg_leg, rer_peak, hr_peak, hr_pct,
-                peak_vo2, peak_vo2_pct, o2p_ml, o2p_pattern, o2p_slope,
+                stop_reason, borg_rpe, borg_dyspnoe, borg_legs, rer_peak, hr_peak, hr_pct,
+                peak_vo2, peak_vo2_pct, vo2_peak_reached, vt1_method, vt1_manual_checked, vt1_time_min, o2p_ml, o2p_pattern, o2p_slope,
                 bp_sys_rest, bp_dia_rest, bp_sys, bp_dia,
                 vevco2_slope, pet_rest, pet_peak, pet_vt1, br_pct, vevco2_vt1,
                 spo2_rest, spo2_peak, spo2_nadir, o2_supp, vo2_wr_slope,
@@ -1876,6 +1922,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     "",
                     msg,
                     msg,
+                    msg,
                     "",
                     gr.update(visible=False),
                 )
@@ -1886,8 +1933,10 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "cpet_stop_reason": stop_reason,
                 "cpet_stop_reason_text": stop_reason_text,
                 "cpet_borg_rpe": borg_rpe,
-                "cpet_borg_dyspnea": borg_dysp,
-                "cpet_borg_leg": borg_leg,
+                "cpet_borg_dyspnoe": borg_dyspnoe,
+                "cpet_borg_dyspnea": borg_dyspnoe,
+                "cpet_borg_legs": borg_legs,
+                "cpet_borg_leg": borg_legs,
                 "cpet_rer_peak": rer_peak,
                 "cpet_hr_peak_bpm": hr_peak,
                 "cpet_hr_pct_pred": hr_pct,
@@ -1943,7 +1992,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 if _cpet_wiz_cache.get("sig") == sig and isinstance(_cpet_wiz_cache.get("out"), dict):
                     out = _cpet_wiz_cache.get("out")
                 else:
-                    out = _get_spiro_logic().build_wizard_outputs(ui_tmp)
+                    out = _get_spiro_logic().build_cpet_outputs(ui_tmp)
                     _cpet_wiz_cache["sig"] = sig
                     _cpet_wiz_cache["out"] = out
             except Exception as e:
@@ -1991,8 +2040,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             report_text = out.get("report_text") or ""
 
             # Live box should show the most helpful content immediately.
-            live_html = out.get("overall_html") or ""
+            live_html = out.get("live_html") or ""
             overall_html = out.get("overall_html") or ""
+            teaching_html = out.get("teaching_html") or ""
             if not done_flag:
                 note = (
                     "<div class='docx-muted'>Hinweis: CPET ist nicht als durchgeführt markiert. "
@@ -2014,6 +2064,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 out.get("modfinal_html") or "",
                 overall_html,
                 live_html,
+                teaching_html,
                 report_text,
                 gr.update(visible=show_follow),
             )
@@ -2107,6 +2158,10 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 field_components["cpet_done"],
                 field_components["cpet_peak_vo2_ml_kg_min"],
                 field_components["cpet_peak_vo2_pct_pred"],
+                field_components["cpet_vo2_peak_reached"],
+                field_components["cpet_vt1_method"],
+                field_components["cpet_vt1_manual_checked"],
+                field_components["cpet_vt1_time_min"],
                 field_components["cpet_ve_vco2_slope"],
                 field_components["cpet_petco2_vt1_mmhg"],
                 field_components["cpet_ve_vco2_vt1"],
@@ -2120,7 +2175,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             ]
             for _k in (
                 "cpet_done",
-                "cpet_peak_vo2_ml_kg_min", "cpet_peak_vo2_pct_pred",
+                "cpet_peak_vo2_ml_kg_min", "cpet_peak_vo2_pct_pred", "cpet_vo2_peak_reached", "cpet_vt1_method", "cpet_vt1_manual_checked", "cpet_vt1_time_min",
                 "cpet_ve_vco2_slope", "cpet_petco2_vt1_mmhg", "cpet_ve_vco2_vt1",
                 "cpet_peak_o2_pulse_pct_pred", "cpet_vo2_wr_slope_ml_min_w", "cpet_vo2_vt1_ml_kg_min",
                 "cpet_spo2_nadir_pct", "cpet_rer_peak", "cpet_hr_peak_bpm",
@@ -2141,13 +2196,17 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 field_components["cpet_stop_reason"],
                 field_components["cpet_stop_reason_text"],
                 field_components["cpet_borg_rpe"],
-                field_components["cpet_borg_dyspnea"],
-                field_components["cpet_borg_leg"],
+                field_components["cpet_borg_dyspnoe"],
+                field_components["cpet_borg_legs"],
                 field_components["cpet_rer_peak"],
                 field_components["cpet_hr_peak_bpm"],
                 field_components["cpet_hr_pct_pred"],
                 field_components["cpet_peak_vo2_ml_kg_min"],
                 field_components["cpet_peak_vo2_pct_pred"],
+                field_components["cpet_vo2_peak_reached"],
+                field_components["cpet_vt1_method"],
+                field_components["cpet_vt1_manual_checked"],
+                field_components["cpet_vt1_time_min"],
                 field_components["cpet_peak_o2_pulse_ml"],
                 field_components["cpet_o2_pulse_pattern"],
                 field_components["cpet_o2_pulse_slope"],
@@ -2197,9 +2256,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             for _k in (
                 "cpet_done",
                 "cpet_stop_reason", "cpet_stop_reason_text",
-                "cpet_borg_rpe", "cpet_borg_dyspnea", "cpet_borg_leg",
+                "cpet_borg_rpe", "cpet_borg_dyspnoe", "cpet_borg_legs",
                 "cpet_rer_peak", "cpet_hr_peak_bpm", "cpet_hr_pct_pred",
-                "cpet_peak_vo2_ml_kg_min", "cpet_peak_vo2_pct_pred",
+                "cpet_peak_vo2_ml_kg_min", "cpet_peak_vo2_pct_pred", "cpet_vo2_peak_reached", "cpet_vt1_method", "cpet_vt1_manual_checked", "cpet_vt1_time_min",
                 "cpet_peak_o2_pulse_ml", "cpet_o2_pulse_pattern", "cpet_o2_pulse_slope",
                 "cpet_bp_sys_rest", "cpet_bp_dia_rest", "cpet_bp_sys_peak", "cpet_bp_dia_peak",
                 "cpet_ve_vco2_slope", "cpet_petco2_rest_mmhg", "cpet_petco2_peak_mmhg", "cpet_petco2_vt1_mmhg",
@@ -2227,14 +2286,14 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                             _comp,
                             _sync_post_load_cpet_wizard,
                             inputs=_cpet_wiz_inputs,
-                            outputs=[cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_spiro_report, cpet_chrono_followup],
+                            outputs=[cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_teaching_html, cpet_spiro_report, cpet_chrono_followup],
                         )
                     else:
                         _bind_change(
                             _comp,
                             _sync_post_load_cpet_wizard,
                             inputs=_cpet_wiz_inputs,
-                            outputs=[cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_spiro_report, cpet_chrono_followup],
+                            outputs=[cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_teaching_html, cpet_spiro_report, cpet_chrono_followup],
                         )
         except Exception:
             pass
@@ -3053,6 +3112,21 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             if isinstance(ui_dict, dict):
                 if "egfr_ml_min_1_73" not in ui_dict and "egfr" in ui_dict:
                     ui_dict["egfr_ml_min_1_73"] = ui_dict.get("egfr")
+                # CPET legacy/new key aliases (Persistenz ohne Datenverlust)
+                if "cpet_setup" not in ui_dict and "cpet_site" in ui_dict:
+                    ui_dict["cpet_setup"] = ui_dict.get("cpet_site")
+                if "cpet_site" not in ui_dict and "cpet_setup" in ui_dict:
+                    ui_dict["cpet_site"] = ui_dict.get("cpet_setup")
+
+                if "cpet_borg_dyspnoe" not in ui_dict and "cpet_borg_dyspnea" in ui_dict:
+                    ui_dict["cpet_borg_dyspnoe"] = ui_dict.get("cpet_borg_dyspnea")
+                if "cpet_borg_dyspnea" not in ui_dict and "cpet_borg_dyspnoe" in ui_dict:
+                    ui_dict["cpet_borg_dyspnea"] = ui_dict.get("cpet_borg_dyspnoe")
+
+                if "cpet_borg_legs" not in ui_dict and "cpet_borg_leg" in ui_dict:
+                    ui_dict["cpet_borg_legs"] = ui_dict.get("cpet_borg_leg")
+                if "cpet_borg_leg" not in ui_dict and "cpet_borg_legs" in ui_dict:
+                    ui_dict["cpet_borg_leg"] = ui_dict.get("cpet_borg_legs")
 
             def _choice_values(comp) -> List[Any]:
                 """Return the *values* accepted by a choice component (supports (label,value) tuples)."""
@@ -3277,7 +3351,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 else:
                     out.append(coerced)
             return out
-        def _generate(flags_state, pmods_state, docx_cur_state, docx_prev_state, echo_cur_state, echo_prev_state, case_filename_state, *vals):
+        def _generate(case_state_in, flags_state, pmods_state, docx_cur_state, docx_prev_state, echo_cur_state, echo_prev_state, case_filename_state, *vals):
             flags = dict(flags_state or {})
 
             # Optional lightweight profiling (console only). Enable with env var RHK_PERF=1.
@@ -3296,6 +3370,24 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             if perf_on:
                 t_raw0 = time.perf_counter()
             raw = ui_get_raw(*vals)
+
+            # --- Case-State Merge (Persistenz): Unknown Keys nie verwerfen ---
+            # Baseline ist immer der vorhandene State (z.B. aus geladenem JSON) + UI-Updates.
+            # Niemals "neues Dict aus ausgewählten Feldern" ohne Unknown Keys.
+            try:
+                import copy as _copy
+                _base_case = case_state_in if isinstance(case_state_in, dict) else {}
+                _base_case = _copy.deepcopy(_base_case)
+            except Exception:
+                _base_case = case_state_in if isinstance(case_state_in, dict) else {}
+            _base_ui = _base_case.get("ui") if isinstance(_base_case.get("ui"), dict) else (_base_case if isinstance(_base_case, dict) else {})
+            try:
+                import copy as _copy
+                raw = _copy.deepcopy(_base_ui)
+                raw.update(ui_get_raw(*vals))
+            except Exception:
+                # Fall back: keep current raw
+                raw = ui_get_raw(*vals)
 
             # --- eGFR: compute reliably (also after programmatic imports) ---
             # The UI field is non-interactive, and Gradio does not fire `.change` callbacks
@@ -3372,7 +3464,19 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 raw["modules"] = ui_mods
             if perf_on:
                 t_case0 = time.perf_counter()
-            case = build_case(raw, rules)
+            case_computed = build_case(raw, rules)
+            # Merge computed case back into baseline (keeps unknown top-level keys)
+            try:
+                import copy as _copy
+                case = _copy.deepcopy(_base_case) if isinstance(_base_case, dict) else {}
+            except Exception:
+                case = dict(_base_case) if isinstance(_base_case, dict) else {}
+            try:
+                case.update(case_computed)
+                case["ui"] = raw
+            except Exception:
+                case = case_computed
+
 
             # Arztbericht: muss die vollständige Hämodynamik (Ruhe + Provokation), Slopes und Interpretation enthalten.
             # Das kompakte Template bleibt für DOCX-Layouts im Code, wird hier aber nicht als primärer Bericht verwendet.
@@ -3831,8 +3935,8 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             modules_cards_html,
         ]
 
-        btn_generate_top.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
-        btn_generate_bottom.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
+        btn_generate_top.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
+        btn_generate_bottom.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)
 
         # DOCX export for the doctor report (Muster-Layout)
         # Use DownloadButton to keep the UI compact.
@@ -4418,7 +4522,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             ct_done, ct_ild, vq_done, creatinine_mg_dl, age, sex, allergies_present, allergies_list,
             pvod_edema_on_vaso, pvod_edema_desc,
             eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
-            cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
+            cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_vo2_peak_reached, cpet_vt1_method, cpet_vt1_manual_checked, cpet_vt1_time_min, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
             cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
             cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm, cpet_o2_pulse_pattern,
             consent_done, access_route, inr, ptt_s, platelets_g_l, anticoag_status, anticoag_paused,
@@ -4457,9 +4561,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
             )
             cpet_out = _sync_post_load_cpet(
-        cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
-        cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
-        cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm, cpet_o2_pulse_pattern,
+                cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred,
+                cpet_vo2_peak_reached, cpet_vt1_method, cpet_vt1_manual_checked, cpet_vt1_time_min,
+                cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg, cpet_ve_vco2_vt1,
+                cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
+                cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm,
+                cpet_o2_pulse_pattern,
             )
             pre_cath_out = _update_pre_cath_both(
         consent_done, access_route, inr, ptt_s, platelets_g_l, anticoag_status, anticoag_paused,
@@ -4469,7 +4576,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             try:
                 gen_out = _generate_with_pmods_apply(
-        flags, pmods_sel_state,
+        {}, flags, pmods_sel_state,
         docx_cur_state, docx_prev_state,
         echo_state_cur_reset, echo_state_prev_reset,
         case_filename,
@@ -4536,7 +4643,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
             field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
             field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
-            field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
+            field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_vo2_peak_reached"], field_components["cpet_vt1_method"], field_components["cpet_vt1_manual_checked"], field_components["cpet_vt1_time_min"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
             field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
             field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"],
             field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"],
@@ -4567,7 +4674,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             field_components["ct_done"], field_components["ct_ild"], field_components["vq_done"], field_components["creatinine_mg_dl"], field_components["age"], field_components["sex"], field_components["allergies_present"], field_components["allergies_list"],
             field_components["pvod_edema_on_vaso"], field_components["pvod_edema_desc"],
             field_components["eif2ak4_test_done"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
-            field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
+            field_components["cpet_done"], field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_vo2_peak_reached"], field_components["cpet_vt1_method"], field_components["cpet_vt1_manual_checked"], field_components["cpet_vt1_time_min"], field_components["cpet_ve_vco2_slope"], field_components["cpet_petco2_vt1_mmhg"],
             field_components["cpet_ve_vco2_vt1"], field_components["cpet_peak_o2_pulse_pct_pred"], field_components["cpet_vo2_wr_slope_ml_min_w"], field_components["cpet_vo2_vt1_ml_kg_min"],
             field_components["cpet_spo2_nadir_pct"], field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_o2_pulse_pattern"],
             field_components["consent_done"], field_components["access_route"], field_components["inr"], field_components["ptt_s"], field_components["platelets_g_l"], field_components["anticoag_status"], field_components["anticoag_paused"],
@@ -4814,9 +4921,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         _save_outputs = [file_out, file_summary_out, state_flags, sticky_summary_html, copy_feedback]
 
-        save_btn_top.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
+        save_btn_top.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_save_case, inputs=[state_case, state_flags, state_case_filename], outputs=_save_outputs)
-        save_btn_bottom.click(_generate_with_pmods_apply, inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
+        save_btn_bottom.click(_generate_with_pmods_apply, inputs=[state_case, state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components, outputs=generate_outputs)\
             .then(_save_case, inputs=[state_case, state_flags, state_case_filename], outputs=_save_outputs)
 
         # --- Load case ---
@@ -4835,7 +4942,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                                                              gr.update(value=None), "<div class='docx-muted'>Noch kein Vor-Echo importiert.</div>", {"parsed": {}, "meta": {}, "has_file": False},
                                                              "<div class='docx-muted'>Kein Echo-Vergleich (Vor-Echo und/oder aktuelles Echo fehlt).</div>",
                                                              "<div class='docx-muted'>Kein Echo-Vergleich (Vor-Echo und/oder aktuelles Echo fehlt).</div>",
-                                                             gr.update(interactive=False)] + [""]
+                                                             gr.update(interactive=False)] + ["", {}]
 
             try:
                 import json as _json
@@ -4961,12 +5068,23 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             pdf_cur_reset = gr.update(value=None)
             pdf_prev_reset = gr.update(value=None)
 
+            # Persistenz-Baseline: komplettes Payload behalten (inkl. Unknown Keys)
+            try:
+                if isinstance(data, dict) and ("ui" in data or "derived" in data or "decision" in data or "scores" in data):
+                    baseline_payload = data
+                    if "ui" not in baseline_payload:
+                        baseline_payload = {"ui": ui_dict, **data}
+                else:
+                    baseline_payload = {"ui": ui_dict}
+            except Exception:
+                baseline_payload = {"ui": ui_dict}
+
             return (*vals,
                     pending,
                     docx_cur, docx_prev,
                     pdf_cur_reset, cur_html, echo_cur,
                     pdf_prev_reset, prev_html, echo_prev,
-                    cmp_html, details_html, btnu, loaded_name)
+                    cmp_html, details_html, btnu, loaded_name, baseline_payload)
 
         
 
@@ -5143,9 +5261,16 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
             )
             cpet_out = _sync_post_load_cpet(
-                cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
-                cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
-                cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm, cpet_o2_pulse_pattern,
+                # Legacy DOCX import does not provide the newer Step-1 / VT1 wizard fields.
+                # Policy: missing != 0 -> pass None (do not impute).
+                cpet_done,
+                cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred,
+                None,  # cpet_vo2_peak_reached
+                None, None, None,  # cpet_vt1_method, cpet_vt1_manual_checked, cpet_vt1_time_min
+                cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg, cpet_ve_vco2_vt1,
+                cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
+                cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm,
+                cpet_o2_pulse_pattern,
             )
             pre_cath_out = _update_pre_cath_both(
                 consent_done, access_route, inr, ptt_s, platelets_g_l, anticoag_status, anticoag_paused,
@@ -5154,7 +5279,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             )
 
             gen_out = _generate_with_pmods_apply(
-                flags, pmods_sel_state,
+                {}, flags, pmods_sel_state,
                 docx_cur_payload, docx_prev_payload,
                 echo_cur_payload, echo_prev_payload,
                 case_filename,
@@ -5188,9 +5313,16 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
             )
             cpet_out = _sync_post_load_cpet(
-                cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
-                cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
-                cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm, cpet_o2_pulse_pattern,
+                # Legacy DOCX import does not provide the newer Step-1 / VT1 wizard fields.
+                # Policy: missing != 0 -> pass None (do not impute).
+                cpet_done,
+                cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred,
+                None,  # cpet_vo2_peak_reached
+                None, None, None,  # cpet_vt1_method, cpet_vt1_manual_checked, cpet_vt1_time_min
+                cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg, cpet_ve_vco2_vt1,
+                cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
+                cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm,
+                cpet_o2_pulse_pattern,
             )
             pre_cath_out = _update_pre_cath_both(
                 consent_done, access_route, inr, ptt_s, platelets_g_l, anticoag_status, anticoag_paused,
@@ -5199,7 +5331,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             )
 
             gen_out = _generate_with_pmods_apply(
-                flags, pmods_sel_state,
+                {}, flags, pmods_sel_state,
                 docx_cur_payload, docx_prev_payload,
                 echo_cur_payload, echo_prev_payload,
                 case_filename,
@@ -5354,9 +5486,10 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             # CPET wizard (full)
             wiz_cpet_done,
             stop_reason, stop_reason_text,
-            borg_rpe, borg_dysp, borg_leg,
+            borg_rpe, borg_dyspnoe, borg_legs,
             wiz_rer_peak, wiz_hr_peak, wiz_hr_pct,
-            wiz_peak_vo2, wiz_peak_vo2_pct,
+            wiz_peak_vo2, wiz_peak_vo2_pct, wiz_vo2_peak_reached,
+            wiz_vt1_method, wiz_vt1_manual_checked, wiz_vt1_time_min,
             o2p_ml, o2p_pattern, o2p_slope,
             bp_sys_rest, bp_dia_rest,
             bp_sys_peak, bp_dia_peak,
@@ -5378,7 +5511,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             crp_mg_l, creatinine_mg_dl2, age2, sex2, allergies_present2, allergies_list2, allergies_other_text,
             lsb_present, lsb_reason,
             # states for generate
-            pmods_sel_state, docx_cur_payload, docx_prev_payload, echo_cur_payload, echo_prev_payload, case_filename,
+            case_state_loaded, pmods_sel_state, docx_cur_payload, docx_prev_payload, echo_cur_payload, echo_prev_payload, case_filename,
             *vals,
         ):
             # IMPORTANT (Stabilitaet/Kompatibilitaet)
@@ -5396,16 +5529,25 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 eif2ak4_test_done, eif2ak4_result, eif2ak4_date, eif2ak4_note,
             )
             cpet_out = _sync_post_load_cpet(
-        cpet_done, cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred, cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg,
-        cpet_ve_vco2_vt1, cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
-        cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm, cpet_o2_pulse_pattern,
+                # NOTE: Case-load path must be compatible with older saved JSON that
+                # does not include the newer CPET Step-1 / VT1 wizard fields.
+                # Policy: missing != 0 -> pass None (do not impute).
+                cpet_done,
+                cpet_peak_vo2_ml_kg_min, cpet_peak_vo2_pct_pred,
+                None,  # cpet_vo2_peak_reached
+                None, None, None,  # cpet_vt1_method, cpet_vt1_manual_checked, cpet_vt1_time_min
+                cpet_ve_vco2_slope, cpet_petco2_vt1_mmhg, cpet_ve_vco2_vt1,
+                cpet_peak_o2_pulse_pct_pred, cpet_vo2_wr_slope_ml_min_w, cpet_vo2_vt1_ml_kg_min,
+                cpet_spo2_nadir_pct, cpet_rer_peak, cpet_hr_peak_bpm,
+                cpet_o2_pulse_pattern,
             )
             wiz_out = _sync_post_load_cpet_wizard(
         wiz_cpet_done,
         stop_reason, stop_reason_text,
-        borg_rpe, borg_dysp, borg_leg,
+        borg_rpe, borg_dyspnoe, borg_legs,
         wiz_rer_peak, wiz_hr_peak, wiz_hr_pct,
-        wiz_peak_vo2, wiz_peak_vo2_pct,
+        wiz_peak_vo2, wiz_peak_vo2_pct, wiz_vo2_peak_reached,
+        wiz_vt1_method, wiz_vt1_manual_checked, wiz_vt1_time_min,
         o2p_ml, o2p_pattern, o2p_slope,
         bp_sys_rest, bp_dia_rest,
         bp_sys_peak, bp_dia_peak,
@@ -5444,7 +5586,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 "", "", "",                                    # copy_*_plain
                 "", "", "",                                    # copy_*_html
                 "⚠️ Fall geladen. Bitte Befund erstellen.",      # copy_feedback
-                None,                                          # state_case
+                case_state_loaded,                              # state_case
                 flags,                                         # state_flags
                 (pmods_sel_state or {"lvl1": [], "lvl2": [], "lvl3": []}),  # state_pmods_selected
                 docx_cur_payload,                              # state_docx_cur
@@ -5473,6 +5615,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         import_pdf_prev, import_preview_prev_html, state_echo_prev,
         compare_echo_html, details_echo_html, btn_echo_apply,
         state_case_filename,
+        state_case,
     ],
         )\
     .then(
@@ -5487,9 +5630,9 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             field_components["cpet_done"],
             field_components["cpet_stop_reason"], field_components["cpet_stop_reason_text"],
-            field_components["cpet_borg_rpe"], field_components["cpet_borg_dyspnea"], field_components["cpet_borg_leg"],
+            field_components["cpet_borg_rpe"], field_components["cpet_borg_dyspnoe"], field_components["cpet_borg_legs"],
             field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_hr_pct_pred"],
-            field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"],
+            field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"], field_components["cpet_vo2_peak_reached"], field_components["cpet_vt1_method"], field_components["cpet_vt1_manual_checked"], field_components["cpet_vt1_time_min"],
             field_components["cpet_peak_o2_pulse_ml"], field_components["cpet_o2_pulse_pattern"], field_components["cpet_o2_pulse_slope"],
             field_components["cpet_bp_sys_rest"], field_components["cpet_bp_dia_rest"],
             field_components["cpet_bp_sys_peak"], field_components["cpet_bp_dia_peak"],
@@ -5517,7 +5660,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
             field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             cpet_details, cpet_risk_html,
-            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_spiro_report, cpet_chrono_followup,
+            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_teaching_html, cpet_spiro_report, cpet_chrono_followup,
             pre_cath_html, pre_cath_home_html,
         ] + generate_outputs,
     )
@@ -5532,6 +5675,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
         import_pdf_prev, import_preview_prev_html, state_echo_prev,
         compare_echo_html, details_echo_html, btn_echo_apply,
         state_case_filename,
+        state_case,
     ],
         )\
     .then(
@@ -5546,7 +5690,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             field_components["cpet_done"],
             field_components["cpet_stop_reason"], field_components["cpet_stop_reason_text"],
-            field_components["cpet_borg_rpe"], field_components["cpet_borg_dyspnea"], field_components["cpet_borg_leg"],
+            field_components["cpet_borg_rpe"], field_components["cpet_borg_dyspnoe"], field_components["cpet_borg_legs"],
             field_components["cpet_rer_peak"], field_components["cpet_hr_peak_bpm"], field_components["cpet_hr_pct_pred"],
             field_components["cpet_peak_vo2_ml_kg_min"], field_components["cpet_peak_vo2_pct_pred"],
             field_components["cpet_peak_o2_pulse_ml"], field_components["cpet_o2_pulse_pattern"], field_components["cpet_o2_pulse_slope"],
@@ -5576,7 +5720,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             ct_desc_col, acc_ild, field_components["ild_extent"], ild_tx_details, acc_vq, field_components["egfr_ml_min_1_73"], allergies_details, field_components["allergies_other_text"],
             field_components["pvod_edema_desc"], field_components["eif2ak4_result"], field_components["eif2ak4_date"], field_components["eif2ak4_note"],
             cpet_details, cpet_risk_html,
-            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_spiro_report, cpet_chrono_followup,
+            cpet_mod0_html, cpet_mod1_html, cpet_mod2_html, cpet_mod3_html, cpet_mod4_html, cpet_mod5_html, cpet_mod6_html, cpet_mod7_html, cpet_mod9_html, cpet_modfinal_html, cpet_overall_html, cpet_live_html, cpet_teaching_html, cpet_spiro_report, cpet_chrono_followup,
             pre_cath_html, pre_cath_home_html,
         ] + generate_outputs,
     )

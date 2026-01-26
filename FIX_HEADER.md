@@ -1,3 +1,3 @@
-Fix. v0.96: CPET Lernlayer erweitert um O2 Puls Konzept (Definition, Muster, Einflussgroessen Anämie, Hypoxaemie)
-Fix. v0.96: CPET Lernlayer erweitert um V'O2max vs V'O2peak inkl. Dokumentation Abbruchgrund und Ausbelastungshinweise
-Fix. v0.96: CPET Lernlayer erweitert um V'CO2, AT/VAT und VCP (V Slope, isokapnische Pufferung, Grenzen)
+Fix. v1.00: DOCX/Altfall-Import ruft CPET Sync wieder mit korrekter Parameterzahl auf (keine fehlenden Args)
+Fix. v0.99: Example-Load CPET Input/Callback Synchronisation (vo2_peak_reached, VT1-Felder) behoben
+Fix. v0.98: CPET Live Callback Arg-Consistency (vo2_peak_reached, VT1 Felder) und Spiro-Logic module7_safety Rendering
