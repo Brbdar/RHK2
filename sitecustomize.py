@@ -21,8 +21,16 @@ import importlib.abc
 import importlib.machinery
 import os
 import sys
+import warnings
 from types import ModuleType
 from typing import Any, List, Optional, Set
+# ===========================================================================
+# 0. LOG HYGIENE (NARROW WARNING FILTERS)
+# ===========================================================================
+# Only suppress known noisy warnings without hiding real exceptions.
+warnings.filterwarnings("ignore", category=ResourceWarning, message=r"unclosed event loop.*")
+warnings.filterwarnings("ignore", category=DeprecationWarning, message=r".*HTTP_422_UNPROCESSABLE_ENTITY.*")
+
 
 # ===========================================================================
 # 1. CLINICAL ENVIRONMENT HARDENING (ENV VARS)

@@ -21,7 +21,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Optional, List, Iterable, Tuple
 
-
 # ---------------------------------------------------------------------------
 # Default-Regeln / Cut-offs (vom Hauptprogramm importierbar)
 # ---------------------------------------------------------------------------
@@ -63,7 +62,6 @@ DEFAULT_RULES: dict = {
     },
 }
 
-
 # ---------------------------------------------------------------------------
 # Datenstrukturen
 # ---------------------------------------------------------------------------
@@ -81,7 +79,6 @@ class TextBlock:
     category: str = "MISC"
     variants: Dict[str, str] = field(default_factory=dict)
     notes: str = ""
-
 
 # ---------------------------------------------------------------------------
 # Legacy-Blöcke (B.../E.../P.../Z.../G.../ALT...) – unverändert/leicht ergänzt
@@ -609,8 +606,14 @@ P_BLOCKS: Dict[str, TextBlock] = {
         ),
         category="P",
     ),
-    "P19": TextBlock(        id="P19",        title="PoPH Abklärung",        applies_to="Hinweise auf Lebererkrankung oder Portalhypertonie",        template=(
-            "Bei Verdacht auf portopulmonale Hypertension: Lebermedizinische Mitbeurteilung und Sonographie Elastographie nach Kontext."
+    "P19": TextBlock(
+        id="P19",
+        title="PoPH Abklärung (Kurzfassung)",
+        applies_to="Hinweise auf Lebererkrankung oder Portalhypertonie",
+        template=(
+            "**Portaler Kontext:**\n"
+            "Hinweis auf portale Hypertension oder Lebererkrankung. Die Hämodynamik ist gemäß "
+            "ILTS Guidelines (Profile A, B, C) und Volumenstatus zu differenzieren."
         ),
         category="P",
     ),
@@ -682,14 +685,208 @@ P_BLOCKS: Dict[str, TextBlock] = {
         ),
         category="P",
     ),
-    "P32": TextBlock(        id="P32",        title="Keine pulmonale Hypertonie",        applies_to="keine PH Kriterien in Ruhe und Provokation",        template=(
-            "Aktuell kein Hinweis auf pulmonale Hypertonie.\n"
-            "Bei neuer Rechtsherzbelastung oder klinischer Verschlechterung erneute Vorstellung."
+    "P32": TextBlock(
+        id="P32",
+        title="Hämodynamische Vertiefung: Hyperzirkulation und Kontext",
+        applies_to="flussdominante Druckerhöhung oder Leber Portal Kontext oder Shunt Kontext",
+        template=(
+            "### Hämodynamische Vertiefung: Hyperzirkulation und Kontext\n"
+            "**1. Status und Prinzip:**\n"
+            "{pressure_resistance_short}. {co_method_desc}.\n"
+            "Der mPAP ist produktabhängig von Fluss (CO) und Widerstand (PVR). Eine Hyperzirkulation kann "
+            "den mPAP auch bei normalem PVR erhöhen (Unclassified flow driven PH).\n\n"
+            "**2. Leber Portal Kontext (ILTS 2025):**\n"
+            "{liver_ph_profile_label}\n\n"
+            "**3. Shunt und Hochfluss:**\n"
+            "{step_up_sentence}\n"
+            "Bei High Output States (z.B. Zirrhose, Shunt, Anämie, AV Fisteln) steht die Behandlung der Ursache "
+            "im Vordergrund. Eine pulmonale Vasodilatation ist bei isolierter Flusserhöhung (PVR ≤ 2 WU) nicht indiziert.\n"
+            "**Procedere:** Reevaluation der Hämodynamik nach Optimierung der Kontextfaktoren."
         ),
         category="P",
     ),
-}
+    "P33": TextBlock(
+        id="P33",
+        title="Heart Team Klappenvitien",
+        applies_to="V Wellen Konstellation oder relevantes Klappenvitium",
+        template=(
+            "Vorstellung im Heart Team zur Reevaluation der Klappenvitien und zur Einordnung der V Wellen Konstellation."
+        ),
+        category="P",
+    ),
+    "P34": TextBlock(
+        id="P34",
+        title="CTEPH Fallkonferenz",
+        applies_to="CTEPH Verdacht oder V Q Defekt",
+        template=(
+            "Anmeldung zur CTEPH Fallkonferenz (via Meona oder KIS). Weiteres Vorgehen (PEA, BPA oder Medikation) gemäß Konferenzbeschluss."
+        ),
+        category="P",
+    ),
+    "P35": TextBlock(
+        id="P35",
+        title="Shunt Abklärung",
+        applies_to="Relevanter Step up in der Stufenoxymetrie",
+        template=(
+            "Gezielte Shunt Abklärung mittels Echo oder TEE (inklusive Kontrast), ergänzend Qp Qs Bestimmung und Schnittbildgebung (Kardio MRT oder CT)."
+        ),
+        category="P",
+    ),
+    "P36": TextBlock(
+        id="P36",
+        title="Dip Plateau Abklärung",
+        applies_to="Dip Plateau Muster in der RV Kurve",
+        template=(
+            "Kardiologische Mitbeurteilung der Morphologie. Kardio MRT zur Differenzierung konstriktiv versus restriktiv und zur Perikardbeurteilung erwägen."
+        ),
+        category="P",
+    ),
+    "P37": TextBlock(
+        id="P37",
+        title="CT Angio oder Dual Energy CT",
+        applies_to="CTEPH Verdacht ohne dokumentierte CT Angiographie",
+        template=(
+            "Schnittbildgebung zur vaskulären Einordnung ergänzen: CT Angio oder Dual Energy CT nach lokalem Standard."
+        ),
+        category="P",
+    ),
+    "P38": TextBlock(
+        id="P38",
+        title="Hyperzirkulation abklären",
+        applies_to="High output oder hyperdyname Konstellation",
+        template=(
+            "Abklärung einer Hyperzirkulation vor Therapieerweiterung. Ausschluss Anämie, Hyperthyreose, Shunts oder Lebererkrankung."
+        ),
+        category="P",
+    ),
+    "P39": TextBlock(
+        id="P39",
+        title="Aorta ascendens Verlauf",
+        applies_to="Aorta ascendens erweitert",
+        template=(
+            "Bildgebende Verlaufskontrolle der Aorta ascendens. OP Indikation im aortenchirurgischen Kontext prüfen."
+        ),
+        category="P",
+    ),
+    "P40": TextBlock(
+        id="P40",
+        title="Volumenmanagement",
+        applies_to="Hinweise auf Stauung oder erhöhter RAP",
+        template=(
+            "Volumenmanagement intensivieren mit Ziel Euvolämie. Verlauf über Gewicht, Kreatinin und Elektrolyte kontrollieren."
+        ),
+        category="P",
+    ),
+    "P41": TextBlock(
+        id="P41",
+        title="Transaminasen Abklärung",
+        applies_to="Transaminasen erhöht",
+        template=(
+            "Abklärung der Transaminasenerhöhung inklusive Abdomensonographie und gastroenterologischem Konsil vor Einleitung leberwirksamer Substanzen."
+        ),
+        category="P",
+    ),
+    "P42": TextBlock(
+        id="P42",
+        title="Eisenstatus und Substitution",
+        applies_to="Eisenmangel Konstellation",
+        template=(
+            "Evaluation des Eisenstatus. Bei Eisenmangel (Ferritin < 100 µg/l oder TSAT < 20%) Substitution zur Verbesserung der Belastungsfähigkeit erwägen."
+        ),
+        category="P",
+    ),
+    "P43": TextBlock(
+        id="P43",
+        title="CPET zur Belastungslimitation",
+        applies_to="Dyspnoe ohne CPET",
+        template=(
+            "Spiroergometrie (CPET) zur funktionellen Einordnung der Belastungslimitation (respiratorisch versus kardial versus peripher)."
+        ),
+        category="P",
+    ),
+    "P44": TextBlock(
+        id="P44",
+        title="6MWT für Risikostratifizierung",
+        applies_to="PH Verlauf oder Erstbeurteilung ohne 6MWT",
+        template=(
+            "Sechs Minuten Gehtest zur funktionellen Einordnung und als Basis für die Risikostratifizierung."
+        ),
+        category="P",
+    ),
+    "P45": TextBlock(
+        id="P45",
+        title="Parenchym Konferenz",
+        applies_to="Gruppe 3 Verdacht ohne Bildreview",
+        template=(
+            "Externe CT Bildgebung zur parenchymalen Einordnung anfordern, bei Bedarf Vorstellung in der pneumologisch radiologischen Konferenz."
+        ),
+        category="P",
+    ),
+    "P46": TextBlock(
+        id="P46",
+        title="Schlafdiagnostik",
+        applies_to="Adipositas oder V a Schlafapnoe",
+        template=(
+            "Polygraphie oder Polysomnographie zum Ausschluss einer schlafbezogenen Atmungsstörung, insbesondere bei Adipositas oder Tagesmüdigkeit."
+        ),
+        category="P",
+    ),
+    "P47": TextBlock(
+        id="P47",
+        title="Autoimmunlabor",
+        applies_to="Präkapilläre PH ohne Autoimmunlabor",
+        template=(
+            "Autoimmunlabor (ANA, ENA, Sklerodermie Panel) zur Ätiologieeinordnung vervollständigen."
+        ),
+        category="P",
+    ),
+    "P48": TextBlock(
+        id="P48",
+        title="LTOT Reevaluation",
+        applies_to="LTOT verordnet",
+        template=(
+            "LTOT konsequent anwenden. Flow Anpassung nach BGA in Ruhe, Belastung und Nachtmessung. Reevaluation bei Persistenz von Dyspnoe."
+        ),
+        category="P",
+    ),
+    "P49": TextBlock(
+        id="P49",
+        title="PH Ambulanz Verlauf 3 Monate",
+        applies_to="PH und hohes Risiko",
+        template=(
+            "Wiedervorstellung in der PH Ambulanz in 3 Monaten zur Verlaufskontrolle nach Gesamtrisiko (engmaschiges Monitoring)."
+        ),
+        category="P",
+    ),
+    "P50": TextBlock(
+        id="P50",
+        title="Blutdruck optimieren",
+        applies_to="Systemische Hypertonie",
+        template=(
+            "Blutdruckeinstellung konsequent optimieren, da systemische Hypertonie Hämodynamik und LV Compliance negativ beeinflusst."
+        ),
+        category="P",
+    ),
+    "P51": TextBlock(
+        id="P51",
+        title="PH Ambulanz Verlauf 6 Monate",
+        applies_to="PH ohne hohes Risiko",
+        template=(
+            "Wiedervorstellung in der PH Ambulanz in 6 Monaten zur routinemäßigen Verlaufskontrolle."
+        ),
+        category="P",
+    ),
+    "P52": TextBlock(
+        id="P52",
+        title="Studienkoordination",
+        applies_to="Studienpatient*in",
+        template=(
+            "Weiteres Vorgehen in Abstimmung mit der Studienambulanz inklusive Timing der Studien Visiten."
+        ),
+        category="P",
+    ),
 
+}
 
 # -------------------------
 # Zusatzbausteine (Z...)
@@ -816,7 +1013,6 @@ ALT_BLOCKS: Dict[str, TextBlock] = {
     ),
 }
 
-
 # ---------------------------------------------------------------------------
 # NEU: "Katalog v1.0 – K01..K20" als Pakettexte (Beurteilung + Empfehlung)
 # Umsetzung: je Paket zwei Blöcke: Kxx_B und Kxx_E
@@ -861,7 +1057,6 @@ def empfehlung_safe_wrap(text: str) -> str:
     Hier keine Logik, nur ein definierter Name.
     """
     return text
-
 
 # --- K01 ---
 _add_k_package(
@@ -1093,17 +1288,37 @@ _add_k_package(
 # --- K12 ---
 _add_k_package(
     "K12",
-    "Portopulmonale PH / Hyperzirkulation (z.B. TIPSS)",
-    "hoher CO/CI, PVR moderat, portale Hypertension/TIPSS-Kontext",
+    "Hyperzirkulation / High-output (PoPH DD kriteriumsabhängig)",
+    "mPAP > 20 mmHg bei normalem oder nur leicht erhöhtem PVR im Kontext erhöhten CO/CI",
     beurteilung=(
         "Pulmonale Druckerhöhung bei hyperzirkulatorischem Herzzeitvolumen (CI {CI_value}) und {pvr_phrase}. "
         "Keine zentrale oder pulmonalvenöse Stauung. {systemic_sentence} {oxygen_sentence} "
         "{comparison_sentence}"
     ),
     empfehlung=(
-        "Konstellation einer präkapillären PH im Kontext {porto_context_desc} bei Hyperzirkulation. "
-        "Therapieentscheidung und Verlaufskontrollen im interdisziplinären Setting (PH-/Leberzentrum) empfohlen; "
-        "Fokus auf Trigger-/Komorbiditätsmanagement und Monitoring von Leber-/TIPSS-Setting."
+        "Konstellation einer pulmonalen Druckerhöhung bei Hyperzirkulation. "
+        "Eine PoPH ist nur bei präkapillärer Hämodynamik definiert (mPAP >20 mmHg, PAWP ≤15 mmHg, PVR >2 WU); "
+        "hoher CO/CI ersetzt nicht das PVR-Kriterium. "
+        "Empfohlen: Hochfluss-Ursachen abklären (Portalhypertonie/TIPSS, AV-Shunts, Anämie, Hyperthyreose) "
+        "und interdisziplinäre Einordnung (PH-Zentrum, bei Leberkontext Hepatologie). "
+        "Reevaluation der Hämodynamik nach Kontext-Optimierung."
+    ),
+)
+
+# --- K20 ---
+_add_k_package(
+    "K20",
+    "mPAP-Erhöhung bei normaler PVR (keine präkapilläre PH)",
+    "mPAP > 20 mmHg, PAWP ≤ 15 mmHg, PVR ≤ 2 WU (CO/CI nicht eindeutig hoch oder nicht vorhanden)",
+    beurteilung=(
+        "Isolierte mPAP-Erhöhung bei normalem PAWP und nicht erhöhter PVR. "
+        "Diese Konstellation erfüllt keine Kriterien einer präkapillären PH. "
+        "{comparison_sentence}"
+    ),
+    empfehlung=(
+        "Einordnung im Kontext von CO/CI, Messbedingungen und klinischem Risiko. "
+        "Bei Verdacht auf Hyperzirkulation: Ursachen prüfen (Anämie, AV-Shunts, Hyperthyreose, Leber/Portalhypertonie/TIPSS). "
+        "Bei unklarer Konstellation: Verlauf, ggf. Provokation (Belastung/Volumen) nach Fragestellung und Reevaluation."
     ),
 )
 
@@ -1241,7 +1456,6 @@ _add_k_package(
         "(V/Q-Szinti, CTEPH-Pfad)."
     ),
 )
-
 
 # ---------------------------------------------------------------------------
 # NEU: Zusatzmodule aus dem erweiterten Katalog (BZ.. / BE.. / C..)
@@ -1575,7 +1789,6 @@ ADDON_BLOCKS: Dict[str, TextBlock] = {
     ),
 }
 
-
 # ---------------------------------------------------------------------------
 # Gesamtindex + Hilfsfunktionen
 # ---------------------------------------------------------------------------
@@ -1584,20 +1797,16 @@ ALL_BLOCKS: Dict[str, TextBlock] = {}
 for _d in (B_BLOCKS, E_BLOCKS, P_BLOCKS, Z_BLOCKS, G_BLOCKS, ALT_BLOCKS, K_BLOCKS, ADDON_BLOCKS):
     ALL_BLOCKS.update(_d)
 
-
 def get_block(block_id: str) -> Optional[TextBlock]:
     return ALL_BLOCKS.get(block_id)
-
 
 def list_blocks(prefix: str) -> List[TextBlock]:
     prefix = prefix.upper()
     return [b for k, b in sorted(ALL_BLOCKS.items()) if k.upper().startswith(prefix)]
 
-
 def list_blocks_by_category(category: str) -> List[TextBlock]:
     category = category.upper()
     return [b for _, b in sorted(ALL_BLOCKS.items()) if b.category.upper() == category]
-
 
 # ---------------------------------------------------------------------------
 # Bundles / Pakete: Mapping "Paket" -> Block-IDs
@@ -1636,7 +1845,6 @@ BUNDLES: Dict[str, Dict[str, List[str]]] = {
     "K19": {"B": ["K19_B"], "E": ["K19_E"], "P_suggestions": ["P11"]},
     "K20": {"B": ["K20_B"], "E": ["K20_E"], "P_suggestions": ["P01"]},
 }
-
 
 # Schnellfinder (für GUI)
 QUICKFINDER: Dict[str, List[str]] = {

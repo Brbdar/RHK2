@@ -109,6 +109,27 @@ def main() -> None:
         allowed = set(sig.parameters.keys())
         launch_kwargs = {k: v for k, v in launch_kwargs.items() if (k in allowed and v is not None)}
 
+        # Allow serving generated export files (e.g., Pre-RHK PDF) from ./exports.
+        # Otherwise DownloadButton clicks can appear to do nothing in hosted environments.
+        if "allowed_paths" in allowed:
+            exports_dir = os.path.abspath(os.path.join(os.getcwd(), "exports"))
+            try:
+                os.makedirs(exports_dir, exist_ok=True)
+            except Exception:
+                pass
+            # Keep any existing allowed_paths and append exports.
+            cur = launch_kwargs.get("allowed_paths")
+            if cur is None:
+                launch_kwargs["allowed_paths"] = [exports_dir]
+            else:
+                try:
+                    lst = list(cur) if isinstance(cur, (list, tuple, set)) else [cur]
+                    if exports_dir not in lst:
+                        lst.append(exports_dir)
+                    launch_kwargs["allowed_paths"] = lst
+                except Exception:
+                    launch_kwargs["allowed_paths"] = [exports_dir]
+
         # Explicitly disable analytics if supported by this Gradio version.
         for k in ("analytics_enabled", "enable_analytics"):
             if k in allowed:

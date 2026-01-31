@@ -19,6 +19,41 @@ from dataclasses import dataclass, field
 import html
 from typing import Any, Dict, List, Optional, Set, Final
 
+# ---------------------------------------------------------------------------
+# Render helper: defensive numeric parsing (no implicit 0)
+# ---------------------------------------------------------------------------
+
+def _try_num(x: Any) -> Optional[float]:
+    """Robust float parser for render paths.
+
+    - missing values -> None
+    - bool -> None
+    - EU decimal comma supported
+    - 0 treated as missing for CPET scalar fields (unphysiologic / UI roundtrip)
+    """
+    if x is None:
+        return None
+    if isinstance(x, bool):
+        return None
+    try:
+        if isinstance(x, str):
+            s = x.strip()
+            if not s or s in {'–', '-', 'na', 'n/a', 'nan'}:
+                return None
+            s = s.replace(',', '.')
+            v = float(s)
+        else:
+            v = float(x)
+    except Exception:
+        return None
+    # NaN
+    if v != v:
+        return None
+    if abs(v) < 1e-12:
+        return None
+    return v
+
+
 # --- 1. Central Clinical Configuration ---
 
 class CpetThresholds:
@@ -1035,6 +1070,28 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
     def _esc(x: str) -> str:
         return html.escape(str(x or ""))
 
+    def _is_filled(x: Any) -> bool:
+        """Return True if a value should be treated as 'present' in rendering.
+
+        Clinical rule: missing values must NOT be treated as 0.
+        This helper is purely for text rendering guards.
+        """
+        if x is None:
+            return False
+        try:
+            # Handle NaN safely
+            import math
+            if isinstance(x, float) and math.isnan(x):
+                return False
+        except Exception:
+            pass
+        s = str(x).strip()
+        if not s:
+            return False
+        if s.lower() in {"nan", "none", "null", "-", "nicht angegeben"}:
+            return False
+        return True
+
     def _render_followups(items: List[str]) -> str:
         items = [str(i).strip() for i in (items or []) if str(i).strip()]
         if not items:
@@ -1429,6 +1486,9 @@ def build_wizard_outputs(ui: Dict[str, Any]) -> Dict[str, Any]:
 
         def _render_overall_structured() -> str:
             # Arzt zu Arzt, kurz, strukturiert. Keine Didaktik hier.
+            def _n(x: Optional[float], nd: int = 0) -> str:
+                return _fmt(x, nd)
+
             lines_q = []
             sr = ui.get("cpet_stop_reason")
             sr_txt = _esc(str(sr)) if _is_filled(sr) else "nicht angegeben"

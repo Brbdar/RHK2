@@ -62,6 +62,68 @@ def _cache_set(kind: str, fp: str, value):
             _report_cache.popitem(last=False)
 
 
+
+
+# =============================================================================
+# Exercise slope QC – user-facing text (no internal codes)
+# =============================================================================
+
+def _exercise_flag_to_text(code: str) -> str:
+    code = str(code or "").strip()
+    mapping = {
+        "missing_values": "Belastungswerte unvollständig (mPAP/PAWP/CO in Ruhe oder Peak)",
+        "dco_nonpositive": "ΔCO ≤ 0 (CO_peak ≤ CO_rest); CO-Werte prüfen",
+        "co_nonpositive": "CO ≤ 0; Eingabe/Messung prüfen",
+        "wedge_inconsistent_rest": "mPAP < PAWP in Ruhe; Wedge-Messung inkonsistent",
+        "wedge_inconsistent_peak": "mPAP < PAWP bei Peak; Wedge-Messung inkonsistent",
+        "pawp_negative": "PAWP < 0; Eingabe/Messung prüfen",
+        "dco_small": "ΔCO gering; Slopes unsicher",
+        "slope_inconsistent": "Algebra inkonsistent (ΔmPAP/ΔCO ≠ ΔPAWP/ΔCO + ΔTPG/ΔCO); Plausibilität prüfen",
+        "low_peak_pawp_with_high_slope": "ΔPAWP/ΔCO erhöht trotz niedriger PAWP_peak; häufig Artefakt/Wedge-Unsicherheit",
+        "wedge_wave_present": "Wedge-Wellen; PAWP/Slopes vorsichtig interpretieren",
+        "af_present": "Vorhofflimmern; Mittelwerte/Slopes vorsichtig interpretieren",
+        "co_method_unknown": "CO-Methode nicht dokumentiert",
+        "extreme_jump_pawp": "Starker PAWP-Sprung zwischen Ruhe und Peak; Plausibilität prüfen",
+        "extreme_jump_mpap": "Starker mPAP-Sprung zwischen Ruhe und Peak; Plausibilität prüfen",
+    }
+    return mapping.get(code, code) if code else ""
+
+
+def _describe_exercise_response_2pt(d: dict) -> str:
+    """User-facing interpretation for rest→peak slopes.
+
+    Goal:
+    - Keep the term "Slope".
+    - Avoid opaque labels such as "gemischt".
+    - Add a short, clinically interpretable rationale without changing diagnoses.
+    """
+    code = (d or {}).get("exercise_pattern")
+    if not code:
+        return ""
+
+    label = describe_exercise_pattern(code)
+    if not label:
+        return ""
+
+    add = ""
+    if code == "exercise_2pt_normal":
+        add = " Slopes im Normbereich."
+    elif code == "exercise_2pt_pv_dominant":
+        add = " Dominanz der pulmonalvaskulären Komponente (ΔTPG/ΔCO erhöht bei unauffälliger ΔPAWP/ΔCO)."
+    elif code == "exercise_2pt_la_dominant":
+        add = " Dominanz der linksatrialen Druckkomponente (ΔPAWP/ΔCO erhöht bei niedrigem ΔTPG/ΔCO)."
+    elif code == "exercise_2pt_mixed":
+        add = (
+            " Vereinbar mit kombinierter linksatrialer und pulmonalvaskulärer Komponente. "
+            "Kontextfaktoren (Volumenstatus, Shunt, High Output) und Wedge Qualität mitbeurteilen; "
+            "bei klinischer Relevanz Reevaluation nach Optimierung."
+        )
+
+    out = (label + add).strip()
+    if out and not out.endswith("."):
+        out += "."
+    return out
+
 from rhk_base import *  # noqa: F401,F403
 
 # PH Therapieepisoden (restart-fähig)
@@ -1701,6 +1763,8 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
         pvr = _safe_float(d.get("pvr_rest"))
         rap = _safe_float(d.get("rap_rest"))
         ci = _safe_float(d.get("ci_rest"))
+        co = _safe_float(d.get("co_rest"))
+        high_flow = d.get("high_flow")
         pac = _safe_float(d.get("pac_rest_ml_per_mmhg"))
         pp = _safe_float(d.get("pp_pa_rest"))
 
@@ -1740,10 +1804,17 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
                 )
             # Unclassified (elevated mPAP, low PVR)
             elif pawp <= 15 and pvr <= 2:
-                lines.append(
-                    "Es besteht eine isolierte mPAP Erhöhung bei normalem PAWP und nicht erhöhter PVR. "
-                    "Diese Konstellation erfüllt keine Kriterien einer präkapillären PH; eine Einordnung sollte im Kontext von Flow, Messbedingungen und klinischem Risiko erfolgen."
-                )
+                if high_flow is True or (co is not None and co >= 8.0) or (ci is not None and ci >= 4.0):
+                    lines.append(
+                        "Es besteht eine mPAP Erhöhung bei normalem PAWP und nicht erhöhter PVR im Kontext eines erhöhten Herzzeitvolumens. "
+                        "Dies spricht für eine flussdominante Druckerhöhung; Kriterien einer präkapillären PH (PVR >2 WU) sind nicht erfüllt. "
+                        "Hoher CO CI ersetzt nicht das PVR Kriterium."
+                    )
+                else:
+                    lines.append(
+                        "Es besteht eine isolierte mPAP Erhöhung bei normalem PAWP und nicht erhöhter PVR. "
+                        "Diese Konstellation erfüllt keine Kriterien einer präkapillären PH; Einordnung im Kontext von CO CI, Messbedingungen und klinischem Risiko."
+                    )
             # Post-capillary
             elif pawp > 15:
                 if pvr <= 2:
@@ -1801,57 +1872,40 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
         # User requirement: Belastungsbefunde (mPAP/CO-Slope, PAWP/CO-Slope) nur dann interpretieren,
         # wenn sie tatsächlich vorhanden sind. Keine "Leerstelle" im Text, nur weil die Checkbox gesetzt ist.
         if bool(d.get("exercise_done")):
+            inter = d.get("exercise_interpretability")
+            dco = _safe_float(d.get("dco"))
             mpap_s = _safe_float(d.get("mpap_co_slope"))
             pawp_s = _safe_float(d.get("pawp_co_slope"))
+            tpg_s = _safe_float(d.get("tpg_co_slope_2pt"))
 
-            # If both slopes are missing, stay silent (no optional block).
-            if not (mpap_s is None and pawp_s is None):
-                # Build a dedicated optional block that is clearly separated.
-                if mpap_s is not None and pawp_s is not None:
-                    if mpap_s <= 3.0 and pawp_s <= 2.0:
-                        lines.append(
-                            "Unter Belastung zeigt sich keine abnorme pulmonale Druck Flow Reaktion und kein Hinweis auf eine belastungsassoziierte postkapilläre Komponente."
-                        )
+            # Zahlen: immer als Slope Ruhe→Peak, semi supine
+            if dco is not None and dco > 0 and not (mpap_s is None and pawp_s is None and tpg_s is None):
+                s_bits: List[str] = []
+                s_bits.append(f"dCO {_fmt(dco,1)} L/min")
+                if mpap_s is not None:
+                    s_bits.append(f"ΔmPAP/ΔCO {_fmt(mpap_s,2)}")
+                if pawp_s is not None:
+                    s_bits.append(f"ΔPAWP/ΔCO {_fmt(pawp_s,2)}")
+                if tpg_s is not None:
+                    s_bits.append(f"ΔTPG/ΔCO {_fmt(tpg_s,2)}")
+                lines.append("Belastung (semi supine), Slope Ruhe→Peak: " + "; ".join(s_bits) + " mmHg/(L/min).")
+
+            # Interpretation: nur wenn QC-Gate ok
+            if inter == "ok" and d.get("exercise_pattern"):
+                patt = _describe_exercise_response_2pt(d)
+                if patt:
+                    lines.append("Belastungsreaktion: " + patt)
+            elif inter in ("hard_stop", "numeric_only"):
+                hard = d.get("exercise_hard_fail_flags") or []
+                soft = d.get("exercise_soft_flags") or []
+                reasons = [_exercise_flag_to_text(x) for x in (hard + soft) if x]
+                reasons = [r for r in reasons if str(r).strip()]
+                if reasons:
+                    if inter == "hard_stop":
+                        lines.append("Belastungs-Slopes nicht interpretierbar: " + "; ".join(reasons) + ".")
                     else:
-                        ex_bits: List[str] = []
-                        if mpap_s > 3.0:
-                            ex_bits.append("eine abnorme pulmonale Druck Flow Reaktion")
-                        if pawp_s > 2.0:
-                            ex_bits.append("einen Hinweis auf eine belastungsassoziierte postkapilläre Komponente")
-                        if ex_bits:
-                            lines.append("Unter Belastung zeigt sich " + " und ".join(ex_bits) + ".")
+                        lines.append("Belastungs-Slopes nur eingeschränkt interpretierbar: " + "; ".join(reasons) + ".")
 
-                    # Steigungen dokumentieren, ohne Schwellenwerte zu wiederholen
-                    lines.append(
-                        "Die Steigungen betragen "
-                        f"mPAP CO Slope {_fmt(mpap_s,1)} WU und PAWP CO Slope {_fmt(pawp_s,1)} WU."
-                    )
-                else:
-                    # One slope only – keep phrasing conservative, but still a clear optional block.
-                    ex_bits: List[str] = []
-                    if mpap_s is not None:
-                        ex_bits.append(
-                            "abnorme pulmonale Druck Flow Reaktion"
-                            if mpap_s > 3.0
-                            else "keine abnorme pulmonale Druck Flow Reaktion"
-                        )
-                    if pawp_s is not None:
-                        ex_bits.append(
-                            "Hinweis auf eine belastungsassoziierte postkapilläre Komponente"
-                            if pawp_s > 2.0
-                            else "kein Hinweis auf eine belastungsassoziierte postkapilläre Komponente"
-                        )
-                    if ex_bits:
-                        lines.append("Unter Belastung zeigt sich: " + "; ".join(ex_bits) + ".")
-
-                    # Steigungen dokumentieren (wenn vorhanden), ohne Schwellenwerte zu wiederholen
-                    s_bits: List[str] = []
-                    if mpap_s is not None:
-                        s_bits.append(f"mPAP CO Slope {_fmt(mpap_s,1)} WU")
-                    if pawp_s is not None:
-                        s_bits.append(f"PAWP CO Slope {_fmt(pawp_s,1)} WU")
-                    if s_bits:
-                        lines.append("Die Steigungen betragen " + " und ".join(s_bits) + ".")
 
         if not lines:
             return ""
@@ -1954,23 +2008,63 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
             extra_lines.append(ctx["exercise_protocol_sentence"].strip())
         mpap_s = der.get("mpap_co_slope")
         pawp_s = der.get("pawp_co_slope")
-        if mpap_s is not None or pawp_s is not None:
-            s_bits = []
-            if mpap_s is not None: s_bits.append(f"mPAP/CO-Slope {fmt_float(mpap_s, 2)} WU")
-            if pawp_s is not None: s_bits.append(f"PAWP/CO-Slope {fmt_float(pawp_s, 2)} WU")
-            extra_lines.append("Belastungshämodynamik: " + " / ".join(s_bits) + ".")
-        d_spap = der.get("delta_spap")
-        if d_spap is not None:
-            extra_lines.append(f"ΔsPAP (Peak–Ruhe): {fmt_int(d_spap)} mmHg.")
-        peak_ci = der.get("ci_peak")
-        if peak_ci is not None:
-            extra_lines.append(f"Peak CI: {fmt_float(peak_ci, 2)} l/min/m².")
-        patt_desc = ctx.get("exercise_pattern_desc") or ""
-        if patt_desc:
-            extra_lines.append(f"Belastungsmuster: {patt_desc}.")
+        tpg_s = der.get("tpg_co_slope_2pt")
+        dco = der.get("dco")
+        inter = der.get("exercise_interpretability")
+        hard_flags = der.get("exercise_hard_fail_flags") or []
+        soft_flags = der.get("exercise_soft_flags") or []
+
+        # Zahlenblock (wenn berechenbar)
+        if (dco is not None) and (dco > 0) and (mpap_s is not None or pawp_s is not None or tpg_s is not None):
+            s_bits = [
+                f"dCO {fmt_float(dco, 1)} L/min",
+                f"ΔmPAP/ΔCO {fmt_float(mpap_s, 2)}" if mpap_s is not None else None,
+                f"ΔPAWP/ΔCO {fmt_float(pawp_s, 2)}" if pawp_s is not None else None,
+                f"ΔTPG/ΔCO {fmt_float(tpg_s, 2)}" if tpg_s is not None else None,
+            ]
+            s_bits = [x for x in s_bits if x]
+            extra_lines.append("Belastung (semi supine), Slope Ruhe→Peak: " + "; ".join(s_bits) + " mmHg/(L/min).")
+
+        # QC / Interpretierbarkeit
+        def _flag_to_text(code: str) -> str:
+            return _exercise_flag_to_text(code)
+
+        if inter == "hard_stop":
+            if hard_flags:
+                extra_lines.append("Belastungs-Slopes nicht interpretierbar: " + "; ".join(_flag_to_text(x) for x in hard_flags) + ".")
+        elif inter == "numeric_only":
+            # harte Diagnosesprache ist gesperrt – nur QC + Zahlen
+            if "low_peak_pawp_with_high_slope" in soft_flags:
+                extra_lines.append(
+                    "Numerisch erhöhte ΔPAWP/ΔCO bei niedrigem PAWP_peak unter semi supine; Interpretation eingeschränkt (häufig dCO-Artefakt oder Wedge-Messunsicherheit)."
+                )
+            if "slope_inconsistent" in soft_flags:
+                extra_lines.append("Slopes algebraisch inkonsistent; Eingabe oder Messartefakt wahrscheinlich.")
+            if "dco_small" in soft_flags:
+                extra_lines.append("Slopes numerisch berechnet; Interpretation eingeschränkt wegen geringer ΔCO-Spannweite.")
+            # Kontext-Limiter als Zusatzhinweis
+            limiter = [x for x in soft_flags if x in ("wedge_wave_present", "af_present", "co_method_unknown", "extreme_jump_pawp", "extreme_jump_mpap")]
+            if limiter:
+                extra_lines.append("Zusatzhinweise: " + "; ".join(_flag_to_text(x) for x in limiter) + ".")
+        elif inter == "ok":
+            patt_desc = _describe_exercise_response_2pt(der)
+            if patt_desc:
+                extra_lines.append(f"Belastungsreaktion: {patt_desc}")
+            # Supporttext: PAWP_peak (semi supine) – nur vorsichtig und nur als Stütze
+            pawp_peak = der.get("pawp_peak")
+            if pawp_peak is not None and float(pawp_peak) >= 25:
+                if ("wedge_wave_present" in soft_flags) or ("af_present" in soft_flags):
+                    extra_lines.append("PAWP_peak erhöht; Interpretation limitiert durch Wedge-Wellen/AF.")
+                else:
+                    extra_lines.append("PAWP_peak unter semi supine deutlich erhöht; dies stützt eine linksatriale Druckkomponente.")
+            # Wedge/AF Hinweis (auch bei sonst ok)
+            if ("wedge_wave_present" in soft_flags) or ("af_present" in soft_flags):
+                extra_lines.append("PAWP-Interpretation limitiert durch Wedge-Wellen/AF; Slopes nur im Gesamtkontext bewerten.")
+            if "co_method_unknown" in soft_flags:
+                extra_lines.append("CO-Methode nicht dokumentiert.")
 
     # Vergleich (wenn vorhanden, aber im Textblock nicht schon enthalten)
-    if ctx.get("comparison_sentence") and "Im Vergleich" not in beurteilung:
+    if ctx.get("comparison_sentence") and ("Im Vergleich" not in beurteilung) and ("Verlauf im Vergleich" not in beurteilung):
         extra_lines.append(ctx["comparison_sentence"].strip())
 
     # If no prior RHK comparison is available, say so explicitly (deterministic).
@@ -1986,18 +2080,32 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
         beurteilung = (beurteilung.rstrip() + "\n\n" + "\n".join(extra_lines)).strip()
 
     # Guideline-aligned narrative interpretation (placed under the Beurteilung section).
-    interpretation = _hemo_interpretation_paragraph().strip()
-
-    # Optional: deepen the *course* interpretation (primary + secondary hemodynamic blocks)
-    # Requirement: only add if values are available; no silent assumptions.
+    interpretation = ""
     try:
-        from rhk_hemo_deep_interpretation import build_hemo_deep_interpretation
-
-        _deep = build_hemo_deep_interpretation(ui, der)
-        if str(_deep or "").strip():
-            interpretation = (interpretation + "\n\n" + str(_deep).strip()).strip() if interpretation else str(_deep).strip()
+        from rhk_interpretation_v3 import build_intelligent_interpretation_v3
+        # Ensure CO method is propagated into the interpretation logic.
+        # Principle: no assumptions – if the UI field is empty, the interpretation will treat it as unknown.
+        der_for_interp = dict(der or {})
+        if "co_method" not in der_for_interp or not str(der_for_interp.get("co_method") or "").strip():
+            der_for_interp["co_method"] = ui.get("co_method")
+        interpretation = str(build_intelligent_interpretation_v3(ui, der_for_interp) or "").strip()
     except Exception:
-        pass
+        interpretation = ""
+
+    # Fallback: legacy paragraph builder (keeps existing feature behavior if V3 cannot run)
+    if not interpretation:
+        interpretation = _hemo_interpretation_paragraph().strip()
+
+        # Optional: deepen the *course* interpretation (primary + secondary hemodynamic blocks)
+        # Requirement: only add if values are available; no silent assumptions.
+        try:
+            from rhk_hemo_deep_interpretation import build_hemo_deep_interpretation
+
+            _deep = build_hemo_deep_interpretation(ui, der)
+            if str(_deep or "").strip():
+                interpretation = (interpretation + "\n\n" + str(_deep).strip()).strip() if interpretation else str(_deep).strip()
+        except Exception:
+            pass
 
     empfehlung = render_block(blocks[e_id], ctx) if e_id in blocks else f"[Fehlender Textblock: {e_id}]"
     empfehlung = _filter_narrative_block(empfehlung, ui, der)
@@ -2040,14 +2148,27 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     exercise_block = ""
     if der.get("exercise_done"):
         ex_lines = []
-        ex_lines.append(_md_kv("mPAP/CO-Slope", f"{_fmt(der.get('mpap_co_slope'),1)} WU"))
-        ex_lines.append(_md_kv("PAWP/CO-Slope", f"{_fmt(der.get('pawp_co_slope'),1)} WU"))
+        ex_lines.append(_md_kv("Belastung", "semi supine, Slope Ruhe→Peak"))
+        ex_lines.append(_md_kv("dCO", f"{_fmt(der.get('dco'),1)} L/min"))
+        ex_lines.append(_md_kv("ΔmPAP/ΔCO", f"{_fmt(der.get('mpap_co_slope'),2)} mmHg/(L/min)"))
+        ex_lines.append(_md_kv("ΔPAWP/ΔCO", f"{_fmt(der.get('pawp_co_slope'),2)} mmHg/(L/min)"))
+        ex_lines.append(_md_kv("ΔTPG/ΔCO", f"{_fmt(der.get('tpg_co_slope_2pt'),2)} mmHg/(L/min)"))
         ex_lines.append(_md_kv("ΔsPAP (Peak–Ruhe)", f"{_fmt(der.get('delta_spap'),0)} mmHg"))
-        ex_lines.append(_md_kv("peak CI", f"{_fmt(der.get('ci_peak'),2)} l/min/m²"))
+        ex_lines.append(_md_kv("Peak CI", f"{_fmt(der.get('ci_peak'),2)} l/min/m²"))
         if der.get("adaptation_type"):
             ex_lines.append(_md_kv("Adaptionstyp", "homeometrisch" if der["adaptation_type"] == "homeometric" else "heterometrisch"))
-        if der.get("exercise_pattern"):
-            ex_lines.append(_md_kv("Belastungsmuster", describe_exercise_pattern(der.get("exercise_pattern"))))
+
+        inter = der.get("exercise_interpretability")
+        if inter in ("hard_stop", "numeric_only"):
+            # show QC flags in a compact, deterministic way
+            hard = der.get("exercise_hard_fail_flags") or []
+            soft = der.get("exercise_soft_flags") or []
+            reasons = [_exercise_flag_to_text(x) for x in (hard + soft) if x]
+            reasons = [r for r in reasons if str(r).strip()]
+            ex_lines.append(_md_kv("QC", "; ".join(reasons) if reasons else "ok"))
+        elif inter == "ok" and der.get("exercise_pattern"):
+            ex_lines.append(_md_kv("Belastungsreaktion", _describe_exercise_response_2pt(der).rstrip(".")))
+
         exercise_block = "#### Belastungshämodynamik\n" + "\n".join(ex_lines)
 
     volume_block = ""
@@ -2086,7 +2207,7 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     sat_filled = sum(1 for k in sat_keys if _safe_float(ui.get(k)) is not None)
     if sat_filled >= 3:
         sat_lines = []
-        for k, lab in [("sat_svc", "SVC"), ("sat_ra", "RA"), ("sat_rv", "RV"), ("sat_pa", "PA"), ("sat_ao", "AO")]:
+        for k, lab in [("sat_svc", "SVC"), ("sat_ra", "RA"), ("sat_rv", "RV"), ("sat_pa", "PA"), ("sat_ao", "System")]:
             v = _safe_float(ui.get(k))
             if v is not None:
                 sat_lines.append(_md_kv(lab, f"{_fmt(v,0)}%"))
@@ -4436,14 +4557,15 @@ def markdown_to_plain(md: Any) -> str:
 
 
 def markdown_to_word_html(md: Any) -> str:
-    """Best-effort Markdown -> HTML fragment suitable for pasting into MS Word.
+    """Markdown -> HTML fragment optimized for pasting into MS Word.
 
-    Notes:
-    - Preserves headings, paragraphs, simple lists, and simple tables.
-    - Avoids italics (no <em>) by stripping single * / _ emphasis.
-    - Uses minimal inline styling to match Word defaults.
+    Ziel:
+    - Überschriften: 11pt, fett
+    - Inhalt unter Überschriften: eingerückt, als Stichpunkte
+    - Keine Kursivschrift (<em>) – single * / _ emphasis wird entfernt
+    - Robust bei Copy&Paste (text/html + text/plain)
 
-    Returns a full HTML document string. For clipboard usage, it includes
+    Returns a full HTML document string including:
     <!--StartFragment--> / <!--EndFragment--> markers.
     """
     import html as _html
@@ -4459,12 +4581,11 @@ def markdown_to_word_html(md: Any) -> str:
     s = re.sub(r"```[a-zA-Z0-9_-]*\n", "", s)
     s = s.replace("```", "")
 
-    # Inline helpers
     def _inline(x: str) -> str:
         x = "" if x is None else str(x)
 
         # Links: [text](url) -> text
-        x = re.sub(r"\[([^\]]+)\]\(([^\)]+)\)", r"\1", x)
+        x = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", x)
 
         # Bold: **text** or __text__
         BOPEN = "@@BOPEN@@"
@@ -4472,7 +4593,7 @@ def markdown_to_word_html(md: Any) -> str:
         x = re.sub(r"\*\*(.+?)\*\*", lambda m: f"{BOPEN}{m.group(1)}{BCLOSE}", x)
         x = re.sub(r"__(.+?)__", lambda m: f"{BOPEN}{m.group(1)}{BCLOSE}", x)
 
-        # Italics: *text* or _text_ (single markers only)
+        # Italics: *text* or _text_ (single markers only) -> strip markers
         x = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", lambda m: m.group(1), x)
         x = re.sub(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", lambda m: m.group(1), x)
 
@@ -4488,197 +4609,187 @@ def markdown_to_word_html(md: Any) -> str:
 
     lines = s.split("\n")
 
-    out = []
+    out: list[str] = []
     out.append("<html><body>")
     out.append("<!--StartFragment-->")
-    # Clipboard (Word): Arial, 10pt body. Headings are handled explicitly (11pt bold).
-    out.append("<div style=\"font-family:Arial,sans-serif;font-size:10pt;line-height:1.25;\">")
+    # Word default look: Calibri 11pt is common, but many clinics use Arial.
+    # We set body to 10.5pt; headings are explicitly 11pt bold.
+    out.append("<div style=\"font-family:Calibri,Arial,sans-serif;font-size:10.5pt;line-height:1.25;\">")
 
     i = 0
-    in_ul = False
-    in_ol = False
-    in_table = False
 
-    def _close_lists():
-        nonlocal in_ul, in_ol
-        if in_ul:
-            out.append("</ul>")
-            in_ul = False
-        if in_ol:
-            out.append("</ol>")
-            in_ol = False
-
-    def _close_table():
-        nonlocal in_table
-        if in_table:
-            out.append("</table>")
-            in_table = False
-
-    # Paragraph buffer
-    para: list[str] = []
-
-    def _flush_para():
-        nonlocal para
-        if not para:
+    def _emit_heading(txt: str, level: int) -> None:
+        # Uniform: 11pt bold; small top spacing
+        t = _inline(txt.strip())
+        if not t:
             return
-        _close_lists()
-        _close_table()
-        txt = _inline(" ".join([p.strip() for p in para if p.strip()]))
-        if txt:
-            out.append(f"<p style=\"margin:0 0 6pt 0;\">{txt}</p>")
-        para = []
+        out.append(f"<div style=\"font-size:11pt;font-weight:700;margin:10pt 0 4pt 0;\">{t}</div>")
 
-    def _is_table_sep(ln: str) -> bool:
-        # e.g. |---|:---:|
-        return bool(re.match(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$", ln))
+    def _emit_bullets(items: list[str]) -> None:
+        items = [x for x in (items or []) if str(x or "").strip()]
+        if not items:
+            return
+        out.append("<div style=\"margin-left:14pt;margin-bottom:6pt;\">")
+        out.append("<ul style=\"margin:0;padding-left:16pt;\">")
+        for it in items:
+            out.append(f"<li>{_inline(it.strip())}</li>")
+        out.append("</ul>")
+        out.append("</div>")
+
+    def _emit_paragraph(txt: str) -> None:
+        t = _inline(txt.strip())
+        if not t:
+            return
+        out.append(f"<div style=\"margin:0 0 6pt 0;\">{t}</div>")
+
+    # Helper: detect markdown heading
+    def _heading_level(line: str):
+        m = re.match(r"^(#{1,6})\s+(.*)$", line.strip())
+        if not m:
+            return None
+        return len(m.group(1)), m.group(2).strip()
+
+    # Helper: detect list item (unordered)
+    def _is_ul_item(line: str):
+        return re.match(r"^\s*([-*•])\s+(.+)$", line) is not None
+
+    # Helper: detect ordered list item
+    def _is_ol_item(line: str):
+        return re.match(r"^\s*(\d+)[\.\)]\s+(.+)$", line) is not None
+
+    # Minimal table support (pipe tables)
+    def _is_table_sep(line: str):
+        return re.match(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$", line) is not None
+
+    def _parse_table(start_idx: int):
+        # Returns (html, next_idx) or (None, start_idx)
+        if start_idx >= len(lines):
+            return None, start_idx
+        header = lines[start_idx]
+        if "|" not in header:
+            return None, start_idx
+        if start_idx + 1 >= len(lines):
+            return None, start_idx
+        sep = lines[start_idx + 1]
+        if not _is_table_sep(sep):
+            return None, start_idx
+        # Parse header
+        def split_row(r: str):
+            r = r.strip()
+            if r.startswith("|"):
+                r = r[1:]
+            if r.endswith("|"):
+                r = r[:-1]
+            return [c.strip() for c in r.split("|")]
+        head_cells = split_row(header)
+        rows = []
+        j = start_idx + 2
+        while j < len(lines) and "|" in lines[j] and lines[j].strip():
+            rows.append(split_row(lines[j]))
+            j += 1
+        # Build table
+        html_parts = []
+        html_parts.append("<table style=\"border-collapse:collapse;margin-left:14pt;margin-bottom:6pt;\">")
+        html_parts.append("<tr>")
+        for c in head_cells:
+            html_parts.append(f"<th style=\"border:1px solid #999;padding:3pt 6pt;font-size:10.5pt;font-weight:700;\">{_inline(c)}</th>")
+        html_parts.append("</tr>")
+        for r in rows:
+            html_parts.append("<tr>")
+            for c in r:
+                html_parts.append(f"<td style=\"border:1px solid #999;padding:3pt 6pt;font-size:10.5pt;\">{_inline(c)}</td>")
+            html_parts.append("</tr>")
+        html_parts.append("</table>")
+        return "".join(html_parts), j
+
+    # Parsing: we map each heading to a bullet list.
+    current_bullets: list[str] = []
+    seen_any_heading = False
+
+    def _flush_current_bullets():
+        nonlocal current_bullets
+        _emit_bullets(current_bullets)
+        current_bullets = []
+
+    # Paragraph accumulator (turn multiple lines into one bullet)
+    para_buf: list[str] = []
+
+    def _flush_para_into_bullets():
+        nonlocal para_buf, current_bullets
+        if not para_buf:
+            return
+        txt = " ".join([t.strip() for t in para_buf if t.strip()])
+        para_buf = []
+        if txt:
+            current_bullets.append(txt)
 
     while i < len(lines):
-        ln = lines[i]
-        raw_ln = ln
-        ln = ln.rstrip("\n")
-        stripped = ln.strip()
+        line = lines[i]
 
-        # Blank line flushes paragraph
-        if stripped == "":
-            _flush_para()
+        # Table block
+        tbl_html, next_i = _parse_table(i)
+        if tbl_html is not None:
+            _flush_para_into_bullets()
+            if seen_any_heading:
+                # table as its own "bullet item" placeholder: render table after bullets flush
+                _flush_current_bullets()
+                out.append(tbl_html)
+            else:
+                out.append(tbl_html)
+            i = next_i
+            continue
+
+        # Heading
+        hl = _heading_level(line)
+        if hl is not None:
+            _flush_para_into_bullets()
+            if seen_any_heading:
+                _flush_current_bullets()
+            level, htxt = hl
+            _emit_heading(htxt, level)
+            seen_any_heading = True
             i += 1
             continue
 
-        # Headings
-        hm = re.match(r"^\s{0,3}(#{1,6})\s+(.*)$", ln)
-        if hm:
-            _flush_para()
-            _close_lists()
-            _close_table()
-            level = min(len(hm.group(1)), 4)
-            heading_raw = hm.group(2).strip()
-            heading_text = _inline(heading_raw)
-
-            # For some sections, Word looks much better if we collapse key-value bullet lists into a compact flow text.
-            def _hkey(x: str) -> str:
-                x = (x or "").strip().lower()
-                x = x.replace(" / ", "/").replace(" /", "/").replace("/ ", "/")
-                x = re.sub(r"\s+", " ", x)
-                x = re.sub(r"[:：]+$", "", x)
-                return x
-
-            flow_keys = {
-                "klinik",
-                "befundübersicht",
-                "stufenoxymetrie",
-                "bildgebung/echo/cmr",
-                "bildgebung",
-            }
-
-            if _hkey(heading_raw) in flow_keys:
-                j = i + 1
-                while j < len(lines) and lines[j].strip() == "":
-                    j += 1
-                items = []
-                while j < len(lines):
-                    ln2 = lines[j].rstrip("\n")
-                    # Stop at next heading
-                    if re.match(r"^\s{0,3}(#{1,6})\s+(.*)$", ln2):
-                        break
-                    m_ul2 = re.match(r"^\s*[-•\*]\s+(.*)$", ln2)
-                    if m_ul2:
-                        items.append(m_ul2.group(1).strip())
-                        j += 1
-                        continue
-                    break
-
-                if items:
-                    joined = "; ".join([_inline(it) for it in items if it.strip()])
-                    label = heading_text
-                    if not re.search(r"[:：]\s*$", label):
-                        label = label + ":"
-                    out.append(f"<p style=\"margin:0 0 6pt 0;\"><strong>{label}</strong> {joined}</p>")
-                    i = j
-                    continue
-
-            # Word copy requirements: headings = Arial 11pt bold, rest = Arial 10pt.
-            # Use <p> instead of <h*> to avoid Word re-styling.
-            out.append(
-                f"<p style=\"margin:8pt 0 4pt 0;font-family:Arial,sans-serif;font-size:11pt;font-weight:700;\">{heading_text}</p>"
-            )
+        # Blank line: paragraph boundary
+        if not line.strip():
+            _flush_para_into_bullets()
             i += 1
             continue
 
-                # Tables (pipe tables)
-        if "|" in stripped and stripped.count("|") >= 2:
-            # detect contiguous table block
-            # start only if next line is separator OR looks like table row and we are already in table
-            nxt = lines[i+1].strip() if i + 1 < len(lines) else ""
-            if in_table or _is_table_sep(nxt):
-                _flush_para()
-                _close_lists()
-                if not in_table:
-                    out.append("<table border=\"1\" cellspacing=\"0\" cellpadding=\"4\" style=\"border-collapse:collapse;\">")
-                    in_table = True
-                # Skip separator rows
-                if _is_table_sep(stripped):
-                    i += 1
-                    continue
-                row = stripped.strip("|")
-                cells = [c.strip() for c in row.split("|")]
-                # Header heuristic: if next line is separator and we're at start of table
-                is_header = False
-                if i + 1 < len(lines) and _is_table_sep(lines[i+1].strip()):
-                    # This line is header
-                    is_header = True
-                tag = "th" if is_header else "td"
-                out.append("<tr>" + "".join([f"<{tag}>{_inline(c)}</{tag}>" for c in cells]) + "</tr>")
-                i += 1
-                continue
-
-        # Unordered list
-        m_ul = re.match(r"^\s*[-•\*]\s+(.*)$", ln)
+        # Unordered list item
+        m_ul = re.match(r"^\s*([-*•])\s+(.+)$", line)
         if m_ul:
-            _flush_para()
-            _close_table()
-            if in_ol:
-                out.append("</ol>")
-                in_ol = False
-            if not in_ul:
-                out.append("<ul style=\"margin:0 0 6pt 18pt;padding:0;\">")
-                in_ul = True
-            out.append(f"<li style=\"margin:0;\">{_inline(m_ul.group(1).strip())}</li>")
+            _flush_para_into_bullets()
+            current_bullets.append(m_ul.group(2).strip())
             i += 1
             continue
 
-        # Ordered list
-        m_ol = re.match(r"^\s*\d+\.\s+(.*)$", ln)
+        # Ordered list item: render as bullet with number prefix (Word keeps it readable)
+        m_ol = re.match(r"^\s*(\d+)[\.\)]\s+(.+)$", line)
         if m_ol:
-            _flush_para()
-            _close_table()
-            if in_ul:
-                out.append("</ul>")
-                in_ul = False
-            if not in_ol:
-                out.append("<ol style=\"margin:0 0 6pt 18pt;padding:0;\">")
-                in_ol = True
-            out.append(f"<li style=\"margin:0;\">{_inline(m_ol.group(1).strip())}</li>")
+            _flush_para_into_bullets()
+            current_bullets.append(f"{m_ol.group(1)}. {m_ol.group(2).strip()}")
             i += 1
             continue
 
-        # Default: paragraph line
-        para.append(raw_ln)
+        # Normal text line
+        if seen_any_heading:
+            # Under a heading: collect into bullets (paragraph-based)
+            para_buf.append(line)
+        else:
+            # Before first heading: keep as paragraphs
+            _emit_paragraph(line)
         i += 1
 
-    _flush_para()
-    _close_lists()
-    _close_table()
+    _flush_para_into_bullets()
+    if seen_any_heading:
+        _flush_current_bullets()
 
     out.append("</div>")
     out.append("<!--EndFragment-->")
     out.append("</body></html>")
-    html = "\n".join(out)
-    # Defensive: ensure no placeholder artifacts leak into the clipboard payload
-    html = html.replace("@@BOPEN@@", "").replace("@@BCLOSE@@", "")
-    # In the worst case, strip bare marker words too (should not happen)
-    html = html.replace("BOPEN", "").replace("BCLOSE", "")
-    return html
-
+    return "\n".join(out)
 
 def markdown_to_docx_file(md: Any, out_path: str) -> str:
     """Best-effort Markdown -> DOCX.

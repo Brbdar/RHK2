@@ -1,10 +1,10 @@
 meta:
   version: '24.16'
-  updated: '2025-12-30'
+  updated: '2026-01-31'
   notes: 'v24.11: Regelwerk erweitert (Adipositas/Arrhythmie Messhinweise, Virologie/Immunologie/Mutation/CHD DD, multifaktorielle
     Ursache als Regellogik, High-output & Plausibilitätschecks). | v24.13: Echo-PH-Wahrscheinlichkeit (TRV+Zeichen), Vasoreaktivität
     (Responder-Kriterium), pulsatile Hämodynamik (SV/SVI, PAC, RC-time), neue Regeln für Echo-Prob, Vasoreaktivität, CTEPD
-    ohne PH, schwere Gruppe-3-PH.'
+    ohne PH, schwere Gruppe-3-PH. | v1.12: ILTS Leber Profile (A/B/C), High Flow Safety Net, Shunt Enrichment P32. | v1.13: Bugfix _safe_int/ _try_num und asyncio ResourceWarning Filter. | v1.14: Belastung: Slope Terminologie, QC-Limiter als Klartext, kein multipoint Hinweis. | v1.15: Belastungsreaktion: Pattern Texte präzisiert, gemischt entfernt. | v1.16: Interpretation V3 und P Module V3 ergänzt.'
 rules:
 - id: R_REQUIRE_CORE_HEMO
   priority: 10
@@ -47,6 +47,43 @@ rules:
     add_tags:
     - CpcPH
     - Gruppe 2 mit präkapillärer Komponente
+
+# --- Hyperzirkulation / flussdominante Druckerhöhung ---
+# Wichtig: Hoher CO/CI ersetzt nicht das PVR-Kriterium.
+- id: R_FLOW_DOMINANT_PRESSURE
+  priority: 35
+  when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr <= 2 and (high_flow is True)
+  then:
+    set_bundle: K12
+    set_primary_dx: Pulmonale Druckerhöhung bei Hyperzirkulation (flussdominant), keine präkapilläre PH (PVR ≤ 2 WU)
+    add_tags:
+    - flussdominant
+    - High-output
+    add_recommendations:
+    - mPAP ist >20 mmHg bei normalem PAWP und nicht erhöhter PVR. Bei erhöhtem CO/CI spricht dies für eine flussdominante Druckerhöhung; Kriterien einer präkapillären PH (PVR >2 WU) sind nicht erfüllt.
+    add_modules:
+    - P32
+
+- id: R_LOW_PVR_NO_PRECAP
+  priority: 36
+  when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr <= 2 and (high_flow is not True)
+  then:
+    set_bundle: K20
+    set_primary_dx: Pulmonale Druckerhöhung bei normaler PVR, keine präkapilläre PH nach ESC/ERS Kriterien
+    add_tags:
+    - keine präkapilläre PH
+    add_recommendations:
+    - mPAP ist >20 mmHg bei normalem PAWP und nicht erhöhter PVR. Kriterien einer präkapillären PH (PVR >2 WU) sind nicht erfüllt. Einordnung im Kontext von CO/CI, Messbedingungen und klinischem Risiko.
+
+- id: R_POPH_CANDIDATE_NOTE
+  priority: 116
+  when: poph_candidate is True and step_up_present != True
+  then:
+    add_tags:
+    - PoPH DD
+    add_recommendations:
+    - Bei Portalhypertonie-/Leberkontext und präkapillärer Hämodynamik (mPAP >20 mmHg, PAWP ≤15 mmHg, PVR >2 WU) ist eine portopulmonale Hypertension (PoPH) möglich. Hoher CO/CI ersetzt nicht das PVR-Kriterium.
+
 - id: R_PRECAP_MILD
   priority: 40
   when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr > 2 and pvr <= 5
@@ -695,3 +732,84 @@ rules:
     add_recommendations:
     - 'Hinweis neue Therapieoption: Add-on über den BMPR2/Activin-Signalweg (z.B. Sotatercept) ist als vierter Pfad verfügbar; Einsatz/Timing sollte im PH-Zentrum und unter Berücksichtigung von Indikation, Kontraindikationen und Monitoring erfolgen.'
 
+# --- UNCLASSIFIED / HIGH FLOW SAFETY NET ---
+# Korrigiert fälschliche Präkapilläre PH / PAH Einordnung bei PVR ≤ 2
+- id: R_UNCLASSIFIED_FLOW_PH
+  priority: 110
+  when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr <= 2 and step_up_present != True
+  then:
+    set_primary_dx: Unclassified PH (Flussdominante Druckerhöhung)
+    remove_tags:
+    - Präkapilläre PH
+    - präkapillär
+    - PAH
+    add_tags:
+    - High Output State
+    - PVR ≤ 2 WU
+    add_modules:
+    - P32
+
+# --- LIVER PROFILE A: HYPERDYNAMIC ---
+- id: R_LIVER_PROFILE_A_HYPERDYNAMIC
+  priority: 117
+  when: liver_hint == True and mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr <= 2
+  then:
+    add_tags:
+    - Leber Profil A (Hyperdynam)
+    add_modules:
+    - P32
+
+# --- LIVER PROFILE B: VOLUME OVERLOAD ---
+- id: R_LIVER_PROFILE_B_VOLUME
+  priority: 117
+  when: liver_hint == True and pawp_rest != None and pawp_rest > 15
+  then:
+    add_tags:
+    - Leber Profil B (Volumenbelastung)
+    add_modules:
+    - P32
+    add_recommendations:
+    - Volumenstatus optimieren
+    - Linksherz entlasten
+
+# --- LIVER PROFILE C: PoPH OVERRIDE ---
+# Greift nur, wenn kein Shunt vorliegt (Priority 300 gewinnt sonst)
+- id: R_POPH_PRIMARY_DX_OVERRIDE
+  priority: 115
+  when: poph_candidate == True and step_up_present != True and pvr != None and pvr > 2
+  then:
+    set_primary_dx: Präkapilläre PH im Portal Leber Kontext (PoPH DD)
+    add_tags:
+    - PoPH DD
+    add_modules:
+    - P19
+    - P32
+    add_recommendations:
+    - PoPH Abklärung (ILTS/ESC)
+    - Ausschluss PE/Linksherz
+
+# --- LIVER PROFILE C: BORDERLINE RISK ---
+- id: R_POPH_BORDERLINE_RISK
+  priority: 118
+  when: liver_hint == True and mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr > 2 and pvr <= 3
+  then:
+    add_tags:
+    - PoPH Risiko PVR 2-3
+    add_modules:
+    - P19
+    - P32
+    add_recommendations:
+    - Engmaschige Kontrolle (ILTS: Borderline Risk)
+    - Reevaluation nach Volumenoptimierung
+
+# --- SHUNT CONTEXT ENRICHMENT ---
+# Ergänzt P32 bei Shunt Patient*innen mit Kontextfaktoren (Prio > 300)
+- id: R_SHUNT_ADD_HYPERFLOW_MODULE
+  priority: 305
+  when: step_up_present == True and (high_flow == True or liver_hint == True)
+  then:
+    add_recommendations:
+    - Hyperzirkulation als Kofaktor der mPAP Erhöhung
+    - Interpretation unter Qp Berücksichtigung
+    add_modules:
+    - P32

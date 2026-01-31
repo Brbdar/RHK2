@@ -1,3 +1,3 @@
-Fix. v1.00: DOCX/Altfall-Import ruft CPET Sync wieder mit korrekter Parameterzahl auf (keine fehlenden Args)
-Fix. v0.99: Example-Load CPET Input/Callback Synchronisation (vo2_peak_reached, VT1-Felder) behoben
-Fix. v0.98: CPET Live Callback Arg-Consistency (vo2_peak_reached, VT1 Felder) und Spiro-Logic module7_safety Rendering
+Fix. v1.18: Interpretation: CO-Methode Hinweis nur wenn fehlend, ohne Methodenfloskeln; Verlauf-Dopplungen verhindert
+Fix. v1.17: Word Copy HTML: Überschriften 11pt fett, Inhalte als eingerückte Stichpunkte
+Fix. v1.16: Intelligente Interpretation V3 integriert und P Module V3 erweitert (max 6 Vorschläge)

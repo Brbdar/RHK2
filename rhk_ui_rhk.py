@@ -193,7 +193,7 @@ def build_rhk_tab(add) -> Dict[str, Any]:
             with gr.Row():
                 add("sat_rv", gr.Number(label="RV O2-Sättigung (%)"))
                 add("sat_pa", gr.Number(label="PA O2-Sättigung (%)"))
-                add("sat_ao", gr.Number(label="Aorta O2-Sättigung (%)"))
+                add("sat_ao", gr.Number(label="System O2-Sättigung (%)"))
 
             gr.Markdown("#### Kurvenmorphologie")
             with gr.Row():

@@ -39,7 +39,7 @@ except Exception:  # pragma: no cover
 
 APP_NAME = "RHK Befundassistent"
 # Versioning: ab v28.x nur noch eine Dezimalstelle (z.B. v28.5)
-APP_VERSION = "v1.00"
+APP_VERSION = "v1.18"
 APP_TITLE = f"{APP_NAME} – {APP_VERSION}"
 _FALLBACK_FIX_LOG = [
     "Fix. v0.23: HFpEF-spezifische sprachliche Verfeinerung bei passender Echo- und Hämodynamik-Konstellation ergänzt",
@@ -402,6 +402,28 @@ def _safe_float(x: Any) -> Optional[float]:
         except Exception:
             return None
     return None
+
+
+def _safe_int(x: Any) -> Optional[int]:
+    """Konservativer Int-Parser für UI-Inputs.
+
+    - Fehlende Werte -> None (keine implizite 0)
+    - Bool -> None
+    - Strings mit Komma-Punkt -> ok
+    - 0 wird als fehlend behandelt (z.B. leere gr.Number roundtrips)
+    """
+    v = _safe_float(x)
+    if v is None:
+        return None
+    # NaN
+    if isinstance(v, float) and (v != v):
+        return None
+    if abs(v) < 1e-12:
+        return None
+    try:
+        return int(round(v))
+    except Exception:
+        return None
 
 
 def _safe_float_echo(x: Any) -> Optional[float]:
@@ -1272,10 +1294,10 @@ def calc_cpet_scores(ui: Dict[str, Any]) -> Optional[CpetScoresResult]:
     )
 
 def classify_exercise_pattern(mpap_co_slope: Optional[float], pawp_co_slope: Optional[float]) -> Optional[str]:
-    """
-    Heuristic:
-    - mpap/CO slope > 3 WU suggests abnormal pulmonary pressure response
-    - PAWP/CO slope > 2 WU suggests left-heart filling pressure component
+    """Legacy helper (two-point Δ/ΔCO).
+
+    Kept for backwards compatibility with older report snippets.
+    Uses the common heuristic thresholds (mPAP/CO >3, PAWP/CO >2).
     """
     if mpap_co_slope is None or pawp_co_slope is None:
         return None
@@ -1288,11 +1310,182 @@ def classify_exercise_pattern(mpap_co_slope: Optional[float], pawp_co_slope: Opt
     return "normal_pattern"
 
 
+def analyze_exercise_slopes_2pt(
+    *,
+    exercise_done: bool,
+    mpap_rest: Optional[float],
+    pawp_rest: Optional[float],
+    co_rest: Optional[float],
+    mpap_peak: Optional[float],
+    pawp_peak: Optional[float],
+    co_peak: Optional[float],
+    tpg_rest: Optional[float] = None,
+    tpg_peak: Optional[float] = None,
+    wedge_v_wave: bool = False,
+    wedge_a_wave: bool = False,
+    atrial_fib: bool = False,
+    co_method: Optional[str] = None,
+    age: Optional[int] = None,
+    dco_min_interpret: float = 1.5,
+    dco_good: float = 2.0,
+    eps_algebra: float = 0.5,
+) -> Dict[str, Any]:
+    """Exercise (semi-supine) pressure-flow assessment using *two-point* slopes (rest→peak).
+
+    Deterministic:
+    - Slopes are calculated only as Δ/ΔCO (rest→peak), unit mmHg/(L/min).
+    - Pattern classification and diagnosis-like language must be gated by QC rules.
+    """
+    res: Dict[str, Any] = {
+        "exercise_done": bool(exercise_done),
+        "dco": None,
+        "d_mpap": None,
+        "d_pawp": None,
+        "d_tpg": None,
+        "mpap_co_slope_2pt": None,
+        "pawp_co_slope_2pt": None,
+        "tpg_co_slope_2pt": None,
+        "hard_fail_flags": [],
+        "soft_flags": [],
+        "interpretability": "not_applicable",  # not_applicable | hard_stop | numeric_only | ok
+        "pattern_2pt": None,  # normal | pv_dominant | la_dominant | mixed | unclear
+    }
+
+    if not exercise_done:
+        return res
+
+    # --- hard-stop prerequisites ---
+    required = {
+        "mpap_rest": mpap_rest,
+        "pawp_rest": pawp_rest,
+        "co_rest": co_rest,
+        "mpap_peak": mpap_peak,
+        "pawp_peak": pawp_peak,
+        "co_peak": co_peak,
+    }
+    missing = [k for k, v in required.items() if v is None]
+    if missing:
+        res["hard_fail_flags"].append("missing_values")
+        res["interpretability"] = "hard_stop"
+        res["missing_fields"] = missing
+        return res
+
+    # cast (safe)
+    mp_r = float(mpap_rest)
+    pw_r = float(pawp_rest)
+    co_r = float(co_rest)
+    mp_p = float(mpap_peak)
+    pw_p = float(pawp_peak)
+    co_p = float(co_peak)
+
+    # physiologic sanity (hard)
+    if co_r <= 0 or co_p <= 0:
+        res["hard_fail_flags"].append("co_nonpositive")
+    if pw_r < 0 or pw_p < 0:
+        res["hard_fail_flags"].append("pawp_negative")
+    if mp_r < pw_r:
+        res["hard_fail_flags"].append("wedge_inconsistent_rest")
+    if mp_p < pw_p:
+        res["hard_fail_flags"].append("wedge_inconsistent_peak")
+
+    dco = co_p - co_r
+    res["dco"] = dco
+    if dco <= 0:
+        res["hard_fail_flags"].append("dco_nonpositive")
+
+    if res["hard_fail_flags"]:
+        res["interpretability"] = "hard_stop"
+        return res
+
+    # --- compute deltas and slopes (numeric) ---
+    d_mpap = mp_p - mp_r
+    d_pawp = pw_p - pw_r
+
+    if tpg_rest is None:
+        tpg_rest = mp_r - pw_r
+    if tpg_peak is None:
+        tpg_peak = mp_p - pw_p
+    d_tpg = float(tpg_peak) - float(tpg_rest)
+
+    res["d_mpap"] = d_mpap
+    res["d_pawp"] = d_pawp
+    res["d_tpg"] = d_tpg
+
+    # slopes: only if dCO > 0 (already ensured)
+    mpap_s = d_mpap / dco
+    pawp_s = d_pawp / dco
+    tpg_s = d_tpg / dco
+    res["mpap_co_slope_2pt"] = mpap_s
+    res["pawp_co_slope_2pt"] = pawp_s
+    res["tpg_co_slope_2pt"] = tpg_s
+
+    # --- soft flags / QC ---
+    if 0 < dco < dco_min_interpret:
+        res["soft_flags"].append("dco_small")
+
+    if abs(mp_p - mp_r) > 30:
+        res["soft_flags"].append("extreme_jump_mpap")
+    if abs(pw_p - pw_r) > 20:
+        res["soft_flags"].append("extreme_jump_pawp")
+
+    wedge_wave_present = bool(wedge_v_wave or wedge_a_wave)
+    if wedge_wave_present:
+        res["soft_flags"].append("wedge_wave_present")
+    if atrial_fib:
+        res["soft_flags"].append("af_present")
+    if not (co_method or "").strip() or (co_method or "").strip().lower() == "keine angabe":
+        res["soft_flags"].append("co_method_unknown")
+
+    # algebra consistency: mPAP/CO ≈ PAWP/CO + TPG/CO
+    if abs(mpap_s - (pawp_s + tpg_s)) > eps_algebra:
+        res["soft_flags"].append("slope_inconsistent")
+
+    # guardrail: high PAWP slope with low PAWP_peak (semi-supine) => usually artefact / wedge uncertainty
+    if pawp_s > 2 and pw_p <= 15:
+        res["soft_flags"].append("low_peak_pawp_with_high_slope")
+
+    # interpretability gate for *pattern* (numbers can still be shown)
+    if "dco_small" in res["soft_flags"]:
+        res["interpretability"] = "numeric_only"
+        return res
+    if "slope_inconsistent" in res["soft_flags"]:
+        res["interpretability"] = "numeric_only"
+        return res
+    if "low_peak_pawp_with_high_slope" in res["soft_flags"]:
+        res["interpretability"] = "numeric_only"
+        return res
+
+    # OK for a cautious pattern label (still two-point)
+    res["interpretability"] = "ok"
+
+    # --- pattern classification (two-point, QC ok) ---
+    if mpap_s <= 3 and pawp_s <= 2:
+        res["pattern_2pt"] = "normal"
+    elif mpap_s > 3 and pawp_s <= 2 and tpg_s > 1.2:
+        res["pattern_2pt"] = "pv_dominant"
+    elif pawp_s > 2 and tpg_s <= 1.2:
+        res["pattern_2pt"] = "la_dominant"
+    elif pawp_s > 2 and tpg_s > 1.2:
+        res["pattern_2pt"] = "mixed"
+    else:
+        res["pattern_2pt"] = "unclear"
+
+    return res
+
+
 EXERCISE_PATTERN_LABELS = {
-    "normal_pattern": "Regelhafte Druck-/Fluss-Reaktion unter Belastung",
-    "precap_pattern": "Auffällige pulmonalvaskuläre Reaktion unter Belastung (präkapillär)",
-    "postcap_pattern": "Demaskierung einer postkapillären Komponente unter Belastung",
-    "left_pressure_pattern": "Belastungsassoziierte linksatriale Druckerhöhung (PAWP/CO auffällig)",
+    # legacy
+    "normal_pattern": "Regelhafte Druck und Flussreaktion unter Belastung",
+    "precap_pattern": "Auffällige pulmonalvaskuläre Reaktion unter Belastung (Heuristik)",
+    "postcap_pattern": "Auffällige Druck und Flussreaktion mit linksatrialer Komponente (Heuristik)",
+    "left_pressure_pattern": "Auffällige linksatriale Druckreaktion unter Belastung (Heuristik)",
+
+    # new (two-point QC-gated)
+    "exercise_2pt_normal": "unauffällige Druck und Flussantwort (Slopes im Normbereich)",
+    "exercise_2pt_pv_dominant": "pulmonalvaskulär dominierte Druckantwort (ΔmPAP/ΔCO und ΔTPG/ΔCO erhöht bei unauffälliger ΔPAWP/ΔCO)",
+    "exercise_2pt_la_dominant": "linksatrial dominierte Druckantwort (ΔPAWP/ΔCO erhöht bei niedrigem ΔTPG/ΔCO)",
+    "exercise_2pt_mixed": "kombinierte Druckantwort (ΔPAWP/ΔCO und ΔTPG/ΔCO erhöht)",
+    "exercise_2pt_unclear": "nicht eindeutig oder QC limitiert",
 }
 
 def describe_exercise_pattern(code: Optional[str]) -> str:
@@ -1919,7 +2112,6 @@ def apply_rule_engine_trace(env: Dict[str, Any], rules: List[Rule]) -> Tuple[Dec
             for m in then.get("add_modules") or []:
                 if m not in d.modules:
                     d.modules.append(m)
-
         if "add_recommendations" in then:
             for rec in then.get("add_recommendations") or []:
                 if rec and rec not in d.recommendations:
@@ -1929,6 +2121,16 @@ def apply_rule_engine_trace(env: Dict[str, Any], rules: List[Rule]) -> Tuple[Dec
             for fld in then.get("require_fields") or []:
                 if fld not in d.require_fields:
                     d.require_fields.append(str(fld))
+        if "remove_tags" in then:
+            for t in then.get("remove_tags") or []:
+                if not t:
+                    continue
+                ts = str(t)
+                try:
+                    while ts in d.tags:
+                        d.tags.remove(ts)
+                except Exception:
+                    pass
 
         if "add_tags" in then:
             for t in then.get("add_tags") or []:
@@ -2018,7 +2220,7 @@ def _normalize_module_ids(selected: Any) -> List[str]:
 # P-Module: Fallbasierte Priorisierung + Nicht-Anwählbar-Logik
 # =============================================================================
 
-_ALL_P_MODULE_IDS: List[str] = [f"P{i:02d}" for i in range(1, 31)]
+_ALL_P_MODULE_IDS: List[str] = [f"P{i:02d}" for i in range(1, 53)]
 
 
 def compute_p_module_policy(ui: Dict[str, Any],

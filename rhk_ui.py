@@ -1404,19 +1404,25 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     # Use a real download button to avoid the large gr.File placeholder area.
                     btn_download_doc = gr.DownloadButton("DOCX", variant="secondary", elem_id="btn_download_doc")
                     # Pre-RHK overview as PDF (one-page, print right before catheter).
-                    # DownloadButton avoids the large placeholder area of gr.File.
-                    btn_prerhk_pdf = gr.DownloadButton("Pre-RHK PDF", variant="secondary", elem_id="btn_prerhk_pdf")
+                    # Use DownloadButton directly as generator+download trigger (single-click).
+                    dl_prerhk_pdf = gr.DownloadButton(
+                        "Pre-RHK PDF",
+                        variant="secondary",
+                        visible=True,
+                        elem_id="dl_prerhk_pdf",
+                    )
                     btn_copy_pat = gr.Button("Patient*innenbrief komplett kopieren", variant="secondary", elem_id="btn_copy_pat")
                     btn_copy_rhk = gr.Button("nur RHK Abschnitt kopieren", variant="secondary", elem_id="btn_copy_rhk")
                 copy_feedback = gr.Markdown("", elem_id="rhk_copy_feedback")
 
-                # Pre-RHK PDF: download is handled directly by the button (no extra field).
+                # Pre-RHK PDF: generated on demand; download button becomes visible after successful export.
 
                 # Klinik-Workaround: serverseitiges Speichern in einen frei wählbaren Ordner.
                 # In Cloud/Render ist das NICHT "lokal" auf dem User-PC, daher dort ausgeblendet.
                 def _is_cloud_env() -> bool:
+                    # Cloud detection must be specific. A generic PORT env var may also be set locally.
                     import os
-                    return bool(os.environ.get("PORT")) or bool(os.environ.get("RENDER")) or bool(os.environ.get("K_SERVICE"))
+                    return bool(os.environ.get("RENDER")) or bool(os.environ.get("K_SERVICE"))
 
                 with gr.Accordion(
                     "DOCX speichern (nur lokale Installation)",
@@ -4035,9 +4041,37 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
 
             try:
                 from rhk_pdf_prerhk import generate_prerhk_pdf
-                pdf_path = generate_prerhk_pdf(case)
+                import os
+                import re
+                import shutil
+
+                pdf_path_tmp = generate_prerhk_pdf(case)
                 ts = time.strftime("%Y-%m-%d %H:%M:%S")
-                return pdf_path, f"✅ Pre-RHK PDF erstellt ({ts})."
+
+                # NOTE (Gradio compatibility): Some deployed Gradio versions only accept a
+                # string path (not a (path, filename) tuple) for DownloadButton.
+                # Therefore, we ensure the desired filename is already reflected on disk.
+                try:
+                    _pid = str((case.get("ui") or {}).get("patient_id") or (case.get("ui") or {}).get("pat_id") or "").strip()
+                except Exception:
+                    _pid = ""
+                safe_pid = re.sub(r"[^A-Za-z0-9_-]+", "", _pid) if _pid else ""
+                fname = "Pre-RHK.pdf" if not safe_pid else f"Pre-RHK_{safe_pid}.pdf"
+
+                out_dir = os.path.dirname(str(pdf_path_tmp)) or os.getcwd()
+                pdf_path = os.path.join(out_dir, fname)
+                try:
+                    # Prefer move to keep exports folder tidy; fall back to copy if needed.
+                    if os.path.abspath(str(pdf_path_tmp)) != os.path.abspath(pdf_path):
+                        try:
+                            shutil.move(str(pdf_path_tmp), pdf_path)
+                        except Exception:
+                            shutil.copy2(str(pdf_path_tmp), pdf_path)
+                except Exception:
+                    # If renaming fails, still attempt to serve the original file.
+                    pdf_path = str(pdf_path_tmp)
+
+                return str(pdf_path), f"✅ Pre-RHK PDF erstellt ({ts})."
             except Exception as e:
                 # Do not crash the UI – show a minimal error message.
                 msg = f"Fehler beim Erstellen der Pre-RHK PDF: {type(e).__name__}: {e}"
@@ -4055,7 +4089,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                 btn.click(
                     _export_prerhk_pdf,
                     inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
-                    outputs=[btn_prerhk_pdf, copy_feedback],
+                    outputs=[dl_prerhk_pdf, copy_feedback],
                     trigger_mode="always_last",
                     queue=False,
                     scroll_to_output=False,
@@ -4065,7 +4099,7 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     btn.click(
                         _export_prerhk_pdf,
                         inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
-                        outputs=[btn_prerhk_pdf, copy_feedback],
+                        outputs=[dl_prerhk_pdf, copy_feedback],
                         trigger_mode="always_last",
                         queue=False,
                     )
@@ -4073,10 +4107,11 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     btn.click(
                         _export_prerhk_pdf,
                         inputs=[state_flags, state_pmods_selected, state_docx_cur, state_docx_prev, state_echo_cur, state_echo_prev, state_case_filename] + input_components,
-                        outputs=[btn_prerhk_pdf, copy_feedback],
+                        outputs=[dl_prerhk_pdf, copy_feedback],
                     )
 
-        _bind_prerhk(btn_prerhk_pdf)
+        # Use DownloadButton directly as trigger.
+        _bind_prerhk(dl_prerhk_pdf)
 
 
         # DOCX save to local path (clinic workaround)
@@ -4857,10 +4892,6 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
             ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
 
             remembered_name = (case_filename or "").strip() or None
-
-            def _is_cloud_env() -> bool:
-                # Render/Cloud environments usually set PORT.
-                return bool(os.environ.get("PORT")) or bool(os.environ.get("RENDER")) or bool(os.environ.get("K_SERVICE"))
 
             # Decide target directory
             target_dir = None

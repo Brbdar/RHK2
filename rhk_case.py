@@ -136,18 +136,47 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
     )
     exercise_done = exercise_checked
 
-    # Slopes: robust against tiny numerical differences
-    mpap_co_slope = None
-    pawp_co_slope = None
-    if exercise_done and co is not None and co_peak is not None:
-        dco = co_peak - co
-        if abs(dco) >= 0.05:  # avoid division by ~0 due to rounding / partial documentation
-            if mpap is not None and mpap_peak is not None:
-                mpap_co_slope = (mpap_peak - mpap) / dco
-            if pawp is not None and pawp_peak is not None:
-                pawp_co_slope = (pawp_peak - pawp) / dco
+    # Exercise (semi supine, only rest + peak): two-point slopes (Δ/ΔCO)
+    ex2 = analyze_exercise_slopes_2pt(
+        exercise_done=exercise_done,
+        mpap_rest=mpap,
+        pawp_rest=pawp,
+        co_rest=co,
+        mpap_peak=mpap_peak,
+        pawp_peak=pawp_peak,
+        co_peak=co_peak,
+        tpg_rest=tpg,
+        tpg_peak=(mpap_peak - pawp_peak) if (mpap_peak is not None and pawp_peak is not None) else None,
+        wedge_v_wave=bool(ui.get("wedge_v_wave")),
+        wedge_a_wave=bool(ui.get("wedge_a_wave")),
+        atrial_fib=bool(ui.get("atrial_fib")),
+        co_method=str(ui.get("co_method") or "").strip(),
+        age=_safe_int(ui.get("age")),
+    )
 
-    exercise_pattern = classify_exercise_pattern(mpap_co_slope, pawp_co_slope) if exercise_done else None
+    # expose numbers (backwards compatible keys stay populated)
+    dco = ex2.get("dco")
+    mpap_co_slope = ex2.get("mpap_co_slope_2pt")
+    pawp_co_slope = ex2.get("pawp_co_slope_2pt")
+    tpg_co_slope_2pt = ex2.get("tpg_co_slope_2pt")
+
+    # pattern code only if QC gate is ok (still two-point)
+    exercise_interpretability = ex2.get("interpretability")
+    p2 = ex2.get("pattern_2pt")
+    exercise_pattern = None
+    if exercise_interpretability == "ok":
+        if p2 == "normal":
+            exercise_pattern = "exercise_2pt_normal"
+        elif p2 == "pv_dominant":
+            exercise_pattern = "exercise_2pt_pv_dominant"
+        elif p2 == "la_dominant":
+            exercise_pattern = "exercise_2pt_la_dominant"
+        elif p2 == "mixed":
+            exercise_pattern = "exercise_2pt_mixed"
+        else:
+            exercise_pattern = "exercise_2pt_unclear"
+    # if numeric_only / hard_stop: keep exercise_pattern None (no pattern classification)
+
 
     delta_spap = (spap_pk - spap) if (spap is not None and spap_pk is not None) else None
 
@@ -282,6 +311,59 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
     )
 
     hemo_cat = _hemo_category(mpap, pawp, pvr)
+
+    # ---- Hyperzirkulation / High-output flags (no silent assumptions) ----
+    # Thresholds are pragmatic and aligned with existing rulebook note (CO >= 8.0 L/min).
+    HIGH_FLOW_CO_L_MIN = 8.0
+    HIGH_FLOW_CI_L_MIN_M2 = 4.0
+
+    high_flow: Optional[bool] = None
+    if co is not None:
+        high_flow = bool(co >= HIGH_FLOW_CO_L_MIN)
+    elif ci is not None:
+        high_flow = bool(ci >= HIGH_FLOW_CI_L_MIN_M2)
+
+    liver_hint = False
+    try:
+        if str(ui.get("study_liver_pathologic") or "").strip() == "Ja":
+            liver_hint = True
+    except Exception:
+        pass
+    try:
+        if bool(ui.get("abd_sono_done")):
+            abd_desc_l = str(ui.get("abd_sono_desc") or "").strip().lower()
+            if any(w in abd_desc_l for w in ("zirrh", "portal", "portale", "tipp", "tips", "splen", "ascites", "aszites")):
+                liver_hint = True
+    except Exception:
+        pass
+
+    low_pvr_mpap_elev = (mpap is not None and mpap > 20 and pawp is not None and pawp <= 15 and pvr is not None and pvr <= 2)
+    flow_driven_pressure = bool(low_pvr_mpap_elev and (high_flow is True))
+    poph_candidate = bool(liver_hint and mpap is not None and mpap > 20 and pawp is not None and pawp <= 15 and pvr is not None and pvr > 2)
+
+    # ---- ILTS 2025 Leber Profile (für Textmodule, keine stillen Annahmen) ----
+    liver_ph_profile_label = "Kein spezifisches Leber Profil."
+    if liver_hint:
+        _mpap = mpap
+        _pawp = pawp
+        _pvr = pvr
+        if _pawp is not None and _pawp > 15:
+            liver_ph_profile_label = (
+                "Profil B (Volume Overload): Dominanz der postkapillären Komponente (PAWP > 15 mmHg). "
+                "Fokus auf Volumenmanagement."
+            )
+        elif _mpap is not None and _mpap > 20 and _pawp is not None and _pawp <= 15 and _pvr is not None and _pvr <= 2:
+            liver_ph_profile_label = (
+                "Profil A (Hyperdynam): Hoher Fluss bei normalem PVR (≤ 2 WU). "
+                "Keine pulmonalvaskuläre Erkrankung."
+            )
+        elif _mpap is not None and _mpap > 20 and _pawp is not None and _pawp <= 15 and _pvr is not None and _pvr > 2:
+            risk_str = "Borderline Risiko (PVR 2 bis 3 WU)" if _pvr <= 3 else "Manifeste PoPH (PVR > 3 WU)"
+            liver_ph_profile_label = (
+                f"Profil C (PoPH DD): Präkapilläre Druckerhöhung. {risk_str}. "
+                "Engmaschiges Monitoring bzw. Abklärung erforderlich."
+            )
+
     # ---- Heart rate, stroke volume, pulsatile hemodynamics (PAC/RC-time) ----
     hr = _safe_float(ui.get("hr"))
     sv_rest_ml = None
@@ -339,14 +421,34 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
         "pvr_calc": pvr_calc,
         "pvri": pvri,
         "hemo_category": hemo_cat,
+        # Hyperzirkulation / High-output
+        "high_flow": high_flow,
+        "flow_driven_pressure": flow_driven_pressure,
+        "low_pvr_mpap_elev": low_pvr_mpap_elev,
+        "liver_hint": liver_hint,
+        "liver_ph_profile_label": liver_ph_profile_label,
+        "poph_candidate": poph_candidate,
         "exercise_done": exercise_done,
         "exercise_checked": exercise_checked,
         "exercise_values_present": exercise_values_present,
         "mpap_peak": mpap_peak,
+        "pawp_peak": pawp_peak,
         "co_peak": co_peak,
         "ci_peak": ci_peak,
         "mpap_co_slope": mpap_co_slope,
         "pawp_co_slope": pawp_co_slope,
+        "dco": dco,
+        "d_mpap": ex2.get("d_mpap"),
+        "d_pawp": ex2.get("d_pawp"),
+        "d_tpg": ex2.get("d_tpg"),
+        "tpg_peak": (mpap_peak - pawp_peak) if (mpap_peak is not None and pawp_peak is not None) else None,
+        "tpg_co_slope_2pt": tpg_co_slope_2pt,
+        "exercise_interpretability": exercise_interpretability,
+        "exercise_hard_fail_flags": ex2.get("hard_fail_flags") or [],
+        "exercise_soft_flags": ex2.get("soft_flags") or [],
+        "exercise_qc_hard_stop": bool(exercise_interpretability == "hard_stop"),
+        "exercise_qc_numeric_only": bool(exercise_interpretability == "numeric_only"),
+
         "exercise_pattern": exercise_pattern,
         "delta_spap": delta_spap,
         "adaptation_type": adaptation_type,
@@ -700,6 +802,15 @@ def build_case(ui: Dict[str, Any], rules: List[Rule]) -> Dict[str, Any]:
         if v is None or v == "" or v is False:
             missing.append(fld)
     decision.missing_fields = missing
+
+    # P-Module V3: erweiterte, sicherheitsorientierte Vorschläge (maximal 6).
+    # UI Auswahl (ui['modules']) wird niemals überschrieben.
+    try:
+        from rhk_pmodules_v3 import apply_p_modules_v3
+        decision.modules = apply_p_modules_v3(ui, derived, list(decision.modules or []))
+    except Exception:
+        pass
+
 
 
     # Plausibilitätschecks (blockieren nicht)
@@ -1543,6 +1654,9 @@ def build_render_ctx(case: Dict[str, Any]) -> Dict[str, Any]:
     tpg = der.get("tpg")
     dpg = der.get("dpg")
 
+    # Compact numeric placeholders for templates
+    CI_value = _fmt(ci, 2)
+
 
     # prior RHK comparison / Verlauf (optional)
     trend_info = _compare_rhk_trend(ui, der)
@@ -1581,10 +1695,15 @@ def build_render_ctx(case: Dict[str, Any]) -> Dict[str, Any]:
     if der.get("hfpef_category") in ("possible", "likely"):
         hfpef_hint = f"HFpEF-Wahrscheinlichkeit (H2FPEF) {der.get('hfpef_category')} (~{_fmt(der.get('hfpef_percent'),0)}%)."
 
-    # Slopes hint only if exercise done
+    # Slopes hint only if exercise done (semi supine, two-point rest→peak)
     slope_hint = ""
-    if der.get("exercise_done") and der.get("mpap_co_slope") is not None and der.get("pawp_co_slope") is not None:
-        slope_hint = f"mPAP/CO-Slope {str(_fmt(der.get('mpap_co_slope'),1)) } WU, PAWP/CO-Slope {str(_fmt(der.get('pawp_co_slope'),1)) } WU."
+    if der.get("exercise_done") and der.get("dco") is not None and (der.get("mpap_co_slope") is not None) and (der.get("pawp_co_slope") is not None):
+        slope_hint = (
+            f"Belastung 2pt (Ruhe→Peak): dCO {str(_fmt(der.get('dco'),1)) } L/min; "
+            f"ΔmPAP/ΔCO {str(_fmt(der.get('mpap_co_slope'),1)) } / "
+            f"ΔPAWP/ΔCO {str(_fmt(der.get('pawp_co_slope'),1)) } / "
+            f"ΔTPG/ΔCO {str(_fmt(der.get('tpg_co_slope_2pt'),1)) } mmHg/(L/min)."
+        )
 
     tpg_hint = f"TPG {str(_fmt(tpg,0)) } mmHg" if tpg is not None else ""
     dpg_hint = f"DPG {str(_fmt(dpg,0)) } mmHg" if dpg is not None else ""
@@ -1753,6 +1872,7 @@ def build_render_ctx(case: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         **env,
+        "CI_value": CI_value,
         "comparison_sentence": comparison_sentence,
         "comparison_trend": (trend_info.get("trend") if trend_info.get("has_prev") else ""),
         "comparison_table_md": comparison_table_md,
@@ -1760,6 +1880,7 @@ def build_render_ctx(case: Dict[str, Any]) -> Dict[str, Any]:
         "comparison_detail_patient_md": comparison_detail_patient_md,
         "comparison_recommendation_doc": comparison_recommendation_doc,
         "comparison_recommendation_patient": comparison_recommendation_patient,
+        "liver_ph_profile_label": der.get("liver_ph_profile_label") or "Kein spezifisches Leber Profil.",
         "step_up_sentence": step_up_sentence,
         "step_up_from_to": der.get("step_up_from_to") or "",
         "V_wave_short": V_wave_short,

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, List
 import os
 import tempfile
+import uuid
 from datetime import datetime
 
 from reportlab.lib.pagesizes import A4, landscape
@@ -1143,8 +1144,18 @@ def generate_prerhk_pdf(case_state: Dict[str, Any]) -> str:
     need_bottom_strip = has_prev_base or need_handwrite_ox
 
     # --- Create PDF ---
-    fd, out_path = tempfile.mkstemp(prefix="prerhk_", suffix=".pdf")
-    os.close(fd)
+    # IMPORTANT (online compatibility):
+    # Create the file in a dedicated export folder under the current working directory.
+    # Some deployment environments restrict serving arbitrary temp paths.
+    out_dir = os.path.join(os.getcwd(), "exports")
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except Exception:
+        # Fallback: OS temp dir (should still work locally)
+        out_dir = os.path.join(tempfile.gettempdir(), "rhk_exports")
+        os.makedirs(out_dir, exist_ok=True)
+
+    out_path = os.path.join(out_dir, f"prerhk_{uuid.uuid4().hex}.pdf")
 
     w, h = landscape(A4)
     c = canvas.Canvas(out_path, pagesize=(w, h))

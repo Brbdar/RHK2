@@ -141,6 +141,19 @@ def main() -> None:
     major = _gradio_major_version()
     cloud = _is_cloud_runtime()
 
+    # -------------------------------------------------------------------------
+    # File serving (Pre-RHK PDF download)
+    # -------------------------------------------------------------------------
+    # The Pre-RHK PDF is rendered to ./exports. Newer Gradio versions only serve
+    # files from allowed_paths, otherwise DownloadButton clicks appear to do
+    # nothing in hosted environments.
+    exports_dir = os.path.abspath(os.path.join(os.getcwd(), "exports"))
+    try:
+        os.makedirs(exports_dir, exist_ok=True)
+    except Exception:
+        # Do not block startup; worst case the export falls back to OS temp.
+        pass
+
     if cloud:
         # Render expects 0.0.0.0:$PORT exactly.
         port_env = os.environ.get("PORT") or os.environ.get("GRADIO_SERVER_PORT")
@@ -153,6 +166,9 @@ def main() -> None:
             "server_port": port,
             "share": False,
         }
+
+        # Allow serving generated export files (e.g., Pre-RHK PDF) from ./exports.
+        launch_kwargs["allowed_paths"] = [exports_dir]
 
         if (not major) or major >= 6:
             launch_kwargs.update(
@@ -168,6 +184,7 @@ def main() -> None:
             demo.launch(**launch_kwargs)
         except TypeError:
             # Older Gradio: drop head/js first.
+            launch_kwargs.pop("allowed_paths", None)
             launch_kwargs.pop("head", None)
             launch_kwargs.pop("js", None)
             demo.launch(**launch_kwargs)
@@ -188,6 +205,9 @@ def main() -> None:
         "inbrowser": False,  # we open the browser ourselves (works best in .exe)
     }
 
+    # Allow serving generated export files (e.g., Pre-RHK PDF) from ./exports.
+    launch_kwargs["allowed_paths"] = [exports_dir]
+
     if (not major) or major >= 6:
         launch_kwargs.update(
             {
@@ -202,6 +222,7 @@ def main() -> None:
         _safe_launch_local(demo, launch_kwargs, auto_open_browser=True, browser_host="127.0.0.1")
     except TypeError:
         # Older Gradio: drop head/js first.
+        launch_kwargs.pop("allowed_paths", None)
         launch_kwargs.pop("head", None)
         launch_kwargs.pop("js", None)
         _safe_launch_local(demo, launch_kwargs, auto_open_browser=True, browser_host="127.0.0.1")
