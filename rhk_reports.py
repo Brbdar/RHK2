@@ -82,7 +82,8 @@ def _exercise_flag_to_text(code: str) -> str:
         "low_peak_pawp_with_high_slope": "ΔPAWP/ΔCO erhöht trotz niedriger PAWP_peak; häufig Artefakt/Wedge-Unsicherheit",
         "wedge_wave_present": "Wedge-Wellen; PAWP/Slopes vorsichtig interpretieren",
         "af_present": "Vorhofflimmern; Mittelwerte/Slopes vorsichtig interpretieren",
-        "co_method_unknown": "CO-Methode nicht dokumentiert",
+        # CO-Methode ist im klinischen Interpretationstext nicht hilfreich; keine Ausgabe.
+        "co_method_unknown": "",
         "extreme_jump_pawp": "Starker PAWP-Sprung zwischen Ruhe und Peak; Plausibilität prüfen",
         "extreme_jump_mpap": "Starker mPAP-Sprung zwischen Ruhe und Peak; Plausibilität prüfen",
     }
@@ -2061,10 +2062,12 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
             if ("wedge_wave_present" in soft_flags) or ("af_present" in soft_flags):
                 extra_lines.append("PAWP-Interpretation limitiert durch Wedge-Wellen/AF; Slopes nur im Gesamtkontext bewerten.")
             if "co_method_unknown" in soft_flags:
+                # Keep it short (no generic method-floskeln in every report).
                 extra_lines.append("CO-Methode nicht dokumentiert.")
 
-    # Vergleich (wenn vorhanden, aber im Textblock nicht schon enthalten)
-    if ctx.get("comparison_sentence") and ("Im Vergleich" not in beurteilung) and ("Verlauf im Vergleich" not in beurteilung):
+    # Vergleich (wenn vorhanden, aber im Textblock nicht schon enthalten).
+    # Avoid duplicates: beurteilung may already contain e.g. "Verlauf im Vergleich ...".
+    if ctx.get("comparison_sentence") and ("im vergleich" not in (beurteilung or "").lower()):
         extra_lines.append(ctx["comparison_sentence"].strip())
 
     # If no prior RHK comparison is available, say so explicitly (deterministic).
@@ -2083,12 +2086,7 @@ def build_doctor_report(case: Dict[str, Any], blocks: Dict[str, TextBlock]) -> s
     interpretation = ""
     try:
         from rhk_interpretation_v3 import build_intelligent_interpretation_v3
-        # Ensure CO method is propagated into the interpretation logic.
-        # Principle: no assumptions – if the UI field is empty, the interpretation will treat it as unknown.
-        der_for_interp = dict(der or {})
-        if "co_method" not in der_for_interp or not str(der_for_interp.get("co_method") or "").strip():
-            der_for_interp["co_method"] = ui.get("co_method")
-        interpretation = str(build_intelligent_interpretation_v3(ui, der_for_interp) or "").strip()
+        interpretation = str(build_intelligent_interpretation_v3(ui, der) or "").strip()
     except Exception:
         interpretation = ""
 
@@ -4434,6 +4432,44 @@ def example_suite_case(index: Any = 0) -> Dict[str, Any]:
                 "ph_stopped_meds": ["Prostazyklin‑Therapie / -Analogon"],
                 "ph_stop_reason": "Unverträglichkeit/Nebenwirkung",
                 "ph_stop_reason_text": "Beispiel: Flush und Hypotonie.",
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E09",
+            "label": "PAH Genetik plus TR plus Belastung",
+            "scenario": "pah_pre",
+            "modules": ["P14", "P20"],
+            "story": "Beispiel E09: Präkapilläre PH mit genetischer Assoziation, TR Hinweis (V-Welle) und gemischter Belastungsreaktion. Testet: keine CO-Disclaimer in Interpretation.",
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PAH (Gruppe 1)",
+                "ph_known_subtype": "hereditäre/assoziierte PAH",
+                # absichtlich keine CO-Methode: soll keine generische Interpretation-Zeile triggern
+                "co_method": "",
+                "mutation_pos": True,
+                "mutation_items": ["BMPR2"],
+                "mutation_desc": "Genetik angegeben.",
+                "exercise_done": True,
+                "la_enlarged": True,
+                "echo_tr_significant": True,
+                "echo_tr_grade": "mind. moderat",
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E10",
+            "label": "PH Verdacht: Ruhe ok, Belastung abnorm",
+            "scenario": "normal_rest_exercise",
+            "modules": ["P09"],
+            "story": "Beispiel E10: Keine PH in Ruhe, aber abnorme Druck-Flow-Reaktion unter Belastung. Testet Belastungsinterpretation ohne redundante Zusammenfassung.",
+            "overrides": {
+                "ph_known": False,
+                "ph_suspected": True,
+                "exercise_done": True,
+                "co_method": "Thermodilution",
                 "consent_done": True,
                 "access_route": "V. jugularis rechts",
             },

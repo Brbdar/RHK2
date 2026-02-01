@@ -4071,11 +4071,12 @@ def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
                     # If renaming fails, still attempt to serve the original file.
                     pdf_path = str(pdf_path_tmp)
 
-                return str(pdf_path), f"✅ Pre-RHK PDF erstellt ({ts})."
+                # DownloadButton expects an update object for best compatibility across Gradio versions.
+                return gr.update(value=str(pdf_path), visible=True), f"✅ Pre-RHK PDF erstellt ({ts})."
             except Exception as e:
                 # Do not crash the UI – show a minimal error message.
                 msg = f"Fehler beim Erstellen der Pre-RHK PDF: {type(e).__name__}: {e}"
-                return None, f"⚠️ {msg}"
+                return gr.update(value=None, visible=True), f"⚠️ {msg}"
 
         btn_download_doc.click(
             _export_doctor_docx,

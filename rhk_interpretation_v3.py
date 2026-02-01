@@ -70,9 +70,10 @@ _MICROPHRASES = {
         "Methodisch limitiert:",
     ],
     "conclusion_start": [
-        "In der Gesamtschau",
-        "Zusammenfassend",
-        "Klinisch hämodynamisches Fazit:",
+        # Reserved for rare cases where a short concluding sentence adds information
+        # (e.g., rest-normal but exercise-abnormal). Avoid redundant re-stating of
+        # already declared patterns.
+        "Abschließend",
     ],
 }
 
@@ -167,10 +168,9 @@ def build_intelligent_interpretation_v3(ui: Dict[str, Any], der: Dict[str, Any])
             "Interpretation des PAWP durch V Wellen Phänomene oder Vorhofflimmern limitiert. "
             "Aussagen zur linksatrialen Druckkomponente sind nur im Gesamtkontext der Bildgebung valide."
         )
-    if co_method in ("keine angabe", "", "unbekannt", "unknown"):
-        qc_lines.append(
-            "Methode der Herzzeitvolumenbestimmung ist nicht dokumentiert."
-        )
+    # CO-Methode: kein generischer Disclaimer im Interpretationstext.
+    # (CO-Methode kann im Methodenteil/Beurteilung dokumentiert werden; flussabhängige
+    # Parameter werden ohnehin nur ausgewiesen, wenn Werte vorliegen.)
     if ci is not None and ci < 2.0 and pvr is not None:
         qc_lines.append(
             "Bei erniedrigtem CI (< 2.0 l/min/m²) ist die PVR Einordnung vorsichtig vorzunehmen, "
@@ -196,6 +196,7 @@ def build_intelligent_interpretation_v3(ui: Dict[str, Any], der: Dict[str, Any])
     if mpap <= 20 and pawp <= 15:
         parts.append("Kein Hinweis auf eine pulmonale Hypertonie in Ruhe.")
     elif (mpap is not None and mpap > 20) and (pawp is not None and pawp <= 15) and (pvr is not None and pvr > 2):
+        # No guideline definition in brackets in clinician-facing text.
         parts.append("Hämodynamisch präkapilläre PH.")
     elif (mpap is not None and mpap > 20) and (pawp is not None and pawp > 15) and (pvr is not None and pvr <= 2):
         parts.append(
@@ -337,18 +338,13 @@ def build_intelligent_interpretation_v3(ui: Dict[str, Any], der: Dict[str, Any])
     # =====================================================================
     # G) Conclusion
     # =====================================================================
+    # Keep conclusions rare and non-redundant:
+    # - Do NOT restate the already declared rest-classification (e.g., "präkapilläre PH").
+    # - Avoid generic follow-up phrases ("Verlauf anhand ...") in clinician-facing text.
     concl = ""
     if mpap <= 20 and exercise_done and (exercise_interp == "ok") and ex_pattern and ex_pattern not in ("exercise_2pt_normal", "normal"):
-        concl = (
-            "In der Gesamtschau kein Hinweis auf PH in Ruhe, unter Belastung jedoch abnorme Druck Flow Reaktion. "
-            "Einordnung und weiteres Vorgehen gemäß Gesamtbefund."
-        )
-    elif (mpap is not None and mpap > 20) and (pawp is not None and pawp <= 15) and (pvr is not None and pvr > 2):
-        concl = "Zusammenfassend präkapilläre PH. Verlauf anhand von Widerstand, Vorwärtsleistung und pulsatilem Anteil zu bewerten."
-    elif (mpap is not None and mpap > 20) and (pawp is not None and pawp > 15) and (pvr is not None and pvr > 2):
-        concl = (
-            "Zusammenfassend CpcPH mit linksatrialer Druckkomponente und zusätzlicher pulmonal vaskulärer Beteiligung."
-        )
+        # This case adds new information (rest-normal, exercise-abnormal).
+        concl = "In Ruhe kein Hinweis auf PH, unter Belastung jedoch abnorme Druck Flow Reaktion."
 
     if concl:
         start = _pick(_MICROPHRASES["conclusion_start"], 2, seed)
