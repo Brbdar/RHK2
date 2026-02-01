@@ -286,15 +286,31 @@ def build_sticky_summary_html(case: Optional[Dict[str, Any]], flags: Optional[Di
     warns = case.get("warnings") or []
     if warns:
         tip_lines = ["Warnungen:"]
-        for w in (warns[:10] if isinstance(warns, list) else []):
+        warn_list = warns if isinstance(warns, list) else [warns]
+        has_error = False
+        for w in warn_list[:10]:
             try:
-                tip_lines.append(f"- {w}")
+                if isinstance(w, dict):
+                    msg = str(w.get("message") or w.get("code") or "").strip()
+                    sev = str(w.get("severity") or "").strip().lower()
+                    if sev == "error":
+                        has_error = True
+                    icon = {
+                        "error": "⛔",
+                        "warn": "⚠️",
+                        "info": "ℹ️",
+                    }.get(sev, "•")
+                    if msg:
+                        tip_lines.append(f"{icon} {msg}")
+                else:
+                    tip_lines.append(f"- {w}")
             except Exception:
                 continue
-        if isinstance(warns, list) and len(warns) > 10:
-            tip_lines.append(f"(+{len(warns)-10} weitere)")
+        if len(warn_list) > 10:
+            tip_lines.append(f"(+{len(warn_list)-10} weitere)")
         tip = "\n".join(tip_lines)
-        vals.append(_chip(f"! {len(warns)}", "rhk-schip--warn", tip))
+        warn_cls = "rhk-schip--bad" if has_error else "rhk-schip--warn"
+        vals.append(_chip(f"! {len(warn_list)}", warn_cls, tip))
         
     # 5. System Status
     if flags:

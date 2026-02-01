@@ -293,3 +293,6 @@ Wenn du dieses Repo als LLM weiterentwickelst:
 ## v27.1 (2026-01-07)
 - UI Redesign: Modernes, helles Card-based Dashboard Layout (Cards statt unstrukturierter Blöcke), bessere visuelle Gruppierung zur schnelleren Orientierung.
 - Accordions und Eingabebereiche sind optisch vereinheitlicht (Card Look, konsistente Radien, reduzierte visuelle Unruhe).
+
+## v28.6 (2026-01-09)
+- Warnungsanzeige in der Summarybar verbessert: Tooltip zeigt jetzt verständliche Warntexte mit Schweregrad-Icons; Fehlerwarnungen werden visuell hervorgehoben.
