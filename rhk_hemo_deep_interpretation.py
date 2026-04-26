@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Final, List, Optional
 
-from rhk_validation import safe_float as _safe_float
 from rhk_thresholds import (
     CI_HIGH_RISK,
     CI_INTERMEDIATE_HIGH,
@@ -34,6 +33,7 @@ from rhk_thresholds import (
     RC_TIME_LOW,
     SVI_HIGH_RISK,
 )
+from rhk_validation import safe_float as _safe_float
 
 # -----------------------------------------------------------------------------
 # 1. THRESHOLDS & CONFIGURATION

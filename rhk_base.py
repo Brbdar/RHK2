@@ -45,6 +45,15 @@ from rhk_rule_engine import (
     load_rulebook,
     safe_eval_bool,
 )
+
+# Re-export the public clinical thresholds so existing
+# `from rhk_base import SPRIME_RAAI_CUTOFF` callers continue to work; the
+# canonical definitions with citations live in rhk_thresholds.py.
+from rhk_thresholds import (  # noqa: F401
+    SPRIME_RAAI_CUTOFF,
+    TAPSE_SPAP_HIGH_RISK,
+    TAPSE_SPAP_LOW_RISK,
+)
 from rhk_validation import parse_boolish
 from rhk_validation import safe_float as _safe_float
 from rhk_validation import safe_float_echo as _safe_float_echo_impl
@@ -449,18 +458,7 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_RULEBOOK_PATH = os.environ.get("RHK_RULEBOOK", os.path.join(APP_DIR, "rhk_rules.yaml"))
 
-# Clinical constants — guideline citations live in rhk_thresholds.py.
-# These re-exports preserve the existing public symbols imported elsewhere.
-from rhk_thresholds import (  # noqa: E402  (intentional re-export)
-    SPRIME_RAAI_CUTOFF,
-    TAPSE_SPAP_HIGH_RISK,
-    TAPSE_SPAP_LOW_RISK,
-)
-__all_thresholds__ = (
-    "SPRIME_RAAI_CUTOFF",
-    "TAPSE_SPAP_HIGH_RISK",
-    "TAPSE_SPAP_LOW_RISK",
-)
+# Clinical thresholds: see top-of-file re-exports from rhk_thresholds.
 
 
 
