@@ -88,10 +88,16 @@ K_STORY = "story"
 K_CHD_POS = "chd_pos"
 
 
+def _section(case: CaseLike, key: str) -> Dict[str, Any]:
+    """Narrow ``case.get(key) or {}`` to ``Dict[str, Any]`` for mypy."""
+    val = case.get(key)
+    return val if isinstance(val, dict) else {}
+
+
 def _build_risk_lines(case: CaseLike) -> List[str]:
     """Build risk stratification lines (doctor-facing) as markdown list items."""
-    sc = case.get(K_SCORES) or {}
-    der = case.get(K_DERIVED) or {}
+    sc = _section(case, K_SCORES)
+    der = _section(case, K_DERIVED)
     lines: List[str] = []
     if sc.get("esc_ers_4s"):
         lines.append(_md_kv("ESC/ERS 4-Strata", str(sc["esc_ers_4s"])))
@@ -459,8 +465,8 @@ def _summary_infectious_genetic_lines(ui: Dict[str, Any], *, is_doctor: bool) ->
 
 
 def _summary_klinik_lines(case: CaseLike, *, is_doctor: bool) -> List[str]:
-    ui = case.get(K_UI) or {}
-    der = case.get(K_DERIVED) or {}
+    ui = _section(case, K_UI)
+    der = _section(case, K_DERIVED)
     lines: List[str] = []
     lines.extend(_summary_context_lines(ui, is_doctor=is_doctor))
     lines.extend(_summary_infectious_genetic_lines(ui, is_doctor=is_doctor))
@@ -605,7 +611,7 @@ def _summary_cmr_bits(case: CaseLike, ui: Dict[str, Any]) -> List[str]:
     if rvesv is not None and rvesv <= 0:
         rvesv = None
 
-    bsa = _safe_float((case.get(K_DERIVED) or {}).get("bsa_m2"))
+    bsa = _safe_float((_section(case, K_DERIVED)).get("bsa_m2"))
     if rvedvi is None and rvedv is not None and bsa is not None and bsa > 0:
         rvedvi = rvedv / bsa
     if rvesvi is None and rvesv is not None and bsa is not None and bsa > 0:
@@ -692,8 +698,8 @@ def _summary_cmr_lines(case: CaseLike, ui: Dict[str, Any]) -> List[str]:
 
 
 def _summary_imaging_lines(case: CaseLike) -> List[str]:
-    ui = case.get(K_UI) or {}
-    der = case.get(K_DERIVED) or {}
+    ui = _section(case, K_UI)
+    der = _section(case, K_DERIVED)
     lines: List[str] = []
     lines.extend(_summary_ct_lines(ui))
     lines.extend(_summary_vq_lines(ui))
@@ -915,8 +921,8 @@ def _summary_cpet_section(ui: Dict[str, Any]) -> str:
 
 def summarize_inputs(case: CaseLike, *, mode: str = "default") -> str:
     """Creates a compact, structured overview of the raw input data (Markdown)."""
-    ui = case.get(K_UI) or {}
-    der = case.get(K_DERIVED) or {}
+    ui = _section(case, K_UI)
+    der = _section(case, K_DERIVED)
     is_doctor = (mode == "doctor")
 
     # Always emit real Markdown headings for the doctor report so the hierarchy is

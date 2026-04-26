@@ -154,23 +154,25 @@ def _build_blocks_context(theme: Optional[gr.Theme]) -> gr.Blocks:
 
     if _gradio_major_version() >= 6:
         demo_ctx = gr.Blocks(title=APP_TITLE)
-        demo_ctx._rhk_launch_kwargs = launch_kwargs
+        # Stash launch kwargs on the Blocks instance for the launcher to pick
+        # up — Gradio 6 dropped the css/js/head/theme constructor params.
+        demo_ctx._rhk_launch_kwargs = launch_kwargs  # type: ignore[attr-defined]
         return demo_ctx
 
     blocks_kwargs: Dict[str, Any] = {"title": APP_TITLE, "css": CSS, "js": JS_ON_LOAD, "head": HEAD_HTML}
     if theme is not None:
         blocks_kwargs["theme"] = theme
     demo_ctx = gr.Blocks(**blocks_kwargs)
-    demo_ctx._rhk_launch_kwargs = {}
+    demo_ctx._rhk_launch_kwargs = {}  # type: ignore[attr-defined]
     return demo_ctx
 
 
-def build_demo() -> Tuple[gr.Blocks, str, gr.Theme]:
+def build_demo() -> Tuple[gr.Blocks, str, Optional[gr.Theme]]:
     """Public entrypoint kept stable for launcher/hosted mode."""
     return _build_demo_impl()
 
 
-def _build_demo_impl() -> Tuple[gr.Blocks, str, gr.Theme]:
+def _build_demo_impl() -> Tuple[gr.Blocks, str, Optional[gr.Theme]]:
     blocks = load_textdb_blocks()
     rules = load_rulebook(DEFAULT_RULEBOOK_PATH)
     rulebook_meta = load_rulebook_meta(DEFAULT_RULEBOOK_PATH)
@@ -1874,25 +1876,25 @@ def _build_demo_impl() -> Tuple[gr.Blocks, str, gr.Theme]:
 
         try:
             # Trigger on EDV/ESV and anthropometrics (BSA).
-            field_components["rvedv"].change(
+            field_components["rvedv"].change(  # type: ignore[attr-defined]
                 _cmr_auto_index,
                 inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
                 outputs=[field_components["rvedvi"], field_components["rvesvi"]],
                 queue=False,
             )
-            field_components["rvesv"].change(
+            field_components["rvesv"].change(  # type: ignore[attr-defined]
                 _cmr_auto_index,
                 inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
                 outputs=[field_components["rvedvi"], field_components["rvesvi"]],
                 queue=False,
             )
-            field_components["height_cm"].change(
+            field_components["height_cm"].change(  # type: ignore[attr-defined]
                 _cmr_auto_index,
                 inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
                 outputs=[field_components["rvedvi"], field_components["rvesvi"]],
                 queue=False,
             )
-            field_components["weight_kg"].change(
+            field_components["weight_kg"].change(  # type: ignore[attr-defined]
                 _cmr_auto_index,
                 inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
                 outputs=[field_components["rvedvi"], field_components["rvesvi"]],
@@ -1902,22 +1904,22 @@ def _build_demo_impl() -> Tuple[gr.Blocks, str, gr.Theme]:
             # UI must stay alive even if some Gradio builds reject queue=...
             log_exception("RHK_UI_BIND_CMR_INDEX_QUEUE", "CMR auto-index binding with queue flags failed; retrying legacy binding.", exc)
             try:
-                field_components["rvedv"].change(
+                field_components["rvedv"].change(  # type: ignore[attr-defined]
                     _cmr_auto_index,
                     inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
                     outputs=[field_components["rvedvi"], field_components["rvesvi"]],
                 )
-                field_components["rvesv"].change(
+                field_components["rvesv"].change(  # type: ignore[attr-defined]
                     _cmr_auto_index,
                     inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
                     outputs=[field_components["rvedvi"], field_components["rvesvi"]],
                 )
-                field_components["height_cm"].change(
+                field_components["height_cm"].change(  # type: ignore[attr-defined]
                     _cmr_auto_index,
                     inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
                     outputs=[field_components["rvedvi"], field_components["rvesvi"]],
                 )
-                field_components["weight_kg"].change(
+                field_components["weight_kg"].change(  # type: ignore[attr-defined]
                     _cmr_auto_index,
                     inputs=[field_components["cmr_done"], field_components["rvedv"], field_components["rvesv"], field_components["height_cm"], field_components["weight_kg"]],
                     outputs=[field_components["rvedvi"], field_components["rvesvi"]],
@@ -2956,7 +2958,7 @@ def _build_demo_impl() -> Tuple[gr.Blocks, str, gr.Theme]:
         _bind_change(field_components["procedere_free"], _update_procedere_only, inputs=_procedere_inputs, outputs=_procedere_outputs)
         # Optional: bei Enter/Submit ebenfalls
         try:
-            field_components["procedere_free"].submit(_update_procedere_only, inputs=_procedere_inputs, outputs=_procedere_outputs)
+            field_components["procedere_free"].submit(_update_procedere_only, inputs=_procedere_inputs, outputs=_procedere_outputs)  # type: ignore[attr-defined]
         except _UI_RECOVERABLE_ERRORS as exc:
             log_exception("RHK_UI_BIND_PROCEDERE_SUBMIT", "Binding submit event for procedere free text failed.", exc)
 
