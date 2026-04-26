@@ -109,6 +109,31 @@ Alternativ mit Direkt-Command (Wrapper-Skript):
 ./start_rhk.sh
 ```
 
+## Projektstruktur
+
+Die Module sind nach Aufgabe per Präfix gruppiert (flache Struktur; eine
+spätere Sub-Package-Migration ist in [ARCHITECTURE.md](ARCHITECTURE.md)
+dokumentiert).
+
+| Präfix | Aufgabe |
+|---|---|
+| `rhk_app_web_master.py`, `rhk_launch.py`, `rhk_standalone_entry.py` | Entry-Points (Web-Server, Launcher, Standalone-Bundle) |
+| `rhk_base.py`, `rhk_validation.py`, `rhk_thresholds.py`, `rhk_logging.py`, `rhk_config.py` | Foundation: Datentypen, Sanitization, klinische Schwellenwerte, Logging, Konfig |
+| `rhk_case*.py`, `rhk_rule_engine.py`, `rhk_rules.yaml` | Case-Building + YAML-Regelwerk |
+| `rhk_hemo_deep_interpretation.py`, `rhk_interpretation.py`, `rhk_pmodules.py`, `rhk_medcalc.py`, `rhk_ph_tx.py`, `rhk_echo_*.py`, `rhk_followup.py`, `rhk_study_checks.py` | Klinische Logik (Hämodynamik, P-Module, Echo, Verlauf, Studien-Checks) |
+| `rhk_reports.py`, `rhk_report_*.py`, `rhk_textdb*.py` | Berichts-Generierung (Arzt + Patient) und Text-Bausteine (DE/EN/ZH) |
+| `rhk_ui*.py`, `rhk_i18n.py` | Gradio-UI-Schicht und Übersetzungen |
+| `rhk_*_service.py`, `rhk_persistence_service.py`, `rhk_export_*.py`, `rhk_release_manifest.py` | Cross-cutting Services (Build/Save/Load/Export) |
+| `rhk_import_*.py`, `rhk_pdf_prerhk.py`, `rhk_echo_pdf_import.py` | Inbound-Adapter (DOCX, PDF) |
+| `spiro_*.py` | Spiroergometrie/CPET-Logik und Patientenerklärungen |
+
+Andere Verzeichnisse:
+
+- `assets/`, `data/`, `cpet_wizard/` — statische Assets, lokale SQLite, CPET-Lehrmaterial
+- `tests/` — pytest-Suite (~257 Tests, inkl. Property-Tests gegen die "missing data ≠ negative finding"-Invariante)
+- `tools/` — Dev-/Release-Skripte (Version-Bump, i18n-Audit, Cleanup, Verbose-Run)
+- `OFFLINE/`, `standalone/`, `Launcher/` — Build-Infrastruktur für Windows-Offline und PyInstaller-Bundle
+
 ## Gate Scope
 
 Vor Release sollten alle Gates grün sein:
