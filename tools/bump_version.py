@@ -141,8 +141,13 @@ def main() -> None:
     base_new, base_changed = _update_base(base_text, new_ver, args.note)
     entry_text = _read(ENTRY_FILE)
     entry_new, entry_changed = _update_entry(entry_text, new_ver)
-    fix_text = _read(FIX_HEADER_FILE)
-    fix_new, fix_changed = _update_fix_header(fix_text, new_ver, args.note, args.keep)
+    # FIX_HEADER.md is optional — was a scratch file for short release notes,
+    # superseded by PATCH_NOTES.md.
+    if FIX_HEADER_FILE.exists():
+        fix_text = _read(FIX_HEADER_FILE)
+        fix_new, fix_changed = _update_fix_header(fix_text, new_ver, args.note, args.keep)
+    else:
+        fix_new, fix_changed = "", False
     i18n_new, i18n_changed = (_read(I18N_FILE), False)
     if I18N_FILE.exists():
         i18n_new, i18n_changed = _update_i18n(_read(I18N_FILE), cur_ver, new_ver)
@@ -155,7 +160,8 @@ def main() -> None:
 
     _write(BASE_FILE, base_new, args.dry_run)
     _write(ENTRY_FILE, entry_new, args.dry_run)
-    _write(FIX_HEADER_FILE, fix_new, args.dry_run)
+    if FIX_HEADER_FILE.exists():
+        _write(FIX_HEADER_FILE, fix_new, args.dry_run)
     if i18n_changed:
         _write(I18N_FILE, i18n_new, args.dry_run)
     if readme_changed:

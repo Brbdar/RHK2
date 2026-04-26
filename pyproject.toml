@@ -23,6 +23,10 @@ select = ["E9", "F", "B", "I"]
 [tool.ruff.lint.per-file-ignores]
 # rhk_textdb_patient.py uses many local-var assignments for readability scaffolding
 "rhk_textdb_patient.py" = ["F841"]
+# rhk_ui.py has Gradio "with gr.Row() as varname" / "btn = gr.Button()" patterns
+# where the name is used implicitly by Gradio's component-tracking, not by
+# Python source code — F841 is a false positive there.
+"rhk_ui.py" = ["F841"]
 
 [tool.mypy]
 python_version = "3.11"

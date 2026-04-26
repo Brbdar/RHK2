@@ -1,3 +1,0 @@
-Fix. v1.21: Pre-RHK PDF Download stabil (DownloadButton + allowed_paths inkl. Temp)
-Fix. v1.21: Interpretation: weniger Redundanz, klarere QC-/Belastungsformulierungen
-Fix. v1.21: PH-Ätiologie: Grammatik korrigiert, DD-Block kompakter ohne Duplikate

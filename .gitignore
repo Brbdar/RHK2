@@ -33,9 +33,16 @@ OFFLINE/dist/
 
 # Local notebooks (temporary/scratch)
 *.ipynb
-!Start_RHK_befundung.ipynb
 
 # Local OS/editor files
 .DS_Store
 .idea/
 .vscode/
+
+# Python tooling caches that aren't already covered above
+.pre-commit-trash/
+*.egg-info/
+
+# Prevent accidental tracking of patient data exports
+exports/**/*
+!exports/.gitkeep

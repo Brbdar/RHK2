@@ -30,7 +30,6 @@ from rhk_base import DEFAULT_RULEBOOK_PATH, load_rulebook, load_textdb_blocks
 from rhk_case import build_case, build_render_ctx
 from rhk_reports import build_doctor_report, build_patient_report
 
-
 RULES = load_rulebook(DEFAULT_RULEBOOK_PATH)
 BLOCKS = load_textdb_blocks()
 

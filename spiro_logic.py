@@ -43,7 +43,7 @@ except Exception:  # pragma: no cover - defensive; teaching module is tiny and u
     _spiro_render_teaching = None  # type: ignore[assignment]
 
 try:
-    from spiro_predicted import (
+    from spiro_predicted import (  # noqa: I001
         PredictedValues,
         chronotropic_index as _predicted_chrono_index,
         compute_predicted as _predicted_compute,

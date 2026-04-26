@@ -14,19 +14,15 @@
       "target": "."
     },
     {
-      "source": "FIX_HEADER.md",
-      "target": "."
-    },
-    {
       "source": "README.md",
       "target": "."
     },
     {
-      "source": "MIGRATION.md",
+      "source": "ARCHITECTURE.md",
       "target": "."
     },
     {
-      "source": "START_PROMPT_DE.txt",
+      "source": "PATCH_NOTES.md",
       "target": "."
     },
     {
@@ -78,14 +74,6 @@
     {
       "path": "exports",
       "reason": "Generated exports must not live in the release workspace root"
-    },
-    {
-      "path": "perm_test.txt",
-      "reason": "Scratch file must be removed before a release build"
-    },
-    {
-      "path": "testfile",
-      "reason": "Scratch file must be removed before a release build"
     },
     {
       "path": "releases",

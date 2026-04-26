@@ -106,6 +106,7 @@ from rhk_ui_helpers import (
     _build_workflow_overview_html,
     _get_spiro_logic,
 )
+
 # NOTE: rhk_ui_mode (Einfach/Experte toggle) is no longer wired into the UI.
 # The module is kept for its unit tests and for any programmatic callers,
 # but the toggle widget and its visibility gate have been removed.

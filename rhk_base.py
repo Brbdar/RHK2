@@ -88,9 +88,12 @@ _FALLBACK_FIX_LOG = [
 
 
 def _load_fix_header_lines() -> List[str]:
-    """Load the public 'Fix' header from FIX_HEADER.md.
+    """Load the public 'Fix' header from FIX_HEADER.md if present.
 
-    Single source of truth for the UI. Keeps the top bar 'Was ist neu?' in sync.
+    Optional: when FIX_HEADER.md is missing (the file is a scratch helper for
+    short release notes and is not always shipped), the in-code
+    ``_FALLBACK_FIX_LOG`` is used. The canonical release notes live in
+    ``PATCH_NOTES.md``; this UI surface only shows the most recent few lines.
     """
     try:
         here = os.path.dirname(os.path.abspath(__file__))
@@ -101,7 +104,7 @@ def _load_fix_header_lines() -> List[str]:
             lines = [ln.strip() for ln in f.readlines()]
         lines = [ln for ln in lines if ln and ln.lower().startswith("fix.")]
         return lines or list(_FALLBACK_FIX_LOG)
-    except (IOError, OSError) as exc:
+    except OSError as exc:
         log_exception("RHK_BASE_FIX_HEADER", "Failed to load FIX_HEADER.md.", exc)
         return list(_FALLBACK_FIX_LOG)
 
