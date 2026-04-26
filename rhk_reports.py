@@ -28,8 +28,6 @@ import os
 import random
 import re
 import tempfile
-import threading
-from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rhk_base import (
@@ -53,6 +51,12 @@ from rhk_base import (
 )
 from rhk_case_schema import CaseLike, CaseSection
 from rhk_logging import log_exception
+from rhk_report_cache import (
+    REPORT_CACHE_MAXSIZE,  # noqa: F401  (re-exported for back-compat)
+    _cache_get,
+    _cache_set,
+    _case_fingerprint,
+)
 from rhk_report_filters import (
     _filter_narrative_block,
     _format_warning_item,
@@ -101,16 +105,9 @@ K_RISK_CATEGORY = "risk_category"
 K_PH_ETIOLOGY = "ph_etiology"
 
 # =============================================================================
-# Report caching
+# Report caching — extracted to rhk_report_cache for clearer privacy boundary
 # =============================================================================
-# WARNING (Datenschutz): Caching rendered reports stores patient data in
-# process memory. This is undesirable in multi-user / online deployments.
-# Therefore caching is DISABLED by default.
-#
-# If you run a single-user, offline instance and want caching, set:
-#   RHK_REPORT_CACHE_MAXSIZE=<N>   (e.g., 64)
 
-REPORT_CACHE_MAXSIZE = int(os.getenv("RHK_REPORT_CACHE_MAXSIZE", "0"))
 _REPORT_RECOVERABLE_ERRORS = (
     AttributeError,
     KeyError,
@@ -120,68 +117,6 @@ _REPORT_RECOVERABLE_ERRORS = (
     ImportError,
     ModuleNotFoundError,
 )
-
-_report_cache_lock = threading.RLock()
-
-# Each cache maps (kind, case_fingerprint) -> rendered string/dict
-_report_cache: 'OrderedDict[tuple, object]' = OrderedDict()
-
-
-def _case_fingerprint(case: CaseLike) -> str:
-    """Stable fingerprint for a case dict.
-
-    Case is JSON-serializable by design (ui/derived/scores/decision/env/warnings/debug).
-    We hash the sorted JSON to keep keys compact and avoid memory blowups.
-    """
-    # Fast path: if caching is disabled, fingerprint is never used for lookups.
-    if REPORT_CACHE_MAXSIZE <= 0:
-        return ""
-
-    # Keep fingerprint focused on report-relevant keys.
-    # Heavy import payloads are intentionally excluded.
-    if isinstance(case, dict):
-        case_for_fp = {
-            "ui": case.get(K_UI),
-            "derived": case.get(K_DERIVED),
-            "scores": case.get(K_SCORES),
-            "decision": case.get(K_DECISION),
-            "env": case.get(K_ENV),
-            "hfpef": case.get(K_HFPEF),
-            "warnings": case.get(K_WARNINGS),
-            "debug": case.get(K_DEBUG),
-        }
-    else:
-        case_for_fp = case
-
-    try:
-        js = json.dumps(case_for_fp, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
-    except (TypeError, ValueError) as exc:
-        # Fallback: best-effort; should not happen in practice
-        log_exception("RHK_REP_FP_SERIALIZE", "Case fingerprint fallback serialization used.", exc)
-        js = str(case_for_fp)
-    return hashlib.blake2b(js.encode('utf-8', errors='ignore'), digest_size=16).hexdigest()
-
-
-def _cache_get(kind: str, fp: str):
-    if REPORT_CACHE_MAXSIZE <= 0:
-        return None
-    key = (kind, fp)
-    with _report_cache_lock:
-        if key in _report_cache:
-            _report_cache.move_to_end(key)
-            return _report_cache[key]
-    return None
-
-
-def _cache_set(kind: str, fp: str, value):
-    if REPORT_CACHE_MAXSIZE <= 0:
-        return
-    key = (kind, fp)
-    with _report_cache_lock:
-        _report_cache[key] = value
-        _report_cache.move_to_end(key)
-        while len(_report_cache) > REPORT_CACHE_MAXSIZE:
-            _report_cache.popitem(last=False)
 
 
 

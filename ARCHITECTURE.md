@@ -83,15 +83,17 @@ Foundation modules with no clinical knowledge baked in:
 > `reports/patient.py`, `reports/measure_text.py`, `reports/filters.py`,
 > and `reports/follow_up.py`.
 >
-> **Progress (2026-04):** First slice extracted into `rhk_report_filters.py`
-> (markdown helpers, narrative sanitisers, congestion-aware filtering —
-> ~260 lines). `rhk_reports.py` shrank from 9 003 → 8 764 LoC. Remaining
-> extraction targets in priority order:
+> **Progress (2026-04):**
+>   - `rhk_report_filters.py` extracted (markdown helpers, narrative
+>     sanitisers, congestion-aware filtering — ~260 LoC).
+>   - `rhk_report_cache.py` extracted (LRU cache + fingerprint —
+>     ~110 LoC, isolates the privacy-sensitive in-memory cache policy).
+>   - `rhk_reports.py` shrank from 9 003 → 8 700 LoC.
+>
+> Remaining extraction targets in priority order:
 >   1. `rhk_report_summary.py` — the `_summary_*` family (~800 LoC).
 >   2. `rhk_report_doctor.py` — the `_doctor_tpl_*` family (~1 600 LoC).
 >   3. `rhk_report_patient.py` — the `_patient_*` family (~2 400 LoC).
->   4. `rhk_report_cache.py` — `_cache_get`, `_cache_set`,
->      `_case_fingerprint`, `REPORT_CACHE_*` (~70 LoC).
 >
 > Each extraction must be a single dedicated PR, run the full test suite,
 > and import back the moved symbols so external callers don't break.

@@ -6,6 +6,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+import rhk_report_cache as report_cache
 import rhk_reports as reports
 from rhk_followup import (
     build_followup_baseline_payload,
@@ -179,16 +180,19 @@ def test_followup_filename_and_report_fingerprint_optimizations():
     fn_list = derive_followup_case_filename(["legacy_case.json"], today=dt.date(2026, 2, 9))
     assert fn_list == "legacy_case_followup_20260209.json"
 
-    old_max = reports.REPORT_CACHE_MAXSIZE
+    # Cache primitives now live in rhk_report_cache (extracted 2026-04). The
+    # test patches the canonical source of truth and uses the re-exported
+    # _case_fingerprint via either module path.
+    old_max = report_cache.REPORT_CACHE_MAXSIZE
     try:
-        reports.REPORT_CACHE_MAXSIZE = 0
+        report_cache.REPORT_CACHE_MAXSIZE = 0
         assert reports._case_fingerprint({"ui": {"a": 1}, "imports": {"big": object()}}) == ""
 
-        reports.REPORT_CACHE_MAXSIZE = 8
+        report_cache.REPORT_CACHE_MAXSIZE = 8
         case_a = {"ui": {"a": 1}, "derived": {"x": 2}, "imports": {"big": 1}}
         case_b = {"ui": {"a": 1}, "derived": {"x": 2}, "imports": {"big": 999}}
         case_c = {"ui": {"a": 2}, "derived": {"x": 2}, "imports": {"big": 1}}
         assert reports._case_fingerprint(case_a) == reports._case_fingerprint(case_b)
         assert reports._case_fingerprint(case_a) != reports._case_fingerprint(case_c)
     finally:
-        reports.REPORT_CACHE_MAXSIZE = old_max
+        report_cache.REPORT_CACHE_MAXSIZE = old_max
