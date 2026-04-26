@@ -26,9 +26,20 @@ select = ["E9", "F", "B", "I"]
 
 [tool.mypy]
 python_version = "3.11"
+# Workaround: mypy 1.17 crashes when persisting its incremental cache for
+# files that contain TypeGuard'd narrowing patterns ("Cannot serialize
+# TypeGuardedType instance"). Disabling the cache writes avoids the crash
+# without disabling type checking itself.
+cache_dir = "/dev/null"
+incremental = false
 files = [
   "rhk_case.py",
   "rhk_reports.py",
+  "rhk_report_cache.py",
+  "rhk_report_doctor.py",
+  "rhk_report_filters.py",
+  "rhk_report_summary.py",
+  "rhk_thresholds.py",
   "rhk_ui.py",
   "rhk_app_web_master.py",
   "rhk_launch.py",
