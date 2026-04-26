@@ -542,8 +542,10 @@ def _doctor_tpl_study_hints(case: CaseLike) -> List[str]:
 
 
 def _doctor_tpl_collect_hints(case: CaseLike) -> List[str]:
-    ui = case.get(K_UI) or {}
-    der = case.get(K_DERIVED) or {}
+    ui_raw = case.get(K_UI)
+    ui: Dict[str, Any] = ui_raw if isinstance(ui_raw, dict) else {}
+    der_raw = case.get(K_DERIVED)
+    der: Dict[str, Any] = der_raw if isinstance(der_raw, dict) else {}
     hints: List[str] = []
 
     try:

@@ -21,7 +21,7 @@ import json
 import os
 import threading
 from collections import OrderedDict
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional  # noqa: F401
 
 from rhk_case_schema import CaseLike
 from rhk_logging import log_exception
@@ -77,7 +77,7 @@ def _case_fingerprint(case: CaseLike) -> str:
             "debug": case.get(_K_DEBUG),
         }
     else:
-        case_for_fp = case  # type: ignore[assignment]
+        case_for_fp = case
 
     try:
         js = json.dumps(case_for_fp, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -91,7 +91,12 @@ def _case_fingerprint(case: CaseLike) -> str:
     return hashlib.blake2b(js.encode("utf-8", errors="ignore"), digest_size=16).hexdigest()
 
 
-def _cache_get(kind: str, fp: str) -> Optional[object]:
+def _cache_get(kind: str, fp: str) -> Any:
+    """Return the cached value (any shape) or ``None`` if absent.
+
+    Typed as ``Any`` so callers can use the value directly as the string,
+    dict, or list they stored. Callers know the shape per ``kind``.
+    """
     if REPORT_CACHE_MAXSIZE <= 0:
         return None
     key = (kind, fp)
@@ -102,7 +107,7 @@ def _cache_get(kind: str, fp: str) -> Optional[object]:
     return None
 
 
-def _cache_set(kind: str, fp: str, value: object) -> None:
+def _cache_set(kind: str, fp: str, value: Any) -> None:
     if REPORT_CACHE_MAXSIZE <= 0:
         return
     key = (kind, fp)

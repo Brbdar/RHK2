@@ -269,7 +269,7 @@ def _no_congestion_context(ui: Dict[str, Any], der: Dict[str, Any]) -> bool:
     congestion_assessable = bool(der_d.get("congestion_assessable"))
     pawp = _safe_float(ui_d.get("pawp_rest"))
     pv_assessable = pawp is not None
-    pv_stauung_likely = bool(pv_assessable and pawp > 15)
+    pv_stauung_likely = bool(pawp is not None and pawp > 15)
 
     cv_negative = congestion_assessable and not congestion_likely
     pv_negative = pv_assessable and not pv_stauung_likely
