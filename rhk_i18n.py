@@ -114,8 +114,6 @@ _EXACT: Dict[str, Dict[str, str]] = {
         "Download Diagnose (für IT / wenn Download fehlschlägt)": "Download diagnostics (for IT / if download fails)",
         "Testdatei erstellen": "Create test file",
         "Patientenbericht-Modus": "Patient report mode",
-        "Echo Arztbefund (extended)": "Echo physician report (extended)",
-        "Echo Patientenbericht": "Echo patient report",
         "Intern-Report aktualisieren": "Update internal report",
         "Debug JSON aktualisieren": "Update debug JSON",
         "Blutgase / LTOT": "Blood gases / LTOT",
@@ -515,7 +513,6 @@ _EXACT: Dict[str, Dict[str, str]] = {
         # --- Tab 3: CPET / Lungenfunktion ---
         # New rebuilt UI (2026-04-23): clean labels without "(optional)" noise
         "Lungenfunktion": "Pulmonary function",
-        "Spiroergometrie / CPET": "CPET / Spiroergometry",
         "Kerndaten": "Core values",
         "Erweiterte Parameter": "Advanced parameters",
         "Spiro-Logic Befundung": "Spiro-Logic assessment",
@@ -1127,8 +1124,6 @@ _EXACT: Dict[str, Dict[str, str]] = {
         "Download Diagnose (für IT / wenn Download fehlschlägt)": "下载诊断（供 IT 使用 / 下载失败时）",
         "Testdatei erstellen": "生成测试文件",
         "Patientenbericht-Modus": "患者报告模式",
-        "Echo Arztbefund (extended)": "超声医生报告（扩展）",
-        "Echo Patientenbericht": "超声患者报告",
         "Intern-Report aktualisieren": "更新内部报告",
         "Debug JSON aktualisieren": "更新调试 JSON",
         "Blutgase / LTOT": "血气 / 长期氧疗",
@@ -1526,7 +1521,6 @@ _EXACT: Dict[str, Dict[str, str]] = {
         # --- Tab 3: CPET / 肺功能 ---
         # New rebuilt UI (2026-04-23): clean labels
         "Lungenfunktion": "肺功能",
-        "Spiroergometrie / CPET": "心肺运动试验 / CPET",
         "Kerndaten": "核心参数",
         "Erweiterte Parameter": "进阶参数",
         "Spiro-Logic Befundung": "Spiro-Logic 解读",
