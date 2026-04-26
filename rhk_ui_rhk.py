@@ -1,0 +1,299 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Refactor v1.32: rhk_ui_rhk.py - Plots-Rendering entkoppelt (Button "Plots aktualisieren") -> weniger Generate-Payload, schneller
+"""RHK-Tab UI (Layout only)."""
+
+from __future__ import annotations
+
+from typing import Any, Dict
+
+from rhk_base import gr
+
+# Reuse the exact same renderer as the global Hämodynamik sticky header
+from rhk_ui_utils import build_pre_cath_header_html
+
+
+def build_rhk_tab(add) -> Dict[str, Any]:
+    """Build the RHK tab UI and return key components."""
+
+    # -------------------------------------------------------------
+    # Pre-Cath Safety Header (sticky bar just under global summary)
+    # -------------------------------------------------------------
+    pre_cath_html = gr.HTML(
+        value=build_pre_cath_header_html({}),
+        elem_id="rhk_pre_cath_wrapper",
+    )
+    # Consent + DZL (stacked) on the left, access route on the right
+    with gr.Row():
+        with gr.Column(scale=1):
+            add("consent_done", gr.Checkbox(label="Aufklärung erfolgt (RHK)"))
+            add(
+                "dzl_flag",
+                gr.Checkbox(label="DZL"),
+            )
+            add(
+                "dzl_decision",
+                gr.Dropdown(
+                    label="DZL",
+                    choices=["Noch nicht gefragt", "Genehmigt", "Abgelehnt"],
+                    value="Noch nicht gefragt",
+                    visible=False,
+                ),
+            )
+
+            # DZL Ersttestung: only relevant if DZL is active
+            add(
+                "dzl_initial_test",
+                gr.Checkbox(
+                    label="Ersttestung",
+                    value=False,
+                    visible=False,
+                ),
+            )
+        with gr.Column(scale=1):
+            add(
+                "access_route",
+                gr.Dropdown(
+                    label="Zugangsweg",
+                    choices=["", "V. jugularis rechts", "V. jugularis links", "unbekannt", "cave - schwierig"],
+                    value="",
+                ),
+            )
+
+    # =============================================================
+    # DOCX Import Übersicht (Quelle der Wahrheit)
+    # =============================================================
+    with gr.Accordion("DOCX Import Übersicht (Quelle der Wahrheit)", open=True, elem_id="docx_overview_acc"):
+        import_status_html = gr.HTML(
+            value="<div class='docx-muted'>Noch kein DOCX importiert.</div>",
+            elem_id="import_status_html",
+        )
+
+        # Rückwirkend entfernen: nur Import-gebundene Felder werden bereinigt.
+        # Manuell eingegebene Werte bleiben erhalten.
+        with gr.Row():
+            btn_wipe_docx_current = gr.Button(
+                "Aktuellen RHK Import entfernen",
+                variant="secondary",
+                elem_id="btn_wipe_docx_current",
+            )
+            btn_wipe_docx_prev = gr.Button(
+                "Vor RHK Import entfernen",
+                variant="secondary",
+                elem_id="btn_wipe_docx_prev",
+            )
+
+    # Plots bewusst als eigener, separater Block
+    # Performance: Rendering ist optional und wird NICHT mehr bei jedem "Befund erstellen" neu berechnet.
+    with gr.Accordion("Plots & Verlauf", open=False, elem_id="rhk_plots_acc"):
+        with gr.Row():
+            btn_update_plots = gr.Button(
+                "Plots aktualisieren",
+                variant="secondary",
+                elem_id="btn_update_plots",
+            )
+        rhk_plots_html = gr.HTML(
+            value="<div class='docx-muted'>Plots werden nur auf Knopfdruck erzeugt (Performance).</div>",
+            elem_id="rhk_plots_html",
+        )
+
+    # -------------------------------------------------------------
+    # Ruhehämodynamik (Section Card)
+    # -------------------------------------------------------------
+    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+        hdr_rhk_rest = gr.HTML(
+            "<div class='rhk-sec-head'><div class='rhk-sec-title'>Ruhehämodynamik</div>"
+            "<div class='rhk-sec-progress'><span class='rhk-sec-count'>0/0</span>"
+            "<div class='rhk-sec-bar' role='progressbar' aria-valuenow='0' aria-valuemin='0' aria-valuemax='100'><div style='width:0%'></div></div></div></div>"
+        )
+        with gr.Column(elem_classes=["rhk-sec-body"]):
+            with gr.Row():
+                add("spap_rest", gr.Number(label="sPAP (mmHg)", info="Systolischer PA-Druck. Normal < 35 mmHg."))
+                add("dpap_rest", gr.Number(label="dPAP (mmHg)", info="Diastolischer PA-Druck. Normal < 15 mmHg."))
+                add("mpap_rest", gr.Number(label="mPAP (optional)", info="Mittlerer PA-Druck. Wird aus sPAP/dPAP berechnet, falls leer. PH-Grenzwert > 20 mmHg."))
+            with gr.Row():
+                add("pawp_rest", gr.Number(label="PAWP (mmHg)", info="Wedge-Druck. Normal ≤ 15 mmHg. Grenzwert prä-/postkapillär."))
+                add("rap_rest", gr.Number(label="RAP (mmHg)", info="Rechtsatrialer Druck. Normal 0–5 mmHg. Erhöht bei Rechtsherzversagen."))
+            with gr.Row():
+                add("co_rest", gr.Number(label="CO (l/min)", info="Herzzeitvolumen. Normal 4–8 l/min."))
+                add("ci_rest", gr.Number(label="CI (optional)", info="Herzindex (CO/BSA). Wird berechnet, falls leer. Normal ≥ 2,5 l/min/m²."))
+                add("pvr_rest", gr.Number(label="PVR (optional, WU)", info="Pulmonalvaskulärer Widerstand. Wird berechnet, falls leer. PH-Grenzwert > 2 WU."))
+                add(
+                    "co_method",
+                    gr.Dropdown(
+                        label="HZV Methode",
+                        choices=["keine Angabe", "Thermodilution", "Fick"],
+                        value="keine Angabe",
+                    ),
+                )
+
+            gr.Markdown("#### Auto-Berechnung (wird nach \u201eBefund erstellen\u201c gefüllt)")
+            with gr.Row():
+                auto_mpap = gr.Number(label="mPAP (berechnet)", interactive=False)
+                auto_ci = gr.Number(label="CI (berechnet)", interactive=False)
+                auto_pvr = gr.Number(label="PVR (berechnet)", interactive=False)
+            with gr.Row():
+                auto_pvri = gr.Number(label="PVRi (berechnet)", interactive=False)
+                auto_tpg = gr.Number(label="TPG (berechnet)", interactive=False)
+                auto_dpg = gr.Number(label="DPG (berechnet)", interactive=False)
+
+    # -------------------------------------------------------------
+    # Belastungshämodynamik (Section Card)
+    # -------------------------------------------------------------
+    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+        hdr_rhk_exercise = gr.HTML(
+            "<div class='rhk-sec-head'><div class='rhk-sec-title'>Belastungshämodynamik</div>"
+            "<div class='rhk-sec-progress is-optional'><span class='rhk-sec-count'>optional</span>"
+            "<div class='rhk-sec-bar' role='progressbar' aria-valuenow='0' aria-valuemin='0' aria-valuemax='100'><div style='width:0%'></div></div></div></div>"
+        )
+        with gr.Column(elem_classes=["rhk-sec-body"]):
+            with gr.Row():
+                add(
+                    "exercise_protocol",
+                    gr.Dropdown(
+                        choices=["", "WHO-Rampe", "Stufenprotokoll", "Laufband", "unbekannt"],
+                        value="",
+                        label="Belastungsprotokoll",
+                    ),
+                )
+                add("exercise_peak_watts", gr.Number(label="Max. Last (W)"))
+            with gr.Row():
+                add("exercise_done", gr.Checkbox(label="Belastung durchgeführt"))
+                add("spap_peak", gr.Number(label="sPAP Peak (mmHg)"))
+                add("dpap_peak", gr.Number(label="dPAP Peak (mmHg)"))
+                add("mpap_peak", gr.Number(label="mPAP Peak (optional)"))
+            with gr.Row():
+                add("pawp_peak", gr.Number(label="PAWP Peak (mmHg)"))
+                add("co_peak", gr.Number(label="CO Peak (l/min)"))
+                add("ci_peak", gr.Number(label="CI Peak (l/min/m²) (optional)"))
+
+    # -------------------------------------------------------------
+    # Zusatzmodule (Section Card)
+    # -------------------------------------------------------------
+    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+        hdr_rhk_addons = gr.HTML(
+            "<div class='rhk-sec-head'><div class='rhk-sec-title'>Zusatzmodule</div>"
+            "<div class='rhk-sec-progress is-optional'><span class='rhk-sec-count'>optional</span>"
+            "<div class='rhk-sec-bar' role='progressbar' aria-valuenow='0' aria-valuemin='0' aria-valuemax='100'><div style='width:0%'></div></div></div></div>"
+        )
+        with gr.Column(elem_classes=["rhk-sec-body"]):
+            gr.Markdown("#### Volumenchallenge")
+            with gr.Row():
+                add("volume_challenge_done", gr.Checkbox(label="Volumenchallenge durchgeführt"))
+                add("pawp_pre", gr.Number(label="PAWP pre (mmHg)"))
+                add("pawp_post", gr.Number(label="PAWP post (mmHg)"))
+            with gr.Row():
+                add("mpap_pre", gr.Number(label="mPAP pre (mmHg)"))
+                add("mpap_post", gr.Number(label="mPAP post (mmHg)"))
+
+            gr.Markdown("#### Vasoreaktivität")
+            with gr.Row():
+                add("vaso_test_done", gr.Checkbox(label="Vasoreaktivität getestet"))
+                add("vaso_agent", gr.Textbox(label="Agent (z.B. iNO)", lines=1))
+            add("vaso_response_desc", gr.Textbox(label="Antwort / Kommentar", lines=2))
+            with gr.Row():
+                add("vaso_mpap_pre", gr.Number(label="mPAP vor Test (mmHg)", precision=0))
+                add("vaso_co_pre", gr.Number(label="CO vor Test (L/min)", precision=2))
+                add("vaso_mpap_post", gr.Number(label="mPAP nach Test (mmHg)", precision=0))
+                add("vaso_co_post", gr.Number(label="CO nach Test (L/min)", precision=2))
+
+            gr.Markdown("#### Stufenoxymetrie")
+            with gr.Row():
+                add("sat_svc", gr.Number(label="SVC O2-Sättigung (%)"))
+                add("sat_ra", gr.Number(label="RA O2-Sättigung (%)"))
+            with gr.Row():
+                add("sat_rv", gr.Number(label="RV O2-Sättigung (%)"))
+                add("sat_pa", gr.Number(label="PA O2-Sättigung (%)"))
+                add("sat_ao", gr.Number(label="System O2-Sättigung (%)"))
+
+            gr.Markdown("#### Kurvenmorphologie")
+            with gr.Row():
+                add("wedge_v_wave", gr.Checkbox(label="Prominente V-Welle (PAWP)"))
+                add("wedge_a_wave", gr.Checkbox(label="Prominente A-Welle (PAWP)"))
+                add("rap_a_wave", gr.Checkbox(label="Prominente A-Welle (RAP)"))
+                add("rap_v_wave", gr.Checkbox(label="Prominente V-Welle (RAP)"))
+            with gr.Row():
+                add("rv_pseudo_dip", gr.Checkbox(label="Pseudo-Dip (RV-Kurve)"))
+                add("rv_dip_plateau", gr.Checkbox(label="Dip-Plateau (RV-Kurve)"))
+
+    # -------------------------------------------------------------
+    # Verlauf / Vergleich (Section Card)
+    # -------------------------------------------------------------
+    with gr.Group(elem_classes=["rhk-card", "rhk-section-card"]):
+        hdr_rhk_prev = gr.HTML(
+            "<div class='rhk-sec-head'><div class='rhk-sec-title'>Verlauf / Vergleich (Vor-RHK)</div>"
+            "<div class='rhk-sec-progress is-optional'><span class='rhk-sec-count'>optional</span>"
+            "<div class='rhk-sec-bar' role='progressbar' aria-valuenow='0' aria-valuemin='0' aria-valuemax='100'><div style='width:0%'></div></div></div></div>"
+        )
+        with gr.Column(elem_classes=["rhk-sec-body"]):
+            with gr.Row():
+                prev_docx_btn = gr.UploadButton(
+                    "Vor-RHK import (.docx)",
+                    file_types=[".docx"],
+                    variant="secondary",
+                    elem_id="btn_docx_prev",
+                )
+
+            with gr.Row():
+                add("rhk_date", gr.Textbox(label="Aktueller RHK (z.B. 12/25)", placeholder="MM/JJ oder TT.MM.JJJJ"))
+                add("prev_rhk_date", gr.Textbox(label="Vor-RHK (z.B. 03/21)"))
+                add("prev_is_initial", gr.Checkbox(label="Vor-RHK war Initialkatheter"))
+
+            with gr.Row():
+                add("prev_mpap", gr.Number(label="mPAP vor (mmHg)"))
+                add("prev_pawp", gr.Number(label="PAWP vor (mmHg)"))
+                add("prev_rap", gr.Number(label="RAP vor (mmHg)"))
+
+            with gr.Row():
+                add("prev_ci", gr.Number(label="CI vor (l/min/m²)"))
+                add("prev_pvr", gr.Number(label="PVR vor (WU)"))
+                add("prev_label", gr.Textbox(label="Kommentar (optional)"))
+
+            compare_overview_html = gr.HTML(value="", elem_id="rhk_compare_overview")
+
+            gr.Markdown(
+                "**Therapie seit Vor-RHK (optional):** Nur relevant, wenn es sich um eine Verlaufskontrolle nach Therapieanpassung handelt."
+            )
+
+            add(
+                "prev_tx_added",
+                gr.CheckboxGroup(
+                    label="Therapie neu/eskaliert",
+                    choices=[
+                        "ERA (Endothelin-Rezeptor-Antagonist)",
+                        "PDE5-Hemmer",
+                        "sGC-Stimulator (Riociguat)",
+                        "Prostazyklin (inhalativ/IV/SC)",
+                        "IP-Rezeptor-Agonist (Selexipag)",
+                        "Kalziumantagonist (bei Vasoreaktivität)",
+                        "Antikoagulation",
+                        "Diuretika / Entwässerung",
+                        "Sauerstofftherapie",
+                        "Sonstiges",
+                    ],
+                    value=[],
+                ),
+            )
+
+            add("prev_tx_free", gr.Textbox(label="Therapie – Freitext (optional)", lines=2))
+
+    return {
+        "import_status_html": import_status_html,
+        "btn_wipe_docx_current": btn_wipe_docx_current,
+        "btn_wipe_docx_prev": btn_wipe_docx_prev,
+        "btn_update_plots": btn_update_plots,
+        "rhk_plots_html": rhk_plots_html,
+        "compare_overview_html": compare_overview_html,
+        "prev_docx_btn": prev_docx_btn,
+        "auto_mpap": auto_mpap,
+        "auto_ci": auto_ci,
+        "auto_pvr": auto_pvr,
+        "auto_pvri": auto_pvri,
+        "auto_tpg": auto_tpg,
+        "auto_dpg": auto_dpg,
+        "pre_cath_html": pre_cath_html,
+        "hdr_rhk_rest": hdr_rhk_rest,
+        "hdr_rhk_exercise": hdr_rhk_exercise,
+        "hdr_rhk_addons": hdr_rhk_addons,
+        "hdr_rhk_prev": hdr_rhk_prev,
+    }

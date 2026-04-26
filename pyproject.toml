@@ -1,0 +1,126 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = [
+  ".ipynb_checkpoints",
+  "__pycache__",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  "*.ipynb",
+  "Gemini",
+  "Launcher",
+  "OFFLINE",
+  "standalone",
+  "archive",
+]
+
+[tool.ruff.lint]
+# Step 2 of baseline reduction: keep runtime-risk rules and add import hygiene.
+select = ["E9", "F", "B", "I"]
+# Phase-2 cleanup: F841 now enforced (unused variable assignments removed).
+
+[tool.ruff.lint.per-file-ignores]
+# rhk_textdb_patient.py uses many local-var assignments for readability scaffolding
+"rhk_textdb_patient.py" = ["F841"]
+
+[tool.mypy]
+python_version = "3.11"
+files = [
+  "rhk_case.py",
+  "rhk_reports.py",
+  "rhk_ui.py",
+  "rhk_app_web_master.py",
+  "rhk_launch.py",
+  "rhk_rule_engine.py",
+  "rhk_report_markdown.py",
+  "rhk_ui_helpers.py",
+  "rhk_case_schema.py",
+  "rhk_case_migrations.py",
+  "rhk_case_service.py",
+  "rhk_doctor_report_service.py",
+  "rhk_export_paths.py",
+  "rhk_export_service.py",
+  "rhk_followup.py",
+  "rhk_generate_service.py",
+  "rhk_import_merge.py",
+  "rhk_import_service.py",
+  "rhk_logging.py",
+  "rhk_persistence_service.py",
+  "rhk_release_manifest.py",
+  "rhk_runtime_policy.py",
+  "rhk_ui_mode.py",
+  "rhk_validation.py",
+]
+exclude = "(^Gemini/|^Launcher/|^OFFLINE/|^standalone/|^\\.ipynb_checkpoints/)"
+ignore_missing_imports = true
+follow_imports = "silent"
+show_error_codes = true
+pretty = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = false
+check_untyped_defs = false
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = [
+  "rhk_app_web_master",
+  "rhk_case",
+  "rhk_case_migrations",
+  "rhk_case_schema",
+  "rhk_case_service",
+  "rhk_doctor_report_service",
+  "rhk_export_paths",
+  "rhk_export_service",
+  "rhk_followup",
+  "rhk_generate_service",
+  "rhk_import_merge",
+  "rhk_import_service",
+  "rhk_launch",
+  "rhk_logging",
+  "rhk_persistence_service",
+  "rhk_release_manifest",
+  "rhk_report_markdown",
+  "rhk_runtime_policy",
+  "rhk_rule_engine",
+  "rhk_ui_helpers",
+  "rhk_ui_mode",
+  "rhk_validation",
+]
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["yaml"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+source = [
+  "rhk_case",
+  "rhk_case_migrations",
+  "rhk_case_schema",
+  "rhk_case_service",
+  "rhk_doctor_report_service",
+  "rhk_export_paths",
+  "rhk_followup",
+  "rhk_import_merge",
+  "rhk_import_service",
+  "rhk_logging",
+  "rhk_release_manifest",
+  "rhk_reports",
+  "rhk_runtime_policy",
+  "rhk_rule_engine",
+  "rhk_ui_mode",
+  "rhk_validation",
+]
+
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
+skip_covered = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --maxfail=1 --cov --cov-report=term-missing"
+python_files = ["test_*.py", "*_test.py"]

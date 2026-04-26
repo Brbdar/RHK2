@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rhk-app",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["rhk_launch.py"],
+      "port": 7860
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "build": {
+    "entry_point": "rhk_standalone_entry.py",
+    "requirements": "requirements.txt",
+    "pyinstaller_spec": "standalone/RHK_Befundassistent.spec"
+  },
+  "bundle_files": [
+    {
+      "source": "rhk_rules.yaml",
+      "target": "."
+    },
+    {
+      "source": "echo_guidelines.yaml",
+      "target": "."
+    },
+    {
+      "source": "FIX_HEADER.md",
+      "target": "."
+    },
+    {
+      "source": "README.md",
+      "target": "."
+    },
+    {
+      "source": "MIGRATION.md",
+      "target": "."
+    },
+    {
+      "source": "START_PROMPT_DE.txt",
+      "target": "."
+    },
+    {
+      "source": "assets",
+      "target": "assets"
+    },
+    {
+      "source": "data",
+      "target": "data"
+    },
+    {
+      "source": "cpet_wizard",
+      "target": "cpet_wizard"
+    }
+  ],
+  "root_blockers": [
+    {
+      "path": "Untitled.ipynb",
+      "reason": "Scratch notebook in project root"
+    },
+    {
+      "path": "run_logs",
+      "reason": "Runtime logs must not live in the release workspace root"
+    },
+    {
+      "path": "__pycache__",
+      "reason": "Python bytecode cache must not live in the release workspace root"
+    },
+    {
+      "path": ".pytest_cache",
+      "reason": "Pytest cache must be cleaned before a release build"
+    },
+    {
+      "path": ".mypy_cache",
+      "reason": "Mypy cache must be cleaned before a release build"
+    },
+    {
+      "path": ".ruff_cache",
+      "reason": "Ruff cache must be cleaned before a release build"
+    },
+    {
+      "path": ".ipynb_checkpoints",
+      "reason": "Notebook checkpoints must not live in the release workspace root"
+    },
+    {
+      "path": ".pycache_local",
+      "reason": "Local scratch cache must be removed before a release build"
+    },
+    {
+      "path": "exports",
+      "reason": "Generated exports must not live in the release workspace root"
+    },
+    {
+      "path": "perm_test.txt",
+      "reason": "Scratch file must be removed before a release build"
+    },
+    {
+      "path": "testfile",
+      "reason": "Scratch file must be removed before a release build"
+    },
+    {
+      "path": "releases",
+      "reason": "Previous release output must not be reused as build input"
+    },
+    {
+      "path": ".venv_build",
+      "reason": "Temporary build virtualenv must not live in the release workspace root"
+    }
+  ],
+  "root_blocker_globs": [
+    {
+      "pattern": "*.bak*",
+      "reason": "Backup/source copies must be archived or removed before release"
+    },
+    {
+      "pattern": "*.zip",
+      "reason": "Ad-hoc release archives must not live in the project root"
+    },
+    {
+      "pattern": "*.log",
+      "reason": "Runtime logs must not live in the project root"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+# Refactor v1.37: render.yaml - Echo Upload (Server) online aktiviert + Browser-OCR/PDF Import aktiv
+services:
+  - type: web
+    name: rhk-gradio-app
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python rhk_app_web_master.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # Echo PDF browser import + OCR (client-side). Keeps PHI local in the browser.
+      # CDN assets are used because vendor bundles are not shipped in this repo.
+      - key: RHK_ALLOW_CDN_ASSETS
+        value: '1'
+      - key: RHK_ENABLE_BROWSER_IMPORT
+        value: '1'
+      - key: RHK_ENABLE_BROWSER_OCR
+        value: '1'
+      # Enable server-side file uploads for Echo import (transfers the file to the server).
+      # Required if clinicians want to upload PDFs directly in the hosted app.
+      - key: RHK_ALLOW_SERVER_UPLOAD
+        value: '1'

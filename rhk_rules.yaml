@@ -1,0 +1,858 @@
+meta:
+  version: '24.16'
+  updated: '2026-02-01'
+  notes: 'v24.11: Regelwerk erweitert (Adipositas/Arrhythmie Messhinweise, Virologie/Immunologie/Mutation/CHD DD, multifaktorielle
+    Ursache als Regellogik, High-output & Plausibilitätschecks). | v24.13: Echo-PH-Wahrscheinlichkeit (TRV+Zeichen), Vasoreaktivität
+    (Responder-Kriterium), pulsatile Hämodynamik (SV/SVI, PAC, RC-time), neue Regeln für Echo-Prob, Vasoreaktivität, CTEPD
+    ohne PH, schwere Gruppe-3-PH. | v1.12: ILTS Leber Profile (A/B/C), High Flow Safety Net, Shunt Enrichment P32. | v1.13: Bugfix _safe_int/ _try_num und asyncio ResourceWarning Filter. | v1.14: Belastung: Slope Terminologie, QC-Limiter als Klartext, kein multipoint Hinweis. | v1.15: Belastungsreaktion: Pattern Texte präzisiert, gemischt entfernt. | v1.16: Interpretation V3 und P Module V3 ergänzt.'
+rules:
+- id: R_REQUIRE_CORE_HEMO
+  priority: 10
+  when: mpap == None
+  then:
+    require_fields:
+    - spap_rest
+    - dpap_rest
+    - pawp_rest
+    - co_rest
+- id: R_NO_PH_REST
+  priority: 20
+  when: mpap != None and mpap <= 20
+  then:
+    set_bundle: K00
+    set_primary_dx: Kein Hinweis auf pulmonale Hypertonie (in Ruhe)
+- id: R_PH_UNCLASSIFIED
+  priority: 25
+  when: mpap != None and mpap > 20 and (pawp_rest == None or pvr == None)
+  then:
+    set_bundle: K01
+    set_primary_dx: Pulmonale Hypertonie – unvollständig klassifizierbar (Angaben fehlen)
+    add_tags:
+    - Bitte Klassifikation komplettieren
+- id: R_IPCPH
+  priority: 30
+  when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest > 15 and pvr != None and pvr <= 2
+  then:
+    set_bundle: K14
+    set_primary_dx: Isoliert postkapilläre PH (iPcPH, Gruppe 2 wahrscheinlich)
+    add_tags:
+    - postkapillär
+    - Gruppe 2 (wahrscheinlich)
+- id: R_CPCPH
+  priority: 31
+  when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest > 15 and pvr != None and pvr > 2
+  then:
+    set_bundle: K15
+    set_primary_dx: Kombinierte prä-/postkapilläre PH (CpcPH)
+    add_tags:
+    - CpcPH
+    - Gruppe 2 mit präkapillärer Komponente
+
+# --- Hyperzirkulation / flussdominante Druckerhöhung ---
+# Wichtig: Hoher CO/CI ersetzt nicht das PVR-Kriterium.
+- id: R_FLOW_DOMINANT_PRESSURE
+  priority: 35
+  when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr <= 2 and (high_flow is True)
+  then:
+    set_bundle: K12
+    set_primary_dx: Pulmonale Druckerhöhung bei Hyperzirkulation (flussdominant), keine präkapilläre PH (PVR ≤ 2 WU)
+    add_tags:
+    - flussdominant
+    - High-output
+    add_recommendations:
+    - mPAP erhöht bei normalem PAWP und niedriger PVR. Bei erhöhter Vorwärtsleistung spricht dies für eine flussdominante Druckerhöhung; Kriterien einer präkapillären PH sind nicht erfüllt.
+    # P32 (Hyperzirkulation/Kontext-Vertiefung) wird zentral durch
+    # R_CONTEXT_ADD_P32 ergänzt — nicht pro Regel duplizieren.
+
+- id: R_LOW_PVR_NO_PRECAP
+  priority: 36
+  when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr <= 2 and (high_flow is not True)
+  then:
+    set_bundle: K20
+    set_primary_dx: Pulmonale Druckerhöhung bei normaler PVR, keine präkapilläre PH nach ESC/ERS Kriterien
+    add_tags:
+    - keine präkapilläre PH
+    add_recommendations:
+    - mPAP erhöht bei normalem PAWP und niedriger PVR. Kriterien einer präkapillären PH sind nicht erfüllt. Einordnung im Kontext von CO/CI, Messbedingungen und klinischem Risiko.
+
+- id: R_POPH_CANDIDATE_NOTE
+  priority: 116
+  when: poph_candidate is True and step_up_present != True
+  then:
+    add_tags:
+    - PoPH DD
+    add_recommendations:
+    - 'Im Portal-/Leberkontext: bei präkapillärer Hämodynamik PoPH als DD prüfen. Hoher CO/CI ersetzt nicht das PVR-Kriterium.'
+
+- id: R_PRECAP_MILD
+  priority: 40
+  when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr > 2 and pvr <= 5
+  then:
+    set_bundle: K05
+    set_primary_dx: Präkapilläre PH (mild)
+    add_tags:
+    - präkapillär
+- id: R_PRECAP_MOD
+  priority: 41
+  when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr > 5 and pvr <= 8
+  then:
+    set_bundle: K06
+    set_primary_dx: Präkapilläre PH (moderat)
+    add_tags:
+    - präkapillär
+- id: R_PRECAP_SEV
+  priority: 42
+  when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr > 8
+  then:
+    set_bundle: K07
+    set_primary_dx: Präkapilläre PH (schwer)
+    add_tags:
+    - präkapillär
+    - schwer
+- id: R_EXERCISE_PRECAP_PATTERN
+  priority: 60
+  when: mpap != None and mpap <= 20 and exercise_done == True and mpap_co_slope != None and pawp_co_slope != None and mpap_co_slope
+    > 3 and pawp_co_slope <= 2
+  then:
+    set_bundle: K09
+    set_primary_dx: Belastungs-PH (präkapilläre Druckantwort)
+    add_tags:
+    - Belastungs-PH
+    - präkapilläres Belastungsmuster
+- id: R_EXERCISE_POSTCAP_PATTERN
+  priority: 61
+  when: mpap != None and mpap <= 20 and exercise_done == True and mpap_co_slope != None and pawp_co_slope != None and mpap_co_slope
+    > 3 and pawp_co_slope > 2
+  then:
+    set_bundle: K10
+    set_primary_dx: Belastungs-PH (postkapilläre Druckantwort)
+    add_tags:
+    - Belastungs-PH
+    - postkapilläres Belastungsmuster
+- id: R_SUGGEST_P01_IF_INCOMPLETE
+  priority: 80
+  when: has_ph == True and (echo_done != True or lufu_done != True or ct_done != True or vq_done != True)
+  then:
+    add_modules:
+    - P01
+- id: R_CONGESTION_TAG
+  priority: 120
+  when: congestion_likely == True
+  then:
+    add_tags:
+    - venöse Kongestion
+    add_recommendations:
+    - Zeichen der venösen Kongestion (u.a. kein VCI-Kollaps bzw. erhöhte RAP) – Volumenstatus/Diurese prüfen und ggf. Entlastungstherapie
+      anpassen.
+    add_modules:
+    - P02
+- id: R_DIASTOLIC_HINT
+  priority: 140
+  when: la_enlarged == True and ee_ratio != None and ee_ratio >= 14
+  then:
+    add_tags:
+    - Hinweis diastolische Funktionsstörung
+    add_recommendations:
+    - Echo-Konstellation (LA erweitert, E/e' erhöht) passt zu diastolischer Funktionsstörung – kardiologische Therapieoptimierung
+      erwägen.
+- id: R_OBESITY_TAG
+  priority: 140
+  when: bmi != None and bmi >= 30
+  then:
+    add_tags:
+    - Adipositas
+    add_recommendations:
+    - Adipositas kann Dyspnoe und Belastbarkeit beeinflussen. Bei grenzwertigen Füllungsdrücken die Messbedingungen (Lagerung,
+      Atemmuster) und den klinischen Kontext berücksichtigen.
+    add_modules:
+    - P16
+- id: R_AF_MEASUREMENT_NOTE
+  priority: 141
+  when: atrial_fib == True
+  then:
+    add_tags:
+    - Vorhofflimmern
+    add_recommendations:
+    - 'Hinweis Messinterpretation: Vorhofflimmern/Extrasystolen können beat-to-beat CO und diastolische Drücke verändern.
+      Mittelung über mehrere Zyklen dokumentieren und Werte im Kontext interpretieren.'
+- id: R_HFPEF_LIKELY
+  priority: 141
+  when: hfpef_category == 'likely'
+  then:
+    add_tags:
+    - HFpEF wahrscheinlich
+    add_recommendations:
+    - HFpEF-Wahrscheinlichkeit hoch (H2FPEF) – HFpEF-Management nach Leitlinie (u.a. SGLT2-Inhibitoren, Volumenmanagement,
+      Rhythmus-/RR-Kontrolle).
+    add_modules:
+    - P09
+- id: R_HIGH_OUTPUT_NOTE
+  priority: 142
+  when: co_rest != None and co_rest >= 8.0
+  then:
+    add_tags:
+    - High-output möglich
+    add_recommendations:
+    - CO ist hoch. PVR kann dadurch relativ niedrig wirken, obwohl mPAP erhöht ist. Klinisch an High-output Zustände denken
+      (z.B. Anämie, Shunt, Hyperthyreose, AV-Fistel) und Kontext prüfen.
+- id: R_CO_PLAUSIBILITY
+  priority: 143
+  when: co_rest != None and (co_rest <= 1.5 or co_rest >= 12.0)
+  then:
+    add_tags:
+    - CO Plausibilität prüfen
+    add_recommendations:
+    - CO liegt in einem unplausiblen/extremen Bereich. Messmethode, Einheiten und Mittelung prüfen; ggf. Wiederholung/Alternative
+      (Thermodilution vs. Fick) dokumentieren.
+- id: R_PRESSURES_PLAUSIBILITY
+  priority: 144
+  when: spap_rest != None and dpap_rest != None and dpap_rest > spap_rest
+  then:
+    add_tags:
+    - Druck-Plausibilität prüfen
+    add_recommendations:
+    - dPAP > sPAP ist physiologisch nicht plausibel. Einheiten/Übertragungsfehler prüfen (Zahlendreher, falsches Feld).
+- id: R_ADAPT_HOMEOMETRIC
+  priority: 150
+  when: adaptation_type == 'homeometric'
+  then:
+    add_tags:
+    - homeometrischer Adaptionstyp
+    add_recommendations:
+    - 'Belastung: homeometrischer Adaptionstyp (ΔsPAP ≥ 30 mmHg).'
+- id: R_VIROLOGY_POS
+  priority: 150
+  when: virology_pos == True
+  then:
+    add_tags:
+    - Virologie/Infektiologie relevant
+    add_recommendations:
+    - Infektiologische/virologische Konstellationen können eine PAH (Gruppe 1) begünstigen. Befundlage und DD-Einordnung im
+      Gesamtbild beurteilen.
+    add_modules:
+    - P18
+- id: R_ADAPT_HETEROMETRIC
+  priority: 151
+  when: adaptation_type == 'heterometric'
+  then:
+    add_tags:
+    - heterometrischer Adaptionstyp
+    add_recommendations:
+    - 'Belastung: heterometrischer Adaptionstyp (ΔsPAP < 30 mmHg).'
+- id: R_VIROLOGY_HIV_DD
+  priority: 151
+  when: virology_pos == True and virology_items != None and ("HIV" in virology_items)
+  then:
+    add_tags:
+    - HIV (Gruppe 1 DD)
+    add_recommendations:
+    - Bei HIV kann eine PAH (Gruppe 1) als Differentialdiagnose relevant sein. Therapie/Anbindung (Infektiologie) und PAH-DD
+      im Kontext der Hämodynamik prüfen.
+    add_modules:
+    - P18
+- id: R_IMMUNOLOGY_POS
+  priority: 152
+  when: immunology_pos == True
+  then:
+    add_tags:
+    - Immunologie/Autoimmunität relevant
+    add_recommendations:
+    - Autoimmunologische Erkrankungen (z.B. Kollagenosen) können eine PAH (Gruppe 1) begünstigen oder Lungenparenchym/ILD
+      (Gruppe 3) mitverursachen. DD-Einordnung im Gesamtbild prüfen.
+    add_modules:
+    - P17
+- id: R_MUTATION_POS
+  priority: 153
+  when: mutation_pos == True
+  then:
+    add_tags:
+    - Genetik/Mutation relevant
+    add_recommendations:
+    - Bei Hinweisen auf PH-typische Mutationen ist eine PAH (Gruppe 1, hereditär) als Differentialdiagnose relevant. Genetische
+      Abklärung/Beratung und Familienanamnese im Kontext prüfen.
+    add_modules:
+    - P20
+- id: R_CHD_POS_DD
+  priority: 154
+  when: chd_pos == True
+  then:
+    add_tags:
+    - Angeborener Herzfehler/Shunt DD
+    add_recommendations:
+    - Angeborene Herzfehler/Shunts können eine PAH (Gruppe 1) oder eine kombinierte Ursache begünstigen. Shunt-/CHD-Abklärung
+      (Echo/CMR/TEE, ggf. Zentrum) im Kontext erwägen.
+    add_modules:
+    - P20
+- id: R_PAH_EVIDENCE_CAUTION
+  priority: 155
+  when: hemo_category == "precap" and ((mpap != None and mpap > 20 and mpap < 25) or (pvr != None and pvr > 2 and pvr < 3))
+  then:
+    add_recommendations:
+    - 'Hinweis: Die PH-Definition (ESC/ERS 2022) ist mit mPAP >20 mmHg und PVR >2 WU erfüllt,
+      aber die meisten PAH-Therapiestudien haben Patienten mit mPAP ≥25 mmHg und PVR ≥3 WU eingeschlossen.
+      In diesem Grenzbereich (mPAP 21–24 mmHg oder PVR 2,1–2,9 WU) sollte die Therapieentscheidung
+      individualisiert und im Verlauf reevaluiert werden.'
+- id: R_MULTICAUSAL_POSSIBLE
+  priority: 156
+  when: clear_leader == False and ((g2_score != None and g2_score >= 2 and g3_score != None and g3_score >= 2) or (g2_score
+    != None and g2_score >= 2 and g4_score != None and g4_score >= 2) or (g3_score != None and g3_score >= 2 and g4_score
+    != None and g4_score >= 2) or (g1_score != None and g1_score >= 2 and ((g2_score != None and g2_score >= 2) or (g3_score
+    != None and g3_score >= 2) or (g4_score != None and g4_score >= 2))))
+  then:
+    set_leading_cause: Mehrere mögliche Ursachen (multifaktoriell)
+    set_leading_action: DD Abklärung und Gewichtung im Verlauf
+    add_tags:
+    - multifaktoriell möglich
+    add_recommendations:
+    - Mehrere Befundkomponenten können gleichzeitig zur PH beitragen (z.B. Linksherz, Lunge/ILD, thromboembolisch). Eine eindeutige
+      führende Ursache ist anhand der vorliegenden Daten nicht sicher. Gezielte DD-Abklärung und Verlaufseinordnung empfohlen.
+- id: R_PH_LOW_PVR_NOTE
+  priority: 157
+  when: mpap != None and mpap > 20 and pvr != None and pvr <= 2
+  then:
+    add_tags:
+    - PH mit niedrigem PVR
+    add_recommendations:
+    - 'mPAP erhöht bei niedriger PVR. Mögliche Konstellationen: High-output, frühe/postkapilläre Komponente oder Messbedingungen. Verlauf
+      im Kontext beurteilen.'
+- id: R_DLCO_LOW_HINT
+  priority: 158
+  when: dlco_sb != None and dlco_sb < 60
+  then:
+    add_tags:
+    - DLCO vermindert
+    add_recommendations:
+    - DLCO ist vermindert. Das kann (je nach Kontext) für Parenchymerkrankung/ILD (Gruppe 3) oder pulmonalvaskuläre Beteiligung
+      sprechen. Lufu/CT/Belastung und DD-Einordnung prüfen.
+    add_modules:
+    - P12
+- id: R_RV_HIGH_HINT
+  priority: 159
+  # RV is documented in this UI as % predicted (see label). A low threshold like 3.5
+  # was a units mismatch and caused near-universal false positives. We only flag
+  # clearly elevated RV (%pred) and only in a constellation supporting hyperinflation.
+  when: residual_volume_l != None and residual_volume_l >= 140 and (ct_emphysema == True or (fev1_l != None and fev1_l < 80))
+  then:
+    add_tags:
+    - RV erhöht (Hyperinflation möglich)
+    add_recommendations:
+    - Residualvolumen ist hoch. Das kann für Obstruktion/Hyperinflation sprechen. Lungenfunktion (inkl. Tiffeneau), Symptomatik
+      und ggf. Bildgebung im Kontext prüfen.
+    add_modules:
+    - P12
+- id: R_SPRIME_RAAI_LOW
+  priority: 160
+  when: s_prime_raai != None and s_prime_raai < 0.81
+  then:
+    add_tags:
+    - S'/RAAI erniedrigt
+    add_recommendations:
+    - S'/RAAI erniedrigt (<0,81) – Warnsignal für RV/RA-Belastung (im klinischen Kontext bewerten).
+    add_modules:
+    - P14
+- id: R_TAPSE_SPAP_LOW
+  priority: 161
+  when: tapse_spap_reduced == True
+  then:
+    add_tags:
+    - TAPSE/sPAP erniedrigt
+    add_recommendations:
+    - TAPSE/sPAP vermindert – Hinweis auf eingeschränkte RV–PA-Kopplung; im ESC/ERS-Risikoprofil einordnen.
+    add_modules:
+    - P14
+- id: R_ANEMIA_REQUIRE_TYPE
+  priority: 170
+  when: anemia == True
+  then:
+    add_tags:
+    - Anämie
+    require_fields:
+    - anemia_type
+    add_recommendations:
+    - 'Anämie: bitte Typisierung und Ursachenabklärung (z.B. Eisenstatus, B12/Folat, Entzündung, Blutverlust) und Behandlung,
+      da relevante Auswirkung auf Belastbarkeit möglich.'
+- id: R_ANEMIA_MICRO
+  priority: 171
+  when: anemia == True and anemia_type == 'mikrozytär'
+  then:
+    add_recommendations:
+    - 'Mikrozytäre Anämie: Eisenmangel wahrscheinlich – Ferritin/Transferrinsättigung bestimmen, Blutungsquelle ausschließen,
+      Substitution erwägen.'
+- id: R_ANEMIA_MACRO
+  priority: 172
+  when: anemia == True and anemia_type == 'makrozytär'
+  then:
+    add_recommendations:
+    - 'Makrozytäre Anämie: B12-/Folatmangel, Leber/Alkohol, hämatologische Ursachen erwägen – entsprechende Diagnostik.'
+- id: R_ANEMIA_NORMO
+  priority: 173
+  when: anemia == True and anemia_type == 'normozytär'
+  then:
+    add_recommendations:
+    - 'Normozytäre Anämie: chronische Entzündung/Nierenfunktion, hämatologische Ursachen oder Blutverlust erwägen.'
+- id: R_ANEMIA_HEMOLYTIC
+  priority: 174
+  when: anemia == True and anemia_type == 'hämolytisch'
+  then:
+    add_recommendations:
+    - 'Hämolytische Anämie: Retikulozyten, LDH, Haptoglobin, Bilirubin, Coombs-Test erwägen; Ursachen (autoimmun, mechanisch,
+      medikamentös) abklären.'
+- id: R_ANEMIA_BLEEDING
+  priority: 175
+  when: anemia == True and anemia_type == 'akute Blutung/Blutverlust'
+  then:
+    add_recommendations:
+    - 'Hinweis auf akuten Blutverlust: Blutungsquelle zeitnah abklären; je nach Klinik Kreislaufstabilität/Transfusionsstrategie
+      beachten.'
+- id: R_ANEMIA_UNCLEAR
+  priority: 176
+  when: anemia == True and anemia_type == 'unklar'
+  then:
+    add_recommendations:
+    - 'Anämie unklar: Basisdiagnostik (MCV/MCH, Ferritin/TSAT, CRP, B12/Folat, Retikulozyten) und ggf. hämatologische Mitbeurteilung.'
+- id: R_ENTRESTO_BNP_NOTE
+  priority: 180
+  when: entresto == True and bnp_kind == 'BNP'
+  then:
+    add_recommendations:
+    - Unter ARNI (Sacubitril/Valsartan) kann BNP erhöht sein – NT-proBNP ist zur Verlaufskontrolle typischerweise besser geeignet.
+- id: R_ILD_ANTIFIB_CHECK
+  priority: 188
+  when: (ct_ild == True) and (antifibrotic_status != "ja")
+  then:
+    add_tags:
+    - Antifibrotische Therapie prüfen
+    add_recommendations:
+    - 'Bei ILD/Fibrose: Indikation für antifibrotische Therapie und Betreuung in spezialisierter Sprechstunde/Fibroseboard
+      prüfen.'
+    add_modules:
+    - P08
+- id: R_GROUP3_HINT
+  priority: 200
+  when: (ct_ild == True or ct_emphysema == True or lufu_restrictive == True or lufu_obstructive == True or lufu_diffusion
+    == True) and has_ph == True
+  then:
+    add_tags:
+    - DD Gruppe 3 (Lunge/Hypoxie)
+    add_recommendations:
+    - Hinweise auf relevante Lungenerkrankung/Hypoxie als Mitursache – pneumologische Mitbeurteilung und Optimierung der Oxygenierung.
+    add_modules:
+    - P08
+    - P12
+- id: R_CTEPH_ANTICOAG_CHECK
+  priority: 208
+  when: (vq_defect == True or ct_embolie == True or ct_mosaic == True) and (anticoag_status != "ja")
+  then:
+    add_tags:
+    - Antikoagulation prüfen
+    add_recommendations:
+    - 'Bei Hinweis auf (auch ältere) Lungenembolien/Perfusionsdefizite: Antikoagulation bitte zeitnah prüfen/klären (Kontraindikationen
+      beachten).'
+    add_modules:
+    - P10
+- id: R_CTEPH_HINT
+  priority: 210
+  when: (vq_defect == True or ct_embolie == True or ct_mosaic == True) and has_ph == True and pawp_rest != None and pawp_rest
+    <= 15 and pvr != None and pvr > 2
+  then:
+    set_bundle: K11
+    set_primary_dx: CTEPD/CTEPH wahrscheinlich (Gruppe 4)
+    add_tags:
+    - DD Gruppe 4 (CTEPH/CTEPD)
+    add_recommendations:
+    - 'CTEPH/CTEPD-Verdacht: Bitte Vorstellung im CTEPH-/PH-Board (OP/BPA/medikamentös) und strukturierte Abklärung (V/Q,
+      CT-/Angio-Review, ggf. Pulmonalisangiographie).'
+    add_modules:
+    - P10
+- id: R_LTX_EVAL_CHECK
+  priority: 260
+  when: (risk_category == "high") and (ltx_eval != "ja")
+  then:
+    add_tags:
+    - LTX-Evaluation erwägen
+    add_recommendations:
+    - 'Bei hohem Risiko: frühzeitig Evaluation/Anbindung an Zentrum für weiterführende Therapien inkl. Transplantationsoption
+      prüfen.'
+    add_modules:
+    - P25
+- id: R_SHUNT_STEPUP
+  priority: 300
+  when: step_up_present == True
+  then:
+    set_bundle: K16
+    set_primary_dx: Links-Rechts-Shunt (Verdacht, Stufenoxymetrie)
+    add_tags:
+    - Shuntverdacht
+    add_recommendations:
+    - Relevanter Sättigungssprung in der Stufenoxymetrie – gezielte Shunt-Abklärung (Echo/TEE ± Kontrast, kardiale Bildgebung;
+      ggf. Qp/Qs).
+- id: R_WEDGE_V_WAVE
+  priority: 320
+  when: v_wave == True
+  then:
+    add_tags:
+    - Prominente V-Welle (PAWP)
+    add_recommendations:
+    - 'Prominente V-Welle in der Wedge-Kurve: DD Mitralinsuffizienz/LA-Druckspitzen – Echokardiographie (ggf. TEE) und klinische
+      Korrelation.'
+- id: R_WEDGE_A_WAVE
+  priority: 321
+  when: a_wave == True
+  then:
+    add_tags:
+    - Prominente A-Welle (PAWP)
+    add_recommendations:
+    - 'Prominente A-Welle in der Wedge-Kurve: DD verminderte LV-Compliance/diastolische Dysfunktion – klinische/echo-kardiologische
+      Korrelation.'
+- id: R_RAP_V_WAVE
+  priority: 322
+  when: rap_v_wave_flag == True
+  then:
+    add_tags:
+    - Prominente V-Welle (RAP)
+    add_recommendations:
+    - 'Prominente V-Welle in der RAP-Kurve: DD relevante Trikuspidalinsuffizienz – Echo/klinische Korrelation.'
+- id: R_RV_DIP_PLATEAU
+  priority: 330
+  when: rv_dip_plateau_flag == True
+  then:
+    add_tags:
+    - Dip-Plateau (RV)
+    add_recommendations:
+    - 'Dip-Plateau in der RV-Kurve: DD konstriktive Perikarditis/restriktive Pathologie – perikardiale Bildgebung/klinische
+      Zeichen prüfen.'
+- id: R_RV_PSEUDO_DIP
+  priority: 331
+  when: rv_pseudo_dip_flag == True
+  then:
+    add_tags:
+    - Pseudo-Dip (RV)
+    add_recommendations:
+    - 'Pseudo-Dip in der RV-Kurve: Mess-/Atemartefakte möglich – Kurven-/Nullniveau prüfen, ggf. Wiederholung.'
+- id: R_HEMOPTYSIS_REDFLAG
+  priority: 400
+  when: hemoptysis == True
+  then:
+    add_tags:
+    - Red Flag
+    add_recommendations:
+    - 'Hämoptyse ist eine Red-Flag: Ursachen (z.B. PE/CTEPH, Infektion, Tumor, Vaskulitis) zeitnah abklären; bei Instabilität/hoher
+      Blutungsmenge Notfallmanagement erwägen.'
+- id: R_ECHO_PH_PROB_HIGH
+  priority: 150
+  when: echo_probability == 'hoch'
+  then:
+    add_tags:
+    - 'Echo: hohe PH-Wahrscheinlichkeit'
+    add_recommendations:
+    - Echo-basierte hohe Wahrscheinlichkeit für PH (TRV/Zeichen) – invasive Bestätigung/Einordnung per RHK und Ätiologie-Abklärung
+      gemäß Standardpfad.
+    add_modules:
+    - P01
+- id: R_ECHO_PH_PROB_INTERMEDIATE
+  priority: 151
+  when: echo_probability == 'intermediär'
+  then:
+    add_tags:
+    - 'Echo: intermediäre PH-Wahrscheinlichkeit'
+    add_recommendations:
+    - Echo-basierte intermediäre Wahrscheinlichkeit für PH – klinische Einordnung, ggf. ergänzende Diagnostik und je nach
+      Gesamtkontext RHK erwägen.
+    add_modules:
+    - P01
+- id: R_VASO_RESPONDER
+  priority: 210
+  when: vaso_responder == True
+  then:
+    add_tags:
+    - 'akute Vasoreaktivität: Responder'
+    add_recommendations:
+    - 'Akute Vasoreaktivität: Responder-Kriterium erfüllt (mPAP-Abfall ≥10 mmHg auf ≤40 mmHg bei erhaltener/erhöhter CO).
+      Bei vermuteter idiopathischer/hereditärer/medikamentöser PAH: hochdosierter Kalziumantagonisten-Versuch im PH-Zentrum
+      erwägen; engmaschige Verlaufskontrollen erforderlich.'
+- id: R_GROUP3_SEVERE_PH
+  priority: 220
+  when: leading_group == 3 and pvr_rest != None and pvr_rest > 5
+  then:
+    add_tags:
+    - 'Gruppe 3: schwere PH (PVR >5 WU)'
+    add_recommendations:
+    - 'Bei Lungenerkrankung/Gruppe 3 und PVR >5 WU: Hinweis auf schwere PH. Abklärung/Management im PH-Zentrum empfohlen;
+      Therapie primär Optimierung der Grunderkrankung (O2, Ventilation, Reha), individualisierte Beurteilung weiterer Optionen.'
+    add_modules:
+    - P24
+    - P25
+- id: R_CTEPD_WITHOUT_PH_CHECKLIST
+  priority: 223
+  when: vq_done == True and vq_defect == True and mpap_rest != None and mpap_rest <= 20
+  then:
+    add_tags:
+    - 'V/Q Perfusionsdefekte ohne PH'
+    - 'CTEPD ohne PH DD'
+    require_fields:
+    - ctepd_symptoms
+    - ctepd_chronicity_3m_ak
+    - ctepd_chronic_lesions
+    add_recommendations:
+    - 'V/Q-Perfusionsdefekte bei mPAP ≤20 mmHg: CTEPD ohne PH als DD. Diagnose nur bei gesicherter Chronizität (≥3 Monate therapeutische Antikoagulation nach akuter PE) und morphologischen Zeichen chronischer Läsionen (CTPA/DSA) sowie plausibler Symptomatik/objektiver Belastungslimitierung.'
+    add_modules:
+    - P01
+
+- id: R_CTEPD_WITHOUT_PH
+  priority: 225
+  when: vq_done == True and vq_defect == True and ctepd_symptoms == True and ctepd_chronicity_3m_ak == True and ctepd_chronic_lesions == True and ((mpap_rest != None and mpap_rest <= 20) or (pawp_rest != None and pawp_rest <= 15 and pvr_rest != None and pvr_rest <= 2))
+  then:
+    set_primary_dx: 'CTEPD ohne PH (Gruppe 4) wahrscheinlich'
+    add_tags:
+    - 'CTEPD ohne PH wahrscheinlich'
+    add_recommendations:
+    - 'Konstellation vereinbar mit CTEPD ohne PH: Symptome/objektive Belastungslimitierung, V/Q mit mismatched Perfusionsdefekten, morphologische chronische Läsionen (CTPA/DSA), RHK in Ruhe ohne PH-Kriterien. Bei persistierender Belastungsdyspnoe Belastungsabklärung (z.B. Belastungs-RHK) erwägen. Vorstellung im CTEPH/PH-Zentrum empfohlen.'
+    add_modules:
+    - P01
+
+# -----------------------------------------------------------------------------
+# WSPH 2024 / ESC-ERS 2022 oriented therapy + diagnostic refinement
+# (kept deliberately conservative: suggestions, not prescriptions)
+# -----------------------------------------------------------------------------
+
+- id: R_VQ_RECOMMENDED_UNEXPLAINED_PH
+  priority: 500
+  when: has_ph == True and (vq_done != True)
+  then:
+    add_tags:
+    - V/Q-Szinti empfohlen
+    add_recommendations:
+    - 'Bei neu/unexplained PH sollte ein Ventilations/Perfusions-Scan (oder Perfusionsscan) zum Ausschluss einer CTEPH/CTEPD durchgeführt werden.'
+    add_modules:
+    - P01
+
+- id: R_PAH_LIKELY_GROUP1_TAG
+  priority: 510
+  when: (mpap != None and mpap > 20) and (pawp_rest != None and pawp_rest <= 15) and (pvr != None and pvr > 2) and (vq_defect != True) and (ct_embolie != True) and (ct_mosaic != True) and (ct_ild != True) and (ct_emphysema != True) and (lufu_restrictive != True) and (lufu_obstructive != True) and (lufu_diffusion != True) and (step_up_present != True)
+  then:
+    add_tags:
+    - Gruppe 1 (PAH) wahrscheinlich
+    add_recommendations:
+    - 'Bei präkapillärer PH ohne Hinweise auf Gruppe 3/4 oder Shunt ist eine PAH (Gruppe 1) wahrscheinlich. Ätiologie-Abklärung nach Standardpfad (inkl. CTD, HIV, portopulmonal, Medikamente/Toxine, genetische Abklärung je nach Kontext) und Therapieentscheidung im PH-Zentrum.'
+
+- id: R_PAH_INIT_ORAL_DUAL_RECOMMEND
+  priority: 520
+  when: (mpap != None and mpap > 20) and (pawp_rest != None and pawp_rest <= 15) and (pvr != None and pvr > 2) and (leading_group == 1 or (vq_defect != True and ct_ild != True and lufu_obstructive != True and step_up_present != True)) and (risk_category != None) and (risk_category != 'high')
+  then:
+    add_tags:
+    - 'PAH-Therapie: frühe Kombination'
+    add_recommendations:
+    - 'Bei PAH (Gruppe 1) wird in der Regel eine initiale orale Kombinationstherapie (ERA + PDE5i bzw. sGC-Stimulator als Alternative je nach Konstellation) mit früher Re-Evaluation empfohlen.'
+
+- id: R_PAH_HIGH_RISK_PARENTERAL_RECOMMEND
+  priority: 525
+  when: (mpap != None and mpap > 20) and (pawp_rest != None and pawp_rest <= 15) and (pvr != None and pvr > 2) and (leading_group == 1 or (vq_defect != True and ct_ild != True and lufu_obstructive != True and step_up_present != True)) and (risk_category == 'high')
+  then:
+    add_tags:
+    - 'PAH: Hochrisiko'
+    add_recommendations:
+    - 'Bei Hochrisiko-Konstellation sollte eine rasche Therapieeskalation inkl. parenteraler Prostacyclin-Pathway-Therapie (i.v./s.c.) plus Kombinationstherapie im PH-Zentrum geprüft werden; parallel frühzeitige Anbindung an fortgeschrittene Therapien (inkl. Transplantationsoption).' 
+    add_modules:
+    - P25
+
+
+- id: R_CONTRA_NITRATES_PDE5
+  priority: 528
+  when: (on_nitrates == True) and ((ph_current_meds != None and ('PDE-5-Hemmer' in ph_current_meds)) or (ph_new_meds != None and ('PDE-5-Hemmer' in ph_new_meds)))
+  then:
+    add_tags:
+    - 'Kontraindikation: Nitrate + PDE-5-Hemmer'
+    add_recommendations:
+    - 'Wichtige Arzneimittel-Kontraindikation: Gleichzeitige Gabe von Nitraten/NO-Donoren (z.B. Nitro, Isosorbid) und PDE-5-Hemmern ist kontraindiziert (Risiko schwerer Hypotonie). Bitte Medikation prüfen und Anpassung vornehmen.'
+
+
+- id: R_CONTRA_RIO_PDE5
+  priority: 529
+  when: ((ph_current_meds != None and ('PDE-5-Hemmer' in ph_current_meds) and ('sGC-Stimulator (Riociguat)' in ph_current_meds)) or (ph_new_meds != None and ('PDE-5-Hemmer' in ph_new_meds) and ('sGC-Stimulator (Riociguat)' in ph_new_meds)) or (ph_current_meds != None and ('PDE-5-Hemmer' in ph_current_meds) and (ph_new_meds != None and ('sGC-Stimulator (Riociguat)' in ph_new_meds))) or (ph_current_meds != None and ('sGC-Stimulator (Riociguat)' in ph_current_meds) and (ph_new_meds != None and ('PDE-5-Hemmer' in ph_new_meds))))
+  then:
+    add_tags:
+    - 'Kontraindikation: PDE-5-Hemmer + Riociguat'
+    add_recommendations:
+    - 'Wichtige Kontraindikation: PDE-5-Hemmer dürfen nicht gemeinsam mit dem sGC-Stimulator Riociguat gegeben werden (Risiko schwerer Hypotonie). Bitte Medikation prüfen und Anpassung vornehmen.'
+
+- id: R_THERAPY_RIOCIGUAT_GROUP_GUARD
+  priority: 530
+  when: (leading_group != None) and (leading_group != 1) and (leading_group != 4) and ((ph_current_meds != None and ('sGC-Stimulator (Riociguat)' in ph_current_meds)) or (ph_new_meds != None and ('sGC-Stimulator (Riociguat)' in ph_new_meds)))
+  then:
+    add_tags:
+    - 'Therapiehinweis: Riociguat nur PAH/CTEPH'
+    add_recommendations:
+    - 'Riociguat ist als PH-Therapiepfad für PAH (Gruppe 1) sowie inoperable/persistierende/rezidivierende CTEPH (Gruppe 4) vorgesehen. Bei führender Gruppe-2/3-Konstellation bitte Indikation prüfen bzw. im PH-Zentrum begründen.'
+
+- id: R_THERAPY_CCB_REQUIRES_VASO
+  priority: 530
+  when: ((ph_current_meds != None and ('Kalziumantagonist (bei Vasoreaktivität)' in ph_current_meds)) or (ph_new_meds != None and ('Kalziumantagonist (bei Vasoreaktivität)' in ph_new_meds))) and (vaso_responder != True)
+  then:
+    add_tags:
+    - 'Therapiehinweis: CCB ohne dokumentierte Vasoreaktivität'
+    add_recommendations:
+    - 'Ein hochdosierter Kalziumantagonisten-Pfad ist nur bei dokumentierter positiver akuter Vasoreaktivität sinnvoll und typischerweise auf IPAH/HPAH/DPAH beschränkt. Ohne dokumentierten Responderstatus bitte Indikation/Eintrag prüfen.'
+
+- id: R_THERAPY_SOTATERCEPT_GROUP_GUARD
+  priority: 531
+  when: (leading_group != None) and (leading_group != 1) and ((ph_current_meds != None and ('Sotatercept (BMPR2/Activin-Pfad)' in ph_current_meds)) or (ph_new_meds != None and ('Sotatercept (BMPR2/Activin-Pfad)' in ph_new_meds)))
+  then:
+    add_tags:
+    - 'Therapiehinweis: Sotatercept nur PAH (Gruppe 1)'
+    add_recommendations:
+    - 'Sotatercept ist als Therapiepfad für PAH (Gruppe 1) vorgesehen. Bei nicht-Gruppe-1-Konstellation bitte Indikation prüfen (ggf. Eintrag entfernen oder Kontext im Zentrum dokumentieren).'
+
+- id: R_THERAPY_PDE5_HARDSHIP_GUARD
+  priority: 532
+  when: (leading_group != None) and (leading_group != 1) and ((ph_current_meds != None and ('PDE-5-Hemmer' in ph_current_meds)) or (ph_new_meds != None and ('PDE-5-Hemmer' in ph_new_meds))) and (pde5_hardship != True)
+  then:
+    add_tags:
+    - 'Therapiehinweis: PDE-5 außerhalb Gruppe 1 nur im Härtefall'
+    add_recommendations:
+    - 'PDE-5-Hemmer sind regelhaft für PAH (Gruppe 1) vorgesehen. Außerhalb Gruppe 1 bitte nur bei dokumentierter Härtefall-Ausnahme (Off-Label-Entscheidung im Zentrum) einsetzen oder Eintrag korrigieren.'
+
+- id: R_THERAPY_PDE5_HARDSHIP_NEEDS_REASON
+  priority: 533
+  when: (pde5_hardship == True) and ((pde5_hardship_desc == None) or (pde5_hardship_desc == ''))
+  then:
+    add_tags:
+    - 'Dokumentation fehlt: PDE-5 Härtefall-Begründung'
+    add_recommendations:
+    - 'Bitte eine kurze Härtefall-Begründung dokumentieren (Nutzen-Risiko-Abwägung/Off-Label-Kontext), damit Therapieentscheidungen nachvollziehbar sind.'
+
+- id: R_EKG_MISSING_RECOMMEND
+  priority: 534
+  when: (ekg_present != True)
+  then:
+    add_tags:
+    - 'EKG fehlt'
+    add_recommendations:
+    - 'Ein 12-Kanal-EKG sollte vor/bei RHK vorliegen. Bitte EKG nach typischen Rechtsherzbelastungszeichen beurteilen und dokumentieren.'
+
+- id: R_EKG_RHS_SIGNS_TAG
+  priority: 536
+  when: (ekg_present == True) and (ekg_rhs_signs != None) and (ekg_rhs_signs != [])
+  then:
+    add_tags:
+    - 'EKG: Rechtsherzbelastung'
+- id: R_PAH_ESCALATION_IF_NOT_LOW
+  priority: 530
+  when: (leading_group == 1) and (risk_category != None) and (risk_category != 'low')
+  then:
+    add_tags:
+    - Therapieeskalation prüfen
+    add_recommendations:
+    - 'Therapieziel ist ein niedriges Risiko. Bei persistierendem Risiko (intermediär/hoch) trotz Therapie: zeitnahe Eskalation entlang der Therapiekaskade (Hinzunahme Prostacyclin-Pathway-Agent, ggf. Wechsel/Addition NO/cGMP-Pfad, bei geeigneten Patient*innen Add-on über BMPR2/Activin-Signalweg) und engmaschige Re-Evaluation.'
+
+- id: R_SOTATERCEPT_ADDON_CONTEXT_NOTE
+  priority: 535
+  when: (leading_group == 1) and (risk_category != None) and (risk_category != 'low')
+  then:
+    add_recommendations:
+    - 'Add-on über den BMPR2/Activin-Signalweg (z.B. Sotatercept) kann bei geeigneter erwachsener PAH unter Hintergrundtherapie ein weiterer Therapiepfad sein; Einsatz/Timing im PH-Zentrum unter Beachtung von WHO-FC, Zulassung und Monitoring festlegen.'
+
+# --- UNCLASSIFIED / HIGH FLOW SAFETY NET ---
+# Korrigiert fälschliche Präkapilläre PH / PAH Einordnung bei PVR ≤ 2
+- id: R_UNCLASSIFIED_FLOW_PH
+  priority: 110
+  when: mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr <= 2 and step_up_present != True
+  then:
+    set_primary_dx: Unclassified PH (Flussdominante Druckerhöhung)
+    remove_tags:
+    - Präkapilläre PH
+    - präkapillär
+    - PAH
+    add_tags:
+    - High Output State
+    - PVR ≤ 2 WU
+    # P32 via R_CONTEXT_ADD_P32 (meta-Regel am Ende der Datei).
+
+# --- LIVER PROFILE A: HYPERDYNAMIC ---
+- id: R_LIVER_PROFILE_A_HYPERDYNAMIC
+  priority: 117
+  when: liver_hint == True and mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr <= 2
+  then:
+    add_tags:
+    - Leber Profil A (Hyperdynam)
+    # P32 via R_CONTEXT_ADD_P32 (meta-Regel am Ende der Datei).
+
+# --- LIVER PROFILE B: VOLUME OVERLOAD ---
+- id: R_LIVER_PROFILE_B_VOLUME
+  priority: 117
+  when: liver_hint == True and pawp_rest != None and pawp_rest > 15
+  then:
+    add_tags:
+    - Leber Profil B (Volumenbelastung)
+    # P32 via R_CONTEXT_ADD_P32 (meta-Regel am Ende der Datei).
+    add_recommendations:
+    - Volumenstatus optimieren (Ziel Euvolämie; Kontrolle über Gewicht, Kreatinin, Elektrolyte).
+    - Linksherz entlasten (Diuretikatherapie anpassen; kardiale Komorbiditäten therapieoptimieren).
+
+# --- LIVER PROFILE C: PoPH OVERRIDE ---
+# Greift nur, wenn kein Shunt vorliegt (Priority 300 gewinnt sonst)
+- id: R_POPH_PRIMARY_DX_OVERRIDE
+  priority: 115
+  when: poph_candidate == True and step_up_present != True and pvr != None and pvr > 2
+  then:
+    set_primary_dx: Präkapilläre PH im Portal Leber Kontext (PoPH DD)
+    add_tags:
+    - PoPH DD
+    add_modules:
+    - P19
+    # P32 via R_CONTEXT_ADD_P32 (meta-Regel am Ende der Datei).
+    add_recommendations:
+    - PoPH-Abklärung gemäß ILTS/ESC-Profilen (A/B/C); PH-spezifische Therapie nur bei eindeutig präkapillärer Hämodynamik nach Volumenoptimierung erwägen.
+    - Vor PoPH-Diagnose Lungenembolie/CTEPH (V/Q-Szintigraphie) und linksherzbedingte PH (Echo, PAWP im Kontext) ausschließen.
+
+# --- LIVER PROFILE C: BORDERLINE RISK ---
+- id: R_POPH_BORDERLINE_RISK
+  priority: 118
+  when: liver_hint == True and mpap != None and mpap > 20 and pawp_rest != None and pawp_rest <= 15 and pvr != None and pvr > 2 and pvr <= 3
+  then:
+    add_tags:
+    - PoPH Risiko PVR 2-3
+    add_modules:
+    - P19
+    # P32 via R_CONTEXT_ADD_P32 (meta-Regel am Ende der Datei).
+    add_recommendations:
+    - Engmaschige Kontrolle der Hämodynamik und Leberfunktion (ILTS-Borderline-Risk-Profil).
+    - Reevaluation der Hämodynamik nach Volumenoptimierung, um eine transiente postkapilläre Komponente sicher auszuschließen.
+
+# --- SHUNT CONTEXT ENRICHMENT ---
+# Ergänzt Recommendations bei Shunt-Patient*innen mit Kontextfaktoren.
+- id: R_SHUNT_ADD_HYPERFLOW_MODULE
+  priority: 305
+  when: step_up_present == True and (high_flow == True or liver_hint == True)
+  then:
+    add_recommendations:
+    - Hyperzirkulation als Kofaktor der mPAP-Erhöhung berücksichtigen; bei Shunt-Konstellation mPAP durch Volumenüberladung häufig mitverursacht.
+    - Hämodynamische Interpretation unter Berücksichtigung des pulmonalen Blutflusses (Qp) vornehmen; reine Druckerhöhung kann durch erhöhten Fluss maskiert sein.
+    # P32 via R_CONTEXT_ADD_P32 (meta-Regel unten).
+
+# ============================================================
+# META-REGEL: P32 (Hyperzirkulation / Kontext-Vertiefung)
+# ------------------------------------------------------------
+# Ersetzt 7 vorher duplizierte `add_modules: [P32]` Einträge in
+# - R_HIGH_FLOW_PH
+# - R_UNCLASSIFIED_FLOW_PH
+# - R_LIVER_PROFILE_A_HYPERDYNAMIC
+# - R_LIVER_PROFILE_B_VOLUME
+# - R_POPH_PRIMARY_DX_OVERRIDE
+# - R_POPH_BORDERLINE_RISK
+# - R_SHUNT_ADD_HYPERFLOW_MODULE
+#
+# P32 bündelt Hinweise zu flussdominanter Druckerhöhung, Leber-/
+# Portal-Kontext und Shunt-Konstellation. Jede Änderung am Inhalt
+# liegt jetzt in genau einer Datei (rhk_textdb.py); jede Änderung
+# an den Trigger-Bedingungen in genau dieser Meta-Regel.
+# ============================================================
+- id: R_CONTEXT_ADD_P32
+  priority: 25
+  when: >
+    (mpap != None and mpap > 20 and pvr != None and pvr <= 2)
+    or liver_hint == True
+    or (poph_candidate == True and step_up_present != True and pvr != None and pvr > 2)
+    or (step_up_present == True and (high_flow == True or liver_hint == True))
+  then:
+    add_modules:
+    - P32
