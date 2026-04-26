@@ -262,6 +262,18 @@ K_STATUS = "status"
 K_RISK_CATEGORY = "risk_category"
 K_PH_ETIOLOGY = "ph_etiology"
 
+
+def _section(case: CaseLike, key: str) -> Dict[str, Any]:
+    """Narrow ``case.get(key) or {}`` to ``Dict[str, Any]`` for mypy.
+
+    The CaseLike TypedDict has heterogeneous value types, so mypy types
+    ``case.get(key)`` as ``object | Any``. This helper isolates the
+    isinstance-narrowing pattern in one place.
+    """
+    val = case.get(key)
+    return val if isinstance(val, dict) else {}
+
+
 # =============================================================================
 # Report caching — extracted to rhk_report_cache for clearer privacy boundary
 # =============================================================================
@@ -505,9 +517,9 @@ def _report_db_text(case: CaseLike, audience: str, section: str) -> str:
     if select_phrases is None:
         return ""
     try:
-        env = case.get(K_ENV) or {}
+        env = _section(case, K_ENV)
         tags0 = []
-        dec = case.get(K_DECISION) or {}
+        dec = _section(case, K_DECISION)
         if isinstance(dec.get("tags"), list):
             tags0 = [str(x) for x in (dec.get("tags") or []) if x]
         phrases, _tags = select_phrases(
@@ -1077,14 +1089,18 @@ def _doctor_procedere_render_text(
                 tmpl = tmpl.replace("{" + k + "}", "")
             # Build a scratch block with the cleaned template so downstream
             # rendering still has all the other context variables.
-            scratch = TextBlock(
+            # `blk` is the extended rhk_textdb.TextBlock at runtime (with
+            # applies_to/category/variants/...); the import here uses the
+            # minimal rhk_base.TextBlock alias, so mypy can't see those
+            # attributes. type: ignore is correct at runtime.
+            scratch = TextBlock(  # type: ignore[call-arg]
                 id=blk.id,
                 title=blk.title,
-                applies_to=blk.applies_to,
+                applies_to=blk.applies_to,  # type: ignore[attr-defined]
                 template=tmpl,
-                category=blk.category,
-                variants=dict(blk.variants),
-                notes=blk.notes,
+                category=blk.category,  # type: ignore[attr-defined]
+                variants=dict(blk.variants),  # type: ignore[attr-defined]
+                notes=blk.notes,  # type: ignore[attr-defined]
                 level_default=getattr(blk, "level_default", 3),
                 clinical_group=getattr(blk, "clinical_group", "misc"),
                 required_context=tuple(k for k in required if k not in missing),
@@ -1491,7 +1507,7 @@ def _build_doctor_epikrise(
     fc = str(ui.get("who_fc") or "").strip()
     six = _safe_float(ui.get("six_mwd_m"))
     bnp = _safe_float(ui.get("nt_probnp"))
-    scores = case.get(K_SCORES) or {}
+    scores = _section(case, K_SCORES)
     risk4 = str(scores.get("esc_ers_4s") or "").strip()
     func: List[str] = []
     if fc:
@@ -1861,8 +1877,8 @@ def _assemble_doctor_report_markdown(
     # scroll through Anamnese, Labor, RHK, Beurteilung, Interpretation and
     # Procedere. The block is opt-in: only emitted when a primary diagnosis
     # has been established by the rule engine.
-    der_sec = case.get(K_DERIVED) or {}
-    dec_sec = case.get(K_DECISION) or {}
+    der_sec = _section(case, K_DERIVED)
+    dec_sec = _section(case, K_DECISION)
     epikrise_block = _build_doctor_epikrise(
         case=case,
         ui=ui,
@@ -1898,7 +1914,7 @@ def _assemble_doctor_report_markdown(
     report.append("\n## Interpretation\n")
     report.append((interpretation_text + "\n") if interpretation_text else "")
 
-    ph_tx_block = _build_ph_therapieverlauf_block(ui, case.get(K_DERIVED) or {})
+    ph_tx_block = _build_ph_therapieverlauf_block(ui, _section(case, K_DERIVED))
     if ph_tx_block:
         report.append("\n" + ph_tx_block)
 
@@ -2019,10 +2035,11 @@ def build_internal_report(case: CaseLike) -> str:
     if cached is not None:
         return cached
 
-    env = case.get(K_ENV) or {}
-    dec = case.get(K_DECISION) or {}
-    debug = case.get(K_DEBUG) or {}
-    warns = case.get(K_WARNINGS) or debug.get(K_WARNINGS) or []
+    env = _section(case, K_ENV)
+    dec = _section(case, K_DECISION)
+    debug = _section(case, K_DEBUG)
+    warns_raw = case.get(K_WARNINGS) or debug.get(K_WARNINGS) or []
+    warns: List[Any] = list(warns_raw) if isinstance(warns_raw, list) else []
     rule_trace = debug.get("rule_trace") or {}
     fired = rule_trace.get("fired") or []
     errors = rule_trace.get("errors") or []
@@ -2998,10 +3015,10 @@ def build_summary_dict(case: CaseLike, rulebook_meta: Optional[Dict[str, Any]] =
     cached = _cache_get('summary_dict', fp)
     if cached is not None:
         return cached
-    ui = case.get(K_UI) or {}
-    der = case.get(K_DERIVED) or {}
-    scores = case.get(K_SCORES) or {}
-    dec = case.get(K_DECISION) or {}
+    ui = _section(case, K_UI)
+    der = _section(case, K_DERIVED)
+    scores = _section(case, K_SCORES)
+    dec = _section(case, K_DECISION)
     warns = case.get(K_WARNINGS) or []
 
     # Slim warnings (message + severity + code if present)
