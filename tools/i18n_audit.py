@@ -60,6 +60,17 @@ UI_FILES = [
     "rhk_ui_utils.py",
 ]
 
+# Files that emit dynamic chips/messages built from string literals into HTML.
+# We audit these with a stricter heuristic: any German-looking literal that
+# ends up inside an HTML tag with a class hinting at user-visible content
+# (rhk-chip, rhk-todo, rhk-summary, etc.) is a candidate for the i18n table.
+DYNAMIC_FILES = [
+    "rhk_ui_render_summary.py",
+    "rhk_ui_render_modules.py",
+    "rhk_ui_render_docx.py",
+    "rhk_ui_render_viz.py",
+]
+
 UI_KWARGS = {"label", "info", "placeholder", "value", "title", "header"}
 UI_FUNCS = {
     "Button", "Tab", "Tabs", "Markdown", "Number", "Textbox", "Dropdown",
