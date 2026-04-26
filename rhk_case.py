@@ -968,8 +968,8 @@ def _build_case_impl(ui: CaseSection, rules: List[Rule]) -> BuiltCaseSchema:
     # P-Module V3: erweiterte, sicherheitsorientierte Vorschläge (maximal 6).
     # UI Auswahl (ui['modules']) wird niemals überschrieben.
     try:
-        from rhk_pmodules_v3 import apply_p_modules_v3
-        decision.modules = apply_p_modules_v3(ui, derived, list(decision.modules or []))
+        from rhk_pmodules import apply_p_modules
+        decision.modules = apply_p_modules(ui, derived, list(decision.modules or []))
     except (ImportError, KeyError, TypeError, ValueError) as exc:
         log_exception("RHK_CASE_PMODULES", "P-modules v3 application failed.", exc)
 

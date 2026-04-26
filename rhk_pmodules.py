@@ -90,7 +90,7 @@ def _specs() -> List[Spec]:
     ]
 
 
-def apply_p_modules_v3(ui: Dict[str, Any], derived: Dict[str, Any], base_modules: List[str]) -> List[str]:
+def apply_p_modules(ui: Dict[str, Any], derived: Dict[str, Any], base_modules: List[str]) -> List[str]:
     """Merge V3 modules into base_modules and enforce max 6 output."""
     mods: List[str] = []
     seen = set()

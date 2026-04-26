@@ -6,7 +6,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from rhk_base import Decision, compute_p_module_policy
-from rhk_pmodules_v3 import apply_p_modules_v3
+from rhk_pmodules import apply_p_modules
 
 
 def test_compute_p_module_policy_handles_ja_nein_strings() -> None:
@@ -57,8 +57,8 @@ def test_compute_p_module_policy_handles_ja_nein_strings() -> None:
     assert levels.get("P01") == 3
 
 
-def test_apply_p_modules_v3_handles_boolish_strings() -> None:
-    mods = apply_p_modules_v3(
+def test_apply_p_modules_handles_boolish_strings() -> None:
+    mods = apply_p_modules(
         ui={},
         derived={
             "dyspnea_present": "ja",
@@ -72,7 +72,7 @@ def test_apply_p_modules_v3_handles_boolish_strings() -> None:
     assert "P43" in mods
     assert "P51" in mods
 
-    mods_with_cpet = apply_p_modules_v3(
+    mods_with_cpet = apply_p_modules(
         ui={},
         derived={"dyspnea_present": "ja", "cpet_available": "ja"},
         base_modules=[],

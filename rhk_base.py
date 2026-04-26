@@ -449,13 +449,18 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_RULEBOOK_PATH = os.environ.get("RHK_RULEBOOK", os.path.join(APP_DIR, "rhk_rules.yaml"))
 
-# Clinical constants (ESC/ERS 2022)
-# TAPSE/sPAP risk thresholds (Table 16)
-TAPSE_SPAP_LOW_RISK = 0.32
-TAPSE_SPAP_HIGH_RISK = 0.19
-
-# S'/RAAI warning threshold (internal marker; guideline-unlisted)
-SPRIME_RAAI_CUTOFF = 0.81
+# Clinical constants — guideline citations live in rhk_thresholds.py.
+# These re-exports preserve the existing public symbols imported elsewhere.
+from rhk_thresholds import (  # noqa: E402  (intentional re-export)
+    SPRIME_RAAI_CUTOFF,
+    TAPSE_SPAP_HIGH_RISK,
+    TAPSE_SPAP_LOW_RISK,
+)
+__all_thresholds__ = (
+    "SPRIME_RAAI_CUTOFF",
+    "TAPSE_SPAP_HIGH_RISK",
+    "TAPSE_SPAP_LOW_RISK",
+)
 
 
 
@@ -1724,10 +1729,52 @@ class TextBlock:
 
 
 class SafeDict(dict):
-    """dict for str.format_map that returns an empty string for missing keys."""
+    """dict for str.format_map that returns an empty string for missing keys.
+
+    The empty-string fallback is intentional for templates with conditional
+    placeholders (e.g. ``{cv_stauung_phrase}`` may legitimately be empty when
+    the underlying parameter is not assessable). However, missing keys are
+    *also* a common source of silent typos in template strings — so every
+    miss is logged so QA can spot patterns over time. Logging is best-effort
+    and never raises, to keep the original behaviour fully backwards-compatible.
+    """
+
+    # Module-level set so we only log each unknown key once per process —
+    # otherwise a single bad template fires on every render and floods logs.
+    _seen_missing: "set[str]" = set()
 
     def __missing__(self, key: str) -> str:
+        seen = SafeDict._seen_missing
+        if key not in seen:
+            seen.add(key)
+            try:
+                # Late import: rhk_logging may import from rhk_base, so we
+                # cannot import at module top.
+                from rhk_logging import log_warning
+                log_warning(
+                    "RHK_BASE_TEMPLATE_MISSING_KEY",
+                    "Template placeholder missing in render context.",
+                    key=key,
+                )
+            except Exception:  # noqa: BLE001 — must not break formatting
+                pass
         return ""
+
+
+class StrictDict(dict):
+    """Variant of SafeDict that raises on missing keys.
+
+    Use in tests / CI to surface template typos that production silently
+    swallows. Production paths should keep using SafeDict because some
+    placeholders are legitimately empty.
+    """
+
+    def __missing__(self, key: str) -> str:
+        raise KeyError(
+            f"Template placeholder {key!r} not present in render context. "
+            "If this key is genuinely conditional, supply it as an empty "
+            "string explicitly; do not rely on silent fallback."
+        )
 
 
 def load_textdb_blocks() -> Dict[str, TextBlock]:

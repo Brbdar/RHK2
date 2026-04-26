@@ -3240,11 +3240,11 @@ def _build_doctor_interpretation_text(
     """Build final interpretation block (without procedere overlap)."""
     interpretation = ""
     try:
-        from rhk_interpretation_v3 import build_intelligent_interpretation_v3
+        from rhk_interpretation import build_intelligent_interpretation
 
-        interpretation = str(build_intelligent_interpretation_v3(ui, der) or "").strip()
+        interpretation = str(build_intelligent_interpretation(ui, der) or "").strip()
     except (ImportError, ModuleNotFoundError, AttributeError, TypeError, ValueError) as exc:
-        log_exception("RHK_REP_INTERPRET_V3", "Primary interpretation builder unavailable.", exc)
+        log_exception("RHK_REP_INTERPRET", "Primary interpretation builder unavailable.", exc)
         interpretation = ""
 
     if not interpretation:

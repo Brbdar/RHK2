@@ -12,7 +12,7 @@ from rhk_base import DEFAULT_RULEBOOK_PATH, load_rulebook
 from rhk_case import build_case
 from rhk_echo_guidelines import compute_echo_ph_probability
 from rhk_echo_report_doctor import build_echo_doctor_report
-from rhk_interpretation_v3 import build_intelligent_interpretation_v3
+from rhk_interpretation import build_intelligent_interpretation
 
 RULES = load_rulebook(DEFAULT_RULEBOOK_PATH)
 
@@ -45,7 +45,7 @@ def test_echo_report_does_not_classify_pasp_only_as_probability():
 
 
 def test_interpretation_recognizes_vascular_exercise_pattern_key():
-    txt = build_intelligent_interpretation_v3({}, {
+    txt = build_intelligent_interpretation({}, {
         "mpap_rest": 18,
         "pawp_rest": 10,
         "pvr_rest": 1.5,
@@ -67,7 +67,7 @@ def test_interpretation_recognizes_vascular_exercise_pattern_key():
 
 
 def test_interpretation_respects_exercise_hard_stop_alias():
-    txt = build_intelligent_interpretation_v3({}, {
+    txt = build_intelligent_interpretation({}, {
         "mpap_rest": 18,
         "pawp_rest": 10,
         "pvr_rest": 1.5,

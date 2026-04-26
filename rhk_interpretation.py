@@ -79,7 +79,7 @@ def _join_sentences(parts: List[str]) -> str:
     return " ".join(out).strip()
 
 
-def build_intelligent_interpretation_v3(ui: Dict[str, Any], der: Dict[str, Any]) -> str:
+def build_intelligent_interpretation(ui: Dict[str, Any], der: Dict[str, Any]) -> str:
     """Build V3 interpretation text.
 
     Output

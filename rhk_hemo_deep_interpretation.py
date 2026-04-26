@@ -14,34 +14,58 @@ from enum import Enum
 from typing import Any, Dict, Final, List, Optional
 
 from rhk_validation import safe_float as _safe_float
+from rhk_thresholds import (
+    CI_HIGH_RISK,
+    CI_INTERMEDIATE_HIGH,
+    DPG_HIGH,
+    NOISE_ABS_CI,
+    NOISE_ABS_MPAP,
+    NOISE_ABS_PAWP,
+    NOISE_ABS_PVR,
+    NOISE_REL_CI,
+    NOISE_REL_MPAP,
+    NOISE_REL_PAWP,
+    NOISE_REL_PVR,
+    OVERWEDGE_BUFFER,
+    PH_PAWP_POSTCAPILLARY,
+    PH_PVR_PRECAPILLARY,
+    RAP_CONGEST_NARRATIVE,
+    RAP_SEVERE_NARRATIVE,
+    RC_TIME_LOW,
+    SVI_HIGH_RISK,
+)
 
 # -----------------------------------------------------------------------------
 # 1. THRESHOLDS & CONFIGURATION
 # -----------------------------------------------------------------------------
+# All clinical cutoffs are imported from rhk_thresholds.py — that module is
+# the single source of truth and carries the full guideline citations.
+# Local aliases below preserve the readable names used throughout this file.
+# -----------------------------------------------------------------------------
 
 # Noise Gates: Change is only reported if ABS > thr OR (REL > thr AND ABS is relevant)
-THR_REL_PVR: Final[float]  = 0.15  # 15% change needed to call it "Responder"
-THR_ABS_PVR: Final[float]  = 0.5   # WU
-THR_REL_MPAP: Final[float] = 0.10  # Pressure is tightly regulated
-THR_ABS_MPAP: Final[float] = 3.0   # mmHg
-THR_REL_PAWP: Final[float] = 0.20  # Volumetric params fluctuate more
-THR_ABS_PAWP: Final[float] = 3.0   
-THR_REL_CI: Final[float]   = 0.15  # Flow is the sensitive RV marker
-THR_ABS_CI: Final[float]   = 0.3   # L/min/m2
+THR_REL_PVR: Final[float]  = NOISE_REL_PVR
+THR_ABS_PVR: Final[float]  = NOISE_ABS_PVR
+THR_REL_MPAP: Final[float] = NOISE_REL_MPAP
+THR_ABS_MPAP: Final[float] = NOISE_ABS_MPAP
+THR_REL_PAWP: Final[float] = NOISE_REL_PAWP
+THR_ABS_PAWP: Final[float] = NOISE_ABS_PAWP
+THR_REL_CI: Final[float]   = NOISE_REL_CI
+THR_ABS_CI: Final[float]   = NOISE_ABS_CI
 
-# Critical Cutoffs (Red Flags)
-CUT_CI_SHOCK: Final[float]     = 2.0   # Cardiogenic Shock imminent
-CUT_CI_LOW: Final[float]       = 2.5   # Low Output
-CUT_SVI_RISK: Final[float]     = 31.0  # Strongest prognostic marker
-CUT_RAP_CONGEST: Final[float]  = 10.0  # Significant congestion
-CUT_RAP_SEVERE: Final[float]   = 15.0  # RV Failure range
-CUT_PAWP_LHD: Final[float]     = 15.0  # Left Heart Disease definition
-CUT_PVR_PH: Final[float]       = 2.0   # Pulmonary Hypertension
-CUT_DPG_HIGH: Final[float]     = 7.0   # Vascular Remodeling
-CUT_RC_TIME_LOW: Final[float]  = 0.4   # Seconds (PVR * PAC) - Uncoupling marker
+# Critical Cutoffs (Red Flags) — see rhk_thresholds.py for source citations.
+CUT_CI_SHOCK: Final[float]     = CI_HIGH_RISK            # 2.0 — ESC/ERS 2022 high-risk
+CUT_CI_LOW: Final[float]       = CI_INTERMEDIATE_HIGH    # 2.5 — ESC/ERS 2022 IM-high boundary
+CUT_SVI_RISK: Final[float]     = SVI_HIGH_RISK           # 31  — ESC/ERS 2022 high-risk
+CUT_RAP_CONGEST: Final[float]  = RAP_CONGEST_NARRATIVE   # 10  — narrative congestion
+CUT_RAP_SEVERE: Final[float]   = RAP_SEVERE_NARRATIVE    # 15  — narrative RV failure
+CUT_PAWP_LHD: Final[float]     = PH_PAWP_POSTCAPILLARY   # 15  — post-cap definition
+CUT_PVR_PH: Final[float]       = PH_PVR_PRECAPILLARY     # 2   — pre-cap PH definition
+CUT_DPG_HIGH: Final[float]     = DPG_HIGH                # 7   — CpcPH support marker
+CUT_RC_TIME_LOW: Final[float]  = RC_TIME_LOW             # 0.4 — uncoupling marker
 
 # Safety Buffer
-BUFFER_OVERWEDGE: Final[float] = 2.0   # PAWP shouldn't be > dPAP + 2mmHg
+BUFFER_OVERWEDGE: Final[float] = OVERWEDGE_BUFFER        # 2.0 mmHg PAWP > dPAP overwedge
 
 # -----------------------------------------------------------------------------
 # 2. TEMPLATES (Precision Wording with Abbreviations)
