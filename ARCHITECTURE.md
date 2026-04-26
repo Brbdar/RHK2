@@ -79,24 +79,22 @@ Foundation modules with no clinical knowledge baked in:
 | `rhk_report_markdown.py` | Markdown rendering helpers |
 | `rhk_reports.py` | **Main report builder — 9 000 LoC, planned split** |
 
-> `rhk_reports.py` is targeted for splitting into `reports/doctor.py`,
-> `reports/patient.py`, `reports/measure_text.py`, `reports/filters.py`,
-> and `reports/follow_up.py`.
+> **Progress (2026-04):** rhk_reports.py shrank from **9 003 → 3 080 LoC**
+> (−66 %) through five staged extractions:
 >
-> **Progress (2026-04):**
->   - `rhk_report_filters.py` extracted (markdown helpers, narrative
->     sanitisers, congestion-aware filtering — ~260 LoC).
->   - `rhk_report_cache.py` extracted (LRU cache + fingerprint —
->     ~110 LoC, isolates the privacy-sensitive in-memory cache policy).
->   - `rhk_reports.py` shrank from 9 003 → 8 700 LoC.
+> | Extracted module | Lines | Contents |
+> |------------------|------:|----------|
+> | `rhk_report_filters.py` | ~310 | markdown helpers, narrative sanitisers, congestion-aware filtering |
+> | `rhk_report_cache.py`   | ~110 | LRU cache + fingerprint (isolates in-memory privacy boundary) |
+> | `rhk_report_summary.py` | ~940 | `_summary_*` family + `summarize_inputs` |
+> | `rhk_report_doctor.py`  | ~565 | `_doctor_tpl_*` family (Klinik-Layout template) |
+> | `rhk_report_patient.py` | ~4470 | full patient-report path (jargon, glossary, archetypes, all `_patient_*` / `_append_patient_*` builders, `build_patient_report`) |
 >
-> Remaining extraction targets in priority order:
->   1. `rhk_report_summary.py` — the `_summary_*` family (~800 LoC).
->   2. `rhk_report_doctor.py` — the `_doctor_tpl_*` family (~1 600 LoC).
->   3. `rhk_report_patient.py` — the `_patient_*` family (~2 400 LoC).
->
-> Each extraction must be a single dedicated PR, run the full test suite,
-> and import back the moved symbols so external callers don't break.
+> rhk_reports.py now hosts only the connective tissue: bundle assembly,
+> doctor-report orchestration, internal-report rendering, example-suite
+> generation, exports, and the docx/word HTML pipeline. Back-compat
+> re-exports keep every previously importable symbol importable from
+> rhk_reports.
 
 ### 4. `textdb/` — Text databases (template content)
 
