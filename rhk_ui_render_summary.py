@@ -397,10 +397,10 @@ def _render_warning_item_html(item: Dict[str, Any]) -> str:
         shown = ", ".join([_field_label(str(f)) for f in fields[:3]])
         if len(fields) > 3:
             shown += f" (+{len(fields)-3})"
-        meta_bits.append(f"Feld: {html_escape(shown)}")
+        meta_bits.append(f"<span>Feld: {html_escape(shown)}</span>")
     sug = str(item.get("suggestion") or "").strip()
     if sug:
-        meta_bits.append(f"Vorschlag: {html_escape(sug)}")
+        meta_bits.append(f"<span>Vorschlag: </span><span>{html_escape(sug)}</span>")
     meta = ""
     if meta_bits:
         meta = f"<div class='rhk-todo-meta'>{' | '.join(meta_bits)}</div>"

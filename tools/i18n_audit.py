@@ -75,8 +75,16 @@ UI_KWARGS = {"label", "info", "placeholder", "value", "title", "header"}
 UI_FUNCS = {
     "Button", "Tab", "Tabs", "Markdown", "Number", "Textbox", "Dropdown",
     "Checkbox", "CheckboxGroup", "Radio", "Slider", "Accordion", "HTML",
-    "Group", "Row", "Column", "_tr", "gr.Button", "gr.Tab",
+    "Group", "Row", "Column", "_tr", "gr.Button", "gr.Tab", "gr.Markdown",
+    "gr.Accordion", "gr.Group", "gr.Row", "gr.HTML",
 }
+
+# Strings inside f-strings / multi-line markdown blocks that are likely
+# user-visible labels (heuristic: lines beginning with ** or - bullets).
+MARKDOWN_LINE_PATTERNS = (
+    r"^\*\*([^*\n]{4,80})\*\*",         # **bold heading**
+    r"^- ([A-ZÄÖÜ][^:\n]{4,60}):",      # - Label:
+)
 
 
 def _looks_like_ui_string(s: str) -> bool:

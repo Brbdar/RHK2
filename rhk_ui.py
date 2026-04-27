@@ -961,8 +961,12 @@ def _build_demo_impl() -> Tuple[gr.Blocks, str, Optional[gr.Theme]]:
         file_summary_out = gr.File(label="Download: Summary (.json)", visible=False)
 
         # Single "dirty" ping from the browser (debounced). Avoids binding change-handlers to dozens of fields.
-        dirty_ping = gr.Textbox(value="", visible=False, elem_id="rhk_dirty_ping")
-        ui_lang = gr.Textbox(value="de", visible=False, elem_id="rhk_ui_lang")
+        # NOTE: visible=False would remove the element from the DOM in Gradio 6+,
+        # which breaks the JS bridge that updates the language state. Render the
+        # textboxes but hide them via the existing .rhk-hidden CSS class so the
+        # DOM node persists and JS can write to it.
+        dirty_ping = gr.Textbox(value="", elem_id="rhk_dirty_ping", elem_classes="rhk-hidden")
+        ui_lang = gr.Textbox(value="de", elem_id="rhk_ui_lang", elem_classes="rhk-hidden")
 
         state_case = gr.State(value=None)
         state_case_filename = gr.State(value="")  # remembered loaded case filename

@@ -4699,6 +4699,7 @@ JS_ON_LOAD = r"""
   const I18N_STORAGE_KEY = 'rhk.ui.language';
   const I18N_DEFAULT = String(I18N.defaultLanguage || 'de');
   const I18N_ROOT_SELECTORS = [
+    '.rhk-skip-link',
     '#rhk_topbar_wrapper',
     '#rhk_whatsnew_wrapper',
     '#rhk_workflow_overview_wrapper',
