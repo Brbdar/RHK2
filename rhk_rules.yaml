@@ -642,7 +642,7 @@ rules:
     add_tags:
     - 'PAH-Therapie: frühe Kombination'
     add_recommendations:
-    - 'Bei PAH (Gruppe 1) wird in der Regel eine initiale orale Kombinationstherapie (ERA + PDE5i bzw. sGC-Stimulator als Alternative je nach Konstellation) mit früher Re-Evaluation empfohlen.'
+    - 'Bei PAH (Gruppe 1) wird in der Regel eine initiale orale Kombinationstherapie aus ERA und PDE-5-Hemmer (z. B. Ambrisentan/Tadalafil oder Macitentan/Tadalafil) mit früher Re-Evaluation empfohlen [ESC/ERS 2022, Class I]. Ein sGC-Stimulator (Riociguat) ist keine Class-I-Initial-Option für PAH; eine Umstellung von einem PDE-5-Hemmer auf Riociguat kann bei intermediär-niedrigem Risiko unter laufender ERA/PDE5i-Therapie erwogen werden (Class IIb).'
 
 - id: R_PAH_HIGH_RISK_PARENTERAL_RECOMMEND
   priority: 525

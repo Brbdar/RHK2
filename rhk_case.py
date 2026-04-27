@@ -27,6 +27,8 @@ from rhk_base import (
     SPRIME_RAAI_CUTOFF,
     TAPSE_SPAP_HIGH_RISK,
     TAPSE_SPAP_LOW_RISK,
+    VASO_RESPONDER_MPAP_ABS,
+    VASO_RESPONDER_MPAP_DROP,
     Decision,
     Rule,
     _as_list,
@@ -309,8 +311,13 @@ def _build_case_impl(ui: CaseSection, rules: List[Rule]) -> BuiltCaseSchema:
     vaso_co_post = _safe_float(ui.get("vaso_co_post"))
     vaso_responder = None
     if vaso_done and vaso_mpap_pre is not None and vaso_mpap_post is not None and vaso_co_pre is not None and vaso_co_post is not None:
-        # Acute vasoreactivity responder (classic criterion): mPAP drop ≥10 to ≤40 with preserved/increased CO
-        vaso_responder = (vaso_mpap_pre - vaso_mpap_post >= 10) and (vaso_mpap_post <= 40) and (vaso_co_post >= vaso_co_pre)
+        # Acute vasoreactivity responder (ESC/ERS 2022 Recommendation Table 8):
+        # mPAP drop ≥ 10 mmHg AND mPAP-post ≤ 40 mmHg AND CO preserved/increased.
+        vaso_responder = (
+            (vaso_mpap_pre - vaso_mpap_post >= VASO_RESPONDER_MPAP_DROP)
+            and (vaso_mpap_post <= VASO_RESPONDER_MPAP_ABS)
+            and (vaso_co_post >= vaso_co_pre)
+        )
 
     # ---- Echo / imaging context ----
     lvef = _safe_float(ui.get("lvef"))
@@ -1996,7 +2003,13 @@ def build_render_ctx(case: CaseLike) -> Dict[str, Any]:
     elif der.get("exercise_done"):
         provocation_type_desc = "Belastung"
 
-    # Follow-up placeholders (used in P11)
+    # Follow-up placeholders (used in P11), aligned with ESC/ERS 2022 Table 17:
+    # "Every 3-6 months in stable patients"; comprehensive reassessment "3-6
+    # months after changes in therapy" or "in case of clinical worsening".
+    # The high-risk window is intentionally tighter than Table 17 (which only
+    # specifies the comprehensive reassessment trigger, not a numeric window
+    # for high-risk surveillance) — common practice and consistent with ESC
+    # HF guidance for similarly high-risk profiles.
     risk = der.get("risk_category")
     followup_timing_desc = "einem geeigneten Intervall"
     if risk == "high":
@@ -2004,8 +2017,13 @@ def build_render_ctx(case: CaseLike) -> Dict[str, Any]:
     elif risk == "intermediate":
         followup_timing_desc = "3–6 Monaten"
     elif risk == "low":
-        followup_timing_desc = "6–12 Monaten"
+        # ESC/ERS 2022 Table 17: "every 3-6 months in stable patients" — even
+        # low-risk patients should be reassessed within this window rather
+        # than at the previously coded 6-12 months.
+        followup_timing_desc = "3–6 Monaten"
 
+    # Invasive (RHK) reassessment: only if PH established and triggered by
+    # therapy change, escalation question, or worsening (Table 17, RHC row).
     invasive_followup_desc = "einem passenden Intervall"
     if risk == "high" and der.get("has_ph"):
         invasive_followup_desc = "3–6 Monaten"

@@ -102,8 +102,12 @@ PAWP_CONGEST_NARRATIVE: Final[float] = 15.0
 # =============================================================================
 
 #: DPG (diastolic pressure gradient), mmHg. Historic CpcPH supportive marker.
-#: De-emphasized by ESC/ERS 2022 in favor of PVR but retained as a remodeling
-#: hint, not a definitional criterion. [WSPH 2018]
+#: ESC/ERS 2022 explicitly removed DPG as a definitional criterion for CpcPH;
+#: the current CpcPH definition uses ONLY mPAP > 20 + PAWP > 15 + PVR > 2 WU
+#: (Table 5). DPG ≥ 7 mmHg is therefore retained here only as a *narrative*
+#: remodelling hint when reading individual cases — never as a classifier.
+#: When in doubt, follow ESC/ERS 2022 Table 5 (PVR-only criterion).
+#: [WSPH 2018; ESC/ERS 2022 § 3.1, Table 5]
 DPG_HIGH: Final[float] = 7.0
 
 #: PAC (pulmonary arterial compliance), mL/mmHg. Below this value indicates
@@ -115,6 +119,46 @@ PAC_LOW: Final[float] = 2.0
 #: resistance — classic uncoupling marker.
 #: [Vanderpool 2015; Tedford RJ et al. Circ Heart Fail 2018; 11(7):e004576]
 RC_TIME_LOW: Final[float] = 0.4
+
+#: Group 3 PH severity boundary, Wood Units. PVR > 5 WU → severe Group 3 PH;
+#: PVR ≤ 5 WU → non-severe. Replaces the prior mPAP/CI definition from the
+#: 2015 guideline. [ESC/ERS 2022 § 8.3 / Figure 12]
+PVR_GROUP3_SEVERE: Final[float] = 5.0
+
+#: ASD/VSD/PDA shunt-closure decision thresholds, Wood Units.
+#: ESC/ERS 2022 Recommendation Table 6 / WSPH 2018:
+#: PVR < 3 → closure recommended; 3–5 → closure should be considered;
+#: > 5 → closure may be considered only if PVR drops < 5 with PAH therapy.
+SHUNT_PVR_CLOSE_OK: Final[float] = 3.0
+SHUNT_PVR_CLOSE_BORDERLINE: Final[float] = 5.0
+
+# =============================================================================
+# 4b. Exercise PH (ESC/ERS 2022 § 5.1.12.3, re-introduced)
+# =============================================================================
+
+#: mPAP/CO slope between rest and exercise, mmHg/(L/min). Above this →
+#: exercise PH per ESC/ERS 2022 Table 5 / Section 5.1.12.3.
+EXERCISE_MPAP_CO_SLOPE: Final[float] = 3.0
+
+#: PAWP/CO slope between rest and exercise, mmHg/(L/min). Above this →
+#: cardiac exercise limitation / HFpEF-suspect, especially with resting
+#: PAWP 12-15 mmHg. [ESC/ERS 2022 § 5.1.12.3]
+EXERCISE_PAWP_CO_SLOPE: Final[float] = 2.0
+
+#: Fluid challenge: PAWP rise to ≥ this value (mmHg) is suggestive of HFpEF
+#: after rapid 500 mL bolus over 5-10 min. [ESC/ERS 2022 § 5.1.12.4]
+FLUID_CHALLENGE_PAWP_HFPEF: Final[float] = 18.0
+
+# =============================================================================
+# 4c. Vasoreactivity testing responder criterion
+# =============================================================================
+# [ESC/ERS 2022 Recommendation Table 8; idem for paediatric Section 14]
+
+#: Required mPAP drop from baseline to be considered a responder (mmHg).
+VASO_RESPONDER_MPAP_DROP: Final[float] = 10.0
+
+#: Required absolute mPAP after vasodilator challenge (mmHg).
+VASO_RESPONDER_MPAP_ABS: Final[float] = 40.0
 
 # =============================================================================
 # 5. Echo / RV strain markers

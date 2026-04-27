@@ -50,9 +50,13 @@ from rhk_rule_engine import (
 # `from rhk_base import SPRIME_RAAI_CUTOFF` callers continue to work; the
 # canonical definitions with citations live in rhk_thresholds.py.
 from rhk_thresholds import (  # noqa: F401
+    EXERCISE_MPAP_CO_SLOPE,
+    EXERCISE_PAWP_CO_SLOPE,
     SPRIME_RAAI_CUTOFF,
     TAPSE_SPAP_HIGH_RISK,
     TAPSE_SPAP_LOW_RISK,
+    VASO_RESPONDER_MPAP_ABS,
+    VASO_RESPONDER_MPAP_DROP,
 )
 from rhk_validation import parse_boolish
 from rhk_validation import safe_float as _safe_float
@@ -702,13 +706,35 @@ def calc_h2fpef_probability(age: Optional[float],
                            ee: Optional[float],
                            pasp: Optional[float],
                            af: Optional[bool]) -> H2FPEFResult:
-    """
-    Probability of heart failure with preserved EF (H2FPEF) using the continuous model:
+    """Probability of heart failure with preserved EF (H2FPEF), continuous model.
 
-    Probability = (Z / (1 + Z)) * 100, where Z = e^y and
-    y = -9.1917 + 0.0451*age + 0.1307*BMI + 0.0859*(E/e') + 0.0520*PASP + 1.6997*AF
-    AF: 1 if Yes else 0
-    BMI capped at 50 to avoid extrapolation (user provided note).
+    [Reddy YNV et al. Circulation 2018; 138(9):861-870]
+
+    Formula
+    -------
+    y = -9.1917 + 0.0451·age + 0.1307·BMI + 0.0859·E/e'
+        + 0.0520·PASP + 1.6997·AF
+    P = e^y / (1 + e^y)  (logistic transform, returned as percentage)
+
+    AF is encoded as 1/0 (yes/no). BMI is capped at 50 to avoid extrapolation
+    outside the source cohort.
+
+    Probability → category mapping
+    ------------------------------
+    The original Reddy 2018 paper defined three risk groups via the discrete
+    point score (H2FPEF 0-9): low (0-1), intermediate (2-5), high (6-9).
+    This implementation operates on the *continuous* probability instead and
+    bins it as follows:
+
+      <20 % → "unlikely"
+      20–60 % → "possible"
+      ≥60 %  → "likely"
+
+    These bin edges are an internal, conservative approximation of the
+    discrete score categories, NOT a direct guideline-anchored mapping. They
+    are used only for narrative classification in the patient/physician
+    report; the underlying continuous probability is preserved and reported
+    alongside the category.
     """
     inputs_used = {
         "age": age,
@@ -1060,6 +1086,21 @@ def calc_esc_ers_comprehensive_3_strata(ui: Dict[str, Any], derived: Dict[str, A
             grades["CI"] = 3
     else:
         missing.append("CI")
+
+    # SVI (mL/m²) — ESC/ERS 2022 Table 16: >38 / 31–38 / <31.
+    # Derived dict carries svi_rest_ml_m2 (computed in rhk_case from SV/BSA).
+    svi = derived.get("svi_rest_ml_m2") if isinstance(derived, dict) else None
+    if not isinstance(svi, (int, float)) or svi <= 0:
+        svi = _safe_float(ui.get("svi_rest_ml_m2"))
+    if isinstance(svi, (int, float)) and svi > 0:
+        if svi > 38:
+            grades["SVI"] = 1
+        elif svi >= 31:
+            grades["SVI"] = 2
+        else:
+            grades["SVI"] = 3
+    else:
+        missing.append("SVI")
 
     svo2 = _safe_float(ui.get("sat_pa"))
     if isinstance(svo2, (int, float)) and svo2 > 0:
@@ -1443,15 +1484,15 @@ def classify_exercise_pattern(mpap_co_slope: Optional[float], pawp_co_slope: Opt
     """Legacy helper (two-point Δ/ΔCO).
 
     Kept for backwards compatibility with older report snippets.
-    Uses the common heuristic thresholds (mPAP/CO >3, PAWP/CO >2).
+    Cutoffs follow ESC/ERS 2022 § 5.1.12.3 — see rhk_thresholds for citation.
     """
     if mpap_co_slope is None or pawp_co_slope is None:
         return None
-    if mpap_co_slope > 3 and pawp_co_slope <= 2:
+    if mpap_co_slope > EXERCISE_MPAP_CO_SLOPE and pawp_co_slope <= EXERCISE_PAWP_CO_SLOPE:
         return "precap_pattern"
-    if mpap_co_slope > 3 and pawp_co_slope > 2:
+    if mpap_co_slope > EXERCISE_MPAP_CO_SLOPE and pawp_co_slope > EXERCISE_PAWP_CO_SLOPE:
         return "postcap_pattern"
-    if mpap_co_slope <= 3 and pawp_co_slope > 2:
+    if mpap_co_slope <= EXERCISE_MPAP_CO_SLOPE and pawp_co_slope > EXERCISE_PAWP_CO_SLOPE:
         return "left_pressure_pattern"
     return "normal_pattern"
 
