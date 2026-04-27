@@ -3069,7 +3069,7 @@ def _build_demo_impl() -> Tuple[gr.Blocks, str, Optional[gr.Theme]]:
 
         # --- Example loader ---
 
-        def _load_example_ui(example_idx):
+        def _load_example_ui(example_idx, ui_lang_value=""):
             # Beispielreihe: feste Suite. Bei jedem Klick wird ein zufälliges
             # Beispiel geladen (ausgenommen das zuletzt gezeigte, damit
             # konsekutive Klicks garantiert einen Wechsel zeigen).
@@ -3077,7 +3077,7 @@ def _build_demo_impl() -> Tuple[gr.Blocks, str, Optional[gr.Theme]]:
                 from rhk_reports import example_suite_length
                 suite_len = max(1, int(example_suite_length()))
             except (ImportError, TypeError, ValueError):
-                suite_len = 16
+                suite_len = 28
             # -1 (Sentinel, s. state init) = "noch kein Beispiel geladen".
             try:
                 last_idx_raw = int(example_idx) if example_idx is not None else -1
@@ -3089,7 +3089,11 @@ def _build_demo_impl() -> Tuple[gr.Blocks, str, Optional[gr.Theme]]:
             else:
                 candidates = [i for i in range(suite_len) if i != exclude]
                 new_idx = random.choice(candidates) if candidates else 0
-            ui = example_suite_case(new_idx)
+            # Sprachauswahl aus dem versteckten ui_lang-Textbox-State (de/en/zh).
+            lang_norm = str(ui_lang_value or "de").strip().lower()
+            if lang_norm not in ("de", "en", "zh"):
+                lang_norm = "de"
+            ui = example_suite_case(new_idx, lang=lang_norm)
 
             # --- P-Module preselection (robust & leak-free) ---
             # Important: On example load we must NOT set CheckboxGroup values to non-existing choices.
@@ -3295,7 +3299,7 @@ def _build_demo_impl() -> Tuple[gr.Blocks, str, Optional[gr.Theme]]:
         try:
             btn_example_top.click(
                 _load_example_ui,
-                inputs=[state_example_idx],
+                inputs=[state_example_idx, ui_lang],
                 outputs=input_components + [state_pmods_selected, state_case_filename, state_example_idx],
                 queue=False,
                 trigger_mode="always_last",
@@ -3309,7 +3313,7 @@ def _build_demo_impl() -> Tuple[gr.Blocks, str, Optional[gr.Theme]]:
 
             btn_example_bottom.click(
                 _load_example_ui,
-                inputs=[state_example_idx],
+                inputs=[state_example_idx, ui_lang],
                 outputs=input_components + [state_pmods_selected, state_case_filename, state_example_idx],
                 queue=False,
                 trigger_mode="always_last",
@@ -3324,7 +3328,7 @@ def _build_demo_impl() -> Tuple[gr.Blocks, str, Optional[gr.Theme]]:
             # Older Gradio builds may not support queue/trigger_mode on chained example events.
             btn_example_top.click(
                 _load_example_ui,
-                inputs=[state_example_idx],
+                inputs=[state_example_idx, ui_lang],
                 outputs=input_components + [state_pmods_selected, state_case_filename, state_example_idx],
             ).then(
                 _post_example_load_and_generate,
@@ -3334,7 +3338,7 @@ def _build_demo_impl() -> Tuple[gr.Blocks, str, Optional[gr.Theme]]:
 
             btn_example_bottom.click(
                 _load_example_ui,
-                inputs=[state_example_idx],
+                inputs=[state_example_idx, ui_lang],
                 outputs=input_components + [state_pmods_selected, state_case_filename, state_example_idx],
             ).then(
                 _post_example_load_and_generate,

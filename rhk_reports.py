@@ -2531,7 +2531,7 @@ def random_example(scenario: Optional[str] = None, seed: Optional[int] = None) -
 # Beispielreihe (Suite)
 # =============================================================================
 
-def example_suite_case(index: Any = 0) -> Dict[str, Any]:
+def example_suite_case(index: Any = 0, lang: str = "de") -> Dict[str, Any]:
     """Liefert ein Beispiel aus einer festen Suite.
 
     Ziel: Über mehrere Beispiele hinweg sollen möglichst viele Funktionen getestet werden,
@@ -2540,6 +2540,8 @@ def example_suite_case(index: Any = 0) -> Dict[str, Any]:
     - Wiederholtes Klicken lädt das nächste Beispiel (Index modulo Suite-Länge).
     - Jede Suite belegt andere Pfade (RHK Ruhe/Belastung, Volumen, Vaso, Step-up,
       CT/VQ/Lufu, CPET, PH Therapieepisoden inkl. Restart und Sotatercept, Legacy-Import).
+    - ``lang`` (de/en/zh) wählt für trilingual gepflegte Felder (label, story) die
+      passende Sprache; ältere String-Einträge bleiben unverändert in DE.
     """
 
     try:
@@ -2547,6 +2549,16 @@ def example_suite_case(index: Any = 0) -> Dict[str, Any]:
     except (TypeError, ValueError) as exc:
         log_exception("RHK_REP_EXAMPLE_INDEX", "Example suite index parsing failed; defaulting to 0.", exc, raw_index=index)
         idx = 0
+
+    lang_norm = (str(lang or "de").strip().lower() or "de")
+    if lang_norm not in ("de", "en", "zh"):
+        lang_norm = "de"
+
+    def _pick_lang(value: Any) -> str:
+        """Return localized string from {'de','en','zh'} dict, or value as-is."""
+        if isinstance(value, dict):
+            return str(value.get(lang_norm) or value.get("de") or "")
+        return str(value or "")
 
     def _tx(lines: List[List[str]]) -> str:
         # 6 Spalten: Medikament, Status, seit, bis, Grund, Kommentar
@@ -2943,6 +2955,398 @@ def example_suite_case(index: Any = 0) -> Dict[str, Any]:
                 "access_route": "V. jugularis rechts",
             },
         },
+        # =====================================================================
+        # E17–E28: Erweiterte Suite mit komplexeren, klinisch herausfordernden
+        # Konstellationen. Labels und Stories sind trilingual (de/en/zh) gepflegt.
+        # =====================================================================
+        {
+            "id": "E17",
+            "label": {
+                "de": "Portopulmonale Hypertonie (PoPH)",
+                "en": "Portopulmonary hypertension (PoPH)",
+                "zh": "门脉肺动脉高压 (PoPH)",
+            },
+            "scenario": "pah_pre",
+            "modules": ["P14"],
+            "story": {
+                "de": "Beispiel E17: PAH bei Leberzirrhose Child-Pugh A. Splenomegalie und Ösophagusvarizen. PoPH-spezifische Therapieauswahl (Bosentan-Hepatotoxizität beachten).",
+                "en": "Example E17: PAH in Child-Pugh A liver cirrhosis. Splenomegaly and esophageal varices. PoPH-specific therapy choice (bosentan hepatotoxicity).",
+                "zh": "示例 E17：Child-Pugh A 期肝硬化合并 PAH。脾大及食管静脉曲张。PoPH 特异性治疗选择（注意波生坦肝毒性）。",
+            },
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PAH (Gruppe 1)",
+                "ph_known_subtype": "portopulmonale Hypertonie (Leberzirrhose Child A)",
+                "abd_sono_done": True,
+                "abd_sono_desc": "Leberzirrhose, Splenomegalie, portale Hypertension; Ösophagusvarizen Grad II in der Gastroskopie dokumentiert.",
+                "ph_tx_table": _tx([
+                    ["Ambrisentan", "aktuell", "04/2024", "", "", "Bevorzugt bei Leberzirrhose"],
+                    ["Tadalafil", "aktuell", "04/2024", "", "", ""],
+                ]),
+                "creatinine_mg_dl": 1.1,
+                "egfr": 78,
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E18",
+            "label": {
+                "de": "Drogen/Toxin-induzierte PAH (Methamphetamin)",
+                "en": "Drug/toxin-induced PAH (methamphetamine)",
+                "zh": "药物/毒物诱发的 PAH（甲基苯丙胺）",
+            },
+            "scenario": "pah_pre",
+            "modules": ["P14"],
+            "story": {
+                "de": "Beispiel E18: Junge Patientin, präkapilläre PH bei langjährigem Methamphetamin-Konsum. Differenzial-Risikofaktor klar dokumentiert; psychiatrische Anbindung in Planung.",
+                "en": "Example E18: Young patient with pre-capillary PH and long-standing methamphetamine use. Risk factor clearly documented; psychiatric follow-up planned.",
+                "zh": "示例 E18：年轻女性，长期使用甲基苯丙胺，毛细血管前肺高压。危险因素明确记录；正在安排精神科随访。",
+            },
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PAH (Gruppe 1)",
+                "ph_known_subtype": "Drogen/Toxin-induzierte PAH (Methamphetamin)",
+                "ph_first_dx": "10/2024",
+                "ph_reason_rhk": "Therapieentscheidung",
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+                "ph_tx_table": _tx([
+                    ["Ambrisentan", "aktuell", "11/2024", "", "", ""],
+                    ["Tadalafil", "aktuell", "11/2024", "", "", ""],
+                ]),
+                "cpet_done": True,
+                "cpet_peak_vo2_ml_kg_min": 14.2,
+                "cpet_peak_vo2_pct_pred": 52,
+                "cpet_ve_vco2_slope": 41,
+            },
+        },
+        {
+            "id": "E19",
+            "label": {
+                "de": "Schistosomiasis-assoziierte PAH",
+                "en": "Schistosomiasis-associated PAH",
+                "zh": "血吸虫病相关性 PAH",
+            },
+            "scenario": "pah_pre",
+            "modules": ["P14"],
+            "story": {
+                "de": "Beispiel E19: Patient aus Endemiegebiet mit Schistosomiasis (S. mansoni). PAH-Konstellation mit hepatischer Beteiligung. Antiparasitäre Vorbehandlung dokumentiert.",
+                "en": "Example E19: Patient from endemic area with schistosomiasis (S. mansoni). PAH constellation with hepatic involvement. Anti-parasitic pretreatment documented.",
+                "zh": "示例 E19：来自流行区的患者合并血吸虫病（曼氏血吸虫）。PAH 伴肝脏受累；既往抗寄生虫治疗已记录。",
+            },
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PAH (Gruppe 1)",
+                "ph_known_subtype": "Schistosomiasis-assoziierte PAH",
+                "virology_pos": True,
+                "virology_items": ["Schistosomiasis (parasitär)"],
+                "virology_desc": "S. mansoni, antiparasitäre Therapie 2022 abgeschlossen.",
+                "abd_sono_done": True,
+                "abd_sono_desc": "Periportale Fibrose vereinbar mit chronischer Schistosomiasis.",
+                "ph_tx_table": _tx([
+                    ["Sildenafil", "aktuell", "08/2024", "", "", ""],
+                ]),
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E20",
+            "label": {
+                "de": "PAH high-risk: Perikarderguss + 6MWD < 165 m",
+                "en": "PAH high-risk: pericardial effusion + 6MWD < 165 m",
+                "zh": "PAH 高危：心包积液 + 6MWD < 165 m",
+            },
+            "scenario": "pah_pre",
+            "modules": ["P14"],
+            "story": {
+                "de": "Beispiel E20: PAH mit High-Risk-Profil — WHO-FC IV, 6MWD 110 m, Perikarderguss, NT-proBNP > 1400. Eskalation auf Triple inkl. parenteralem Prostazyklin indiziert.",
+                "en": "Example E20: PAH with high-risk profile — WHO-FC IV, 6MWD 110 m, pericardial effusion, NT-proBNP > 1400. Escalation to triple incl. parenteral prostacyclin indicated.",
+                "zh": "示例 E20：PAH 高危特征 — WHO-FC IV、6MWD 110 m、心包积液、NT-proBNP > 1400。需升级至三联治疗（含静脉前列环素）。",
+            },
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PAH (Gruppe 1)",
+                "ph_known_subtype": "idiopathische PAH, High-Risk",
+                "who_fc": "IV",
+                "six_mwd_m": 110,
+                "bnp_kind": "NT-proBNP",
+                "bnp_value": 1860,
+                "rap_rest": 14,
+                "ci_rest": 1.6,
+                "ph_tx_table": _tx([
+                    ["Macitentan", "aktuell", "01/2024", "", "", ""],
+                    ["Tadalafil", "aktuell", "01/2024", "", "", ""],
+                    ["Treprostinil i.v.", "geplant", "05/2026", "", "", "High-Risk-Eskalation"],
+                ]),
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+                "cpet_done": True,
+                "cpet_peak_vo2_ml_kg_min": 8.4,
+                "cpet_peak_vo2_pct_pred": 32,
+                "cpet_ve_vco2_slope": 58,
+                "cpet_petco2_vt1_mmhg": 18,
+                "cpet_spo2_nadir_pct": 86,
+                "cpet_rer_peak": 1.05,
+            },
+        },
+        {
+            "id": "E21",
+            "label": {
+                "de": "OSA/OHS-assoziierte PH (Gruppe 3)",
+                "en": "OSA/OHS-associated PH (Group 3)",
+                "zh": "OSA/OHS 相关性肺高压（第 3 组）",
+            },
+            "scenario": "ild_ph",
+            "modules": ["P12"],
+            "story": {
+                "de": "Beispiel E21: Adipositas-Hypoventilation (BMI 41), bekannte OSAS und nächtliche Sättigungsabfälle. CPAP/BiPAP-Adhärenz unklar. PH wahrscheinlich primär hypoxisch (Gruppe 3).",
+                "en": "Example E21: Obesity hypoventilation (BMI 41), known OSAS and nocturnal desaturations. CPAP/BiPAP adherence unclear. PH likely primarily hypoxic (Group 3).",
+                "zh": "示例 E21：肥胖低通气（BMI 41），已知 OSAS 及夜间血氧下降。CPAP/BiPAP 依从性不明。PH 可能主要为缺氧性（第 3 组）。",
+            },
+            "overrides": {
+                "ph_known": False,
+                "ph_suspected": True,
+                "height_cm": 168,
+                "weight_kg": 116,
+                "ct_done": True,
+                "ct_ild": False,
+                "ct_emphysema": False,
+                "lufu_done": True,
+                "lufu_obstructive": False,
+                "lufu_restrictive": True,
+                "lufu_summary": "Restriktion bei Adipositas; DLCO grenzwertig.",
+                "lufu_diffusion": True,
+                "dlco_sb": 62,
+                "ltot": False,
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+                "cpet_done": True,
+                "cpet_peak_vo2_ml_kg_min": 12.5,
+                "cpet_peak_vo2_pct_pred": 48,
+                "cpet_ve_vco2_slope": 36,
+                "cpet_spo2_nadir_pct": 82,
+            },
+        },
+        {
+            "id": "E22",
+            "label": {
+                "de": "Sarkoidose-assoziierte PH (Gruppe 5)",
+                "en": "Sarcoidosis-associated PH (Group 5)",
+                "zh": "结节病相关性 PH（第 5 组）",
+            },
+            "scenario": "ild_ph",
+            "modules": ["P12"],
+            "story": {
+                "de": "Beispiel E22: Bekannte Sarkoidose (Lunge + kardial). Mischätiologie: parenchymale Beteiligung plus mögliche extrinsische Vaskulopathie. Gruppe 5 (multifaktoriell) zu erwägen.",
+                "en": "Example E22: Known sarcoidosis (pulmonary + cardiac). Mixed etiology: parenchymal involvement plus possible extrinsic vasculopathy. Group 5 (multifactorial) to consider.",
+                "zh": "示例 E22：已知结节病（肺 + 心脏）。混合病因：肺实质受累加可能的血管外压迫。需考虑第 5 组（多因素）。",
+            },
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "Sonstige/unklar (Gruppe 5)",
+                "ph_known_subtype": "Sarkoidose-assoziierte PH (Lunge + kardial)",
+                "ct_done": True,
+                "ct_ild": True,
+                "ct_emphysema": False,
+                "lufu_done": True,
+                "lufu_restrictive": True,
+                "lufu_diffusion": True,
+                "dlco_sb": 48,
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E23",
+            "label": {
+                "de": "Sichelzell-Anämie + PAH (Gruppe 5)",
+                "en": "Sickle cell disease + PAH (Group 5)",
+                "zh": "镰状细胞病合并 PAH（第 5 组）",
+            },
+            "scenario": "pah_pre",
+            "modules": ["P14"],
+            "story": {
+                "de": "Beispiel E23: Sichelzellkrankheit (HbSS), chronische Hämolyse, Splenomegalie. Erhöhter pulmonalarterieller Druck mit relativ erhaltenem CO. Hämolyse-assoziierte PH-Konstellation.",
+                "en": "Example E23: Sickle cell disease (HbSS), chronic hemolysis, splenomegaly. Elevated pulmonary artery pressure with relatively preserved CO. Hemolysis-associated PH constellation.",
+                "zh": "示例 E23：镰状细胞病（HbSS），慢性溶血，脾大。肺动脉压升高，CO 相对保留。溶血相关性 PH。",
+            },
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "Sonstige/unklar (Gruppe 5)",
+                "ph_known_subtype": "Sichelzell-Anämie mit PAH",
+                "hb_g_dl": 8.4,
+                "anemia_type": "normozytär",
+                "abd_sono_done": True,
+                "abd_sono_desc": "Splenomegalie 16 cm, keine Leberzirrhose.",
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E24",
+            "label": {
+                "de": "Eisenmenger-Syndrom (großer VSD)",
+                "en": "Eisenmenger syndrome (large VSD)",
+                "zh": "艾森门格综合征（大型 VSD）",
+            },
+            "scenario": "shunt_asd",
+            "modules": ["P01", "P14"],
+            "story": {
+                "de": "Beispiel E24: Eisenmenger-Konstellation bei unkorrigiertem großen VSD. Zentrale Zyanose, sekundäre Polyzythämie, Hippokratische Finger. Triple-Therapie-Diskussion.",
+                "en": "Example E24: Eisenmenger constellation with uncorrected large VSD. Central cyanosis, secondary polycythemia, clubbing. Triple-therapy discussion.",
+                "zh": "示例 E24：未修复的大型 VSD 引起艾森门格生理。中心性紫绀、继发性红细胞增多、杵状指。需讨论三联治疗。",
+            },
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PAH (Gruppe 1)",
+                "ph_known_subtype": "Eisenmenger-Syndrom (VSD)",
+                "chd_pos": True,
+                "chd_type": "VSD (Ventrikelseptumdefekt)",
+                "chd_desc": "Großer perimembranöser VSD, nicht operiert; Eisenmenger-Physiologie seit Kindheit.",
+                "hb_g_dl": 19.2,
+                "anemia_type": None,
+                "sat_svc": 70,
+                "sat_ra": 72,
+                "sat_rv": 78,
+                "sat_pa": 78,
+                "sat_ao": 84,
+                "ph_tx_table": _tx([
+                    ["Bosentan", "aktuell", "06/2023", "", "", ""],
+                    ["Sildenafil", "aktuell", "06/2023", "", "", ""],
+                ]),
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E25",
+            "label": {
+                "de": "Schwere TR mit V-Welle und sekundärer PH",
+                "en": "Severe TR with V-wave and secondary PH",
+                "zh": "重度 TR 伴 V 波及继发性 PH",
+            },
+            "scenario": "cpcph",
+            "modules": ["P09", "P20"],
+            "story": {
+                "de": "Beispiel E25: Schwere organische Trikuspidalinsuffizienz mit hoher V-Welle in der RAP-Kurve. Sekundäre PH-Komponente. Differenzial: TV-Eingriff oder konservative Optimierung.",
+                "en": "Example E25: Severe organic tricuspid regurgitation with prominent V-wave on the RA tracing. Secondary PH component. Differential: TV intervention vs. conservative optimization.",
+                "zh": "示例 E25：重度器质性三尖瓣反流，RA 波形见显著 V 波；继发 PH。鉴别：三尖瓣干预 vs 保守优化。",
+            },
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PH bei Linksherzerkrankung / HFpEF (Gruppe 2)",
+                "ph_known_subtype": "sekundäre PH bei schwerer TR",
+                "echo_tr_significant": True,
+                "echo_tr_grade": "schwer",
+                "rap_rest": 18,
+                "atrial_fib": True,
+                "la_enlarged": True,
+                "anticoag_status": "ja",
+                "anticoag_indication": "Vorhofflimmern",
+                "anticoag_substance": "DOAC (Apixaban, Rivaroxaban)",
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E26",
+            "label": {
+                "de": "Akute LAE bei vorbestehender CTEPH",
+                "en": "Acute PE on pre-existing CTEPH",
+                "zh": "已有 CTEPH 基础上的急性肺栓塞",
+            },
+            "scenario": "cteph",
+            "modules": ["P10"],
+            "story": {
+                "de": "Beispiel E26: Bekannte inoperable CTEPH unter Riociguat. Aktuell akute LAE mit RV-Belastung trotz DOAC. Dringliche RHK-Reevaluation, BPA-Sitzung in Planung.",
+                "en": "Example E26: Known inoperable CTEPH on riociguat. Currently acute PE with RV strain despite DOAC. Urgent RHC re-evaluation, BPA session planned.",
+                "zh": "示例 E26：已知无法手术的 CTEPH，正在使用利奥西呱。目前在 DOAC 治疗下出现急性肺栓塞伴 RV 受累。需紧急 RHC 复评，计划 BPA。",
+            },
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "CTEPH (Gruppe 4)",
+                "ph_known_subtype": "inoperable CTEPH, akute LAE im Verlauf",
+                "vq_done": True,
+                "vq_defect": True,
+                "vq_desc": "Bekannte chronische Defekte; akut frische subsegmentale Embolien dokumentiert.",
+                "ct_embolie": True,
+                "ct_mosaic": True,
+                "anticoag_status": "ja",
+                "anticoag_indication": "CTEPH/CTEPD",
+                "anticoag_substance": "DOAC (Apixaban, Rivaroxaban)",
+                "ph_tx_table": _tx([
+                    ["Riociguat", "aktuell", "06/2023", "", "", ""],
+                ]),
+                "ph_interventions": ["BPA (Ballonangioplastie, Katheter)"],
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+                "rap_rest": 12,
+                "ci_rest": 1.9,
+            },
+        },
+        {
+            "id": "E27",
+            "label": {
+                "de": "PH nach Lungentransplantation (Restenose)",
+                "en": "PH after lung transplantation (restenosis)",
+                "zh": "肺移植后 PH（吻合口狭窄）",
+            },
+            "scenario": "ild_ph",
+            "modules": ["P12"],
+            "story": {
+                "de": "Beispiel E27: Z. n. bilateraler Lungentransplantation 2021 wegen PAH. Aktuell wieder progrediente Belastungsdyspnoe — Verdacht auf Anastomosenstenose / chronische Abstoßung.",
+                "en": "Example E27: Bilateral lung transplant 2021 for PAH. Currently progressive exertional dyspnea — suspect anastomotic stenosis / chronic rejection.",
+                "zh": "示例 E27：2021 年因 PAH 行双肺移植。目前活动后呼吸困难再次进展 — 怀疑吻合口狭窄/慢性排斥。",
+            },
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "Sonstige/unklar (Gruppe 5)",
+                "ph_known_subtype": "Z. n. bilateraler Lungentransplantation 2021 (Index-Diagnose: idiopathische PAH)",
+                "ph_first_dx": "06/2018",
+                "ph_reason_rhk": "Neusymptomatik",
+                "ph_interventions": ["bilaterale Lungentransplantation 2021"],
+                "ph_tx_table": _tx([
+                    ["Tacrolimus", "aktuell", "07/2021", "", "", "Immunsuppression"],
+                    ["Mycophenolat", "aktuell", "07/2021", "", "", ""],
+                ]),
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
+        {
+            "id": "E28",
+            "label": {
+                "de": "PAH + komplexe Pharmako-Interaktion",
+                "en": "PAH + complex drug-drug interaction",
+                "zh": "PAH + 复杂的药物相互作用",
+            },
+            "scenario": "pah_pre",
+            "modules": ["P14"],
+            "story": {
+                "de": "Beispiel E28: PAH unter Bosentan, gleichzeitig VKA (Warfarin) wegen aPL-Syndrom und Cyclosporin nach Nierentransplantation. Mehrere CYP3A4/Transporter-Interaktionen — Spiegelkontrolle und Anpassung erforderlich.",
+                "en": "Example E28: PAH on bosentan, concurrent VKA (warfarin) for aPL syndrome and cyclosporine after kidney transplant. Multiple CYP3A4/transporter interactions — drug-level monitoring and adjustment required.",
+                "zh": "示例 E28：PAH 患者使用波生坦，因抗磷脂综合征同时使用 VKA（华法林），肾移植后使用环孢素。涉及多个 CYP3A4 / 转运体相互作用 — 需血药浓度监测与剂量调整。",
+            },
+            "overrides": {
+                "ph_known": True,
+                "ph_known_dx": "PAH (Gruppe 1)",
+                "ph_known_subtype": "idiopathische PAH bei Z. n. Nierentransplantation, aPL-Syndrom",
+                "anticoag_status": "ja",
+                "anticoag_indication": "Antiphospholipid-Syndrom",
+                "anticoag_substance": "VKA (Phenprocoumon/Warfarin)",
+                "creatinine_mg_dl": 1.6,
+                "egfr": 48,
+                "ph_tx_table": _tx([
+                    ["Bosentan", "aktuell", "02/2023", "", "", "CYP3A4-Induktor — Cyclosporin- und Warfarin-Spiegel kontrollieren"],
+                    ["Tadalafil", "aktuell", "02/2023", "", "", ""],
+                    ["Cyclosporin", "aktuell", "11/2018", "", "", "Post-Tx Immunsuppression"],
+                ]),
+                "consent_done": True,
+                "access_route": "V. jugularis rechts",
+            },
+        },
     ]
 
     cfg = SUITE[idx % len(SUITE)]
@@ -2954,12 +3358,14 @@ def example_suite_case(index: Any = 0) -> Dict[str, Any]:
     # damit die Dichtbarriere im Laienbericht nicht durch Szenario-Beschreibungen
     # aufgebrochen wird. Szenario-ID wird separat in ``suite_id`` exportiert
     # (Tests/QA können darüber indizieren, ohne das Name-Feld zu missbrauchen);
-    # die Langform (Szenario-Erzählung) lebt in ``story``.
+    # die Langform (Szenario-Erzählung) lebt in ``story``. Label und Story sind
+    # für E17+ trilingual als dict gepflegt; ältere Einträge bleiben Strings.
     ui["firstname"] = ui.get("firstname") or "Test"
     ui["name"] = ui.get("name") or f"Fall {cfg.get('id')}"
     ui["suite_id"] = str(cfg.get("id") or "")
-    ui["suite_label"] = str(cfg.get("label") or "")
-    ui[K_STORY] = str(cfg.get(K_STORY) or ui.get(K_STORY) or "")
+    ui["suite_label"] = _pick_lang(cfg.get("label"))
+    story_loc = _pick_lang(cfg.get(K_STORY))
+    ui[K_STORY] = story_loc or str(ui.get(K_STORY) or "")
 
     # Module
     mods = list(cfg.get(K_MODULES) or [])
@@ -2989,7 +3395,7 @@ def example_suite_case(index: Any = 0) -> Dict[str, Any]:
 
 # Length of the example suite (number of distinct scenarios in example_suite_case).
 # Update this constant when SUITE entries are added/removed.
-EXAMPLE_SUITE_LENGTH = 16
+EXAMPLE_SUITE_LENGTH = 28
 
 
 def example_suite_length() -> int:
